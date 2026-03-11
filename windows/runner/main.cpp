@@ -30,6 +30,21 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   if (!window.Create(L"dviewer", origin, size)) {
     return EXIT_FAILURE;
   }
+
+  // Center the window on the primary screen after creation.
+  HWND hwnd = window.GetHandle();
+  if (hwnd) {
+    RECT rc;
+    ::GetWindowRect(hwnd, &rc);
+    int w = rc.right - rc.left;
+    int h = rc.bottom - rc.top;
+    int sw = ::GetSystemMetrics(SM_CXSCREEN);
+    int sh = ::GetSystemMetrics(SM_CYSCREEN);
+    ::SetWindowPos(hwnd, nullptr,
+                   (sw - w) / 2, (sh - h) / 2, 0, 0,
+                   SWP_NOSIZE | SWP_NOZORDER);
+  }
+
   window.SetQuitOnClose(true);
 
   ::MSG msg;

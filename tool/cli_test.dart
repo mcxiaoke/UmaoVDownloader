@@ -56,7 +56,7 @@ Future<void> main(List<String> args) async {
   _printSeparator();
   print('视频ID   : ${info.videoId}');
   print('标题     : ${info.title}');
-  print('视频地址 : ${info.videoUrl}');
+  print('fileId   : ${info.videoFileId}');
   print('封面地址 : ${info.coverUrl ?? "无"}');
   _printSeparator();
 
@@ -68,14 +68,41 @@ Future<void> main(List<String> args) async {
     return;
   }
 
-  // ── 5. 执行下载 ───────────────────────────────────────────────
+  // ── 5. 选择清晰度 ────────────────────────────────────────────
+  final qualities = info.availableQualities; // 从高到低
+  VideoQuality selectedQuality;
+  if (qualities.length == 1) {
+    selectedQuality = qualities.first;
+    print('清晰度: ${selectedQuality.ratio}');
+  } else {
+    print('\n可用清晰度:');
+    for (var i = 0; i < qualities.length; i++) {
+      final q = qualities[i];
+      final marker = i == 0 ? ' (默认最高)' : '';
+      print('  ${i + 1}. ${q.ratio}$marker');
+    }
+    stdout.write('请选择 [1-${qualities.length}，回车默认最高]: ');
+    final choice = stdin.readLineSync()?.trim() ?? '';
+    final idx = int.tryParse(choice);
+    if (idx == null || idx < 1 || idx > qualities.length) {
+      selectedQuality = qualities.first; // 默认最高
+    } else {
+      selectedQuality = qualities[idx - 1];
+    }
+    print('已选择: ${selectedQuality.ratio}');
+  }
+
+  // ── 6. 执行下载 ───────────────────────────────────────────────
   final downloader = DesktopDownloader();
   final defaultDir = await downloader.getDefaultDirectory();
   print('保存目录: $defaultDir');
   print('正在下载...');
 
   try {
-    final savePath = await downloader.downloadVideo(info);
+    final savePath = await downloader.downloadVideo(
+      info,
+      quality: selectedQuality,
+    );
     print('下载完成: $savePath');
   } catch (e) {
     stderr.writeln('下载失败: $e');

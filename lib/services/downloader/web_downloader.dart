@@ -11,6 +11,7 @@ class WebDownloader implements VideoDownloader {
   @override
   Future<String> downloadVideo(
     VideoInfo info, {
+    VideoQuality? quality,
     String? directory,
     String? filename,
   }) {

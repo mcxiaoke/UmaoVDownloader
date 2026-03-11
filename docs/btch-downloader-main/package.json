@@ -1,0 +1,127 @@
+{
+  "name": "btch-downloader",
+  "version": "6.0.25",
+  "description": "A lightweight TypeScript/JavaScript library for downloading media from social media platforms",
+  "main": "dist/index.js",
+  "browser": "dist/browser/index.js",
+  "unpkg": "dist/browser/index.min.js",
+  "jsdelivr": "dist/browser/index.min.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "scripts/check-build.js",
+    "README.md",
+    "LICENSE",
+    "engine-requirements.js"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "browser": "./dist/browser/index.js",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js"
+    },
+    "./Site": {
+      "types": "./dist/Defaults/site.d.ts",
+      "import": "./dist/Defaults/site.js",
+      "require": "./dist/Defaults/site.js"
+    },
+    "./Types": {
+      "types": "./dist/Types/index.d.ts",
+      "import": "./dist/Types/index.js",
+      "require": "./dist/Types/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc && tsup",
+    "build:browser": "tsup",
+    "pub": "npm run build && npm publish --access public",
+    "test": "ts-node test/Test.ts",
+    "docs": "npx jsdoc -c jsdoc.conf.json",
+    "lint": "eslint . --cache",
+    "lint:fix": "eslint . --fix --cache",
+    "lint:debug": "eslint . --debug",
+    "preinstall": "node ./engine-requirements.js || true",
+    "postinstall": "node ./scripts/check-build.js",
+    "prepare": "npm run build"
+  },
+  "keywords": [
+    "AIO",
+    "Instagram",
+    "TikTok",
+    "Facebook",
+    "YouTube",
+    "Twitter",
+    "X",
+    "MediaFire",
+    "Capcut",
+    "Gdrive",
+    "Pinterest",
+    "Douyin",
+    "Xiaohongshu",
+    "Rednote",
+    "SnackVideo",
+    "Cocofun",
+    "Spotify",
+    "YT-search",
+    "yts",
+    "SoundCloud",
+    "Threads",
+    "BOTCAHX",
+    "Tio",
+    "media-downloader",
+    "social-media",
+    "browser",
+    "typescript"
+  ],
+  "author": "Tio",
+  "license": "MIT",
+  "dependencies": {
+    "btch-http": "^2.0.3",
+    "clean-jsdoc-theme": "^4.3.0",
+    "esbuild": "^0.27.0",
+    "install": "^0.13.0",
+    "jsdoc": "^4.0.5",
+    "lodash": "^4.17.21",
+    "rollup": "^4.52.5",
+    "set-value": "4.1.0",
+    "source-map": "^0.7.6",
+    "ts-node": "^10.9.2",
+    "tsup": "^8.5.0",
+    "typescript": "^5.9.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@types/node": "^24.10.0",
+    "@typescript-eslint/eslint-plugin": "^8.47.0",
+    "@typescript-eslint/parser": "^8.47.0",
+    "eslint": "^9.39.1",
+    "eslint-plugin-import": "^2.32.0",
+    "eslint-plugin-unicorn": "^62.0.0",
+    "globals": "^16.5.0",
+    "jiti": "^2.6.1",
+    "typescript-eslint": "^8.47.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hostinger-bot/btch-downloader.git"
+  },
+  "bugs": {
+    "url": "https://github.com/hostinger-bot/btch-downloader/issues"
+  },
+  "homepage": "https://btch.foo.ng",
+  "directories": {
+    "doc": "docs",
+    "test": "test"
+  },
+  "publishConfig": {
+    "access": "public",
+    "tag": "latest"
+  },
+  "engines": {
+    "node": ">=20.18.1"
+  },
+  "overrides": {
+    "set-value": "4.1.0"
+  }
+}

@@ -14,30 +14,33 @@ class MobileDownloader implements VideoDownloader {
   static const _userAgent =
       'Mozilla/5.0 (Linux; Android 13; Pixel 7) '
       'AppleWebKit/537.36 (KHTML, like Gecko) '
-      'Chrome/120.0.0.0 Mobile Safari/537.36';
-  static const _referer = 'https://www.douyin.com/';
+      'Chrome/145.0.0.0 Mobile Safari/537.36';
 
   @override
   Future<String> downloadVideo(
     VideoInfo info, {
+    VideoQuality? quality,
     String? directory,
     String? filename,
   }) async {
     await _ensureStoragePermission();
 
     final dir = directory ?? await getDefaultDirectory();
+    final resolvedQuality = quality ?? VideoQuality.p1080;
+    final qualityLabel = resolvedQuality.ratio;
     final name = _sanitizeFilename(filename ?? info.title);
-    final filePath = '$dir${Platform.pathSeparator}$name.mp4';
+    final filePath = '$dir${Platform.pathSeparator}${name}_$qualityLabel.mp4';
 
     final file = File(filePath);
     await file.parent.create(recursive: true);
 
+    final downloadUrl = info.urlFor(resolvedQuality);
     final client = http.Client();
     try {
-      final request = http.Request('GET', Uri.parse(info.videoUrl));
+      final request = http.Request('GET', Uri.parse(downloadUrl));
       request.headers.addAll({
         HttpHeaders.userAgentHeader: _userAgent,
-        'Referer': _referer,
+        // 不发送 Referer：douyinvod CDN 对 douyin.com Referer 做防盗链拦截
       });
 
       final streamed = await client.send(request);
