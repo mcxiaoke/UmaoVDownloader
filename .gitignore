@@ -1,0 +1,147 @@
+# ==================== 通用基础（Windows + Git 通用） ====================
+# Windows 系统文件
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+# 临时文件
+*.tmp
+*.bak
+*.swp
+*.swo
+*~
+# Git 本地配置
+.gitattributes
+.gitignore.local
+.git/
+!.git/
+# IDE 通用
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.DS_Store
+# ==================== Android 开发 ====================
+# 构建输出
+build/
+app/build/
+*.apk
+*.ap_
+*.aab
+# 编译中间文件
+bin/
+gen/
+out/
+# 本地配置
+local.properties
+*.iml
+# 签名文件
+*.jks
+*.keystore
+!debug.keystore
+# ProGuard 输出
+proguard/
+# ==================== Flutter 开发 ====================
+# Flutter 构建产物
+flutter_assets/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+build/
+# Dart 编译产物
+.dart_tool/
+*.dart.js
+*.js.deps
+*.js.map
+# Flutter 测试/运行文件
+flutter_export_environment.sh
+# iOS/Android 关联产物
+ios/Flutter/Flutter.framework/
+ios/Flutter/Flutter.podspec
+ios/Pods/
+ios/.symlinks/
+ios/Runner/GeneratedPluginRegistrant.*
+android/app/src/main/assets/flutter_assets/
+# ==================== Node.js 开发 ====================
+# 依赖包
+node_modules/
+# 构建产物
+dist/
+build/
+out/
+# 日志
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+# 缓存
+.npm
+.eslintcache
+.node_repl_history
+# 环境变量
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+# npm 锁定文件（如需提交可注释）
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+# ==================== Python 开发 ====================
+# 字节码文件
+__pycache__/
+*.py[cod]
+*$py.class
+# 分发/打包
+*.egg-info/
+.eggs/
+dist/
+build/
+develop-eggs/
+parts/
+sdist/
+var/
+wheels/
+*.egg
+# 虚拟环境
+venv/
+env/
+ENV/
+.venv/
+# 缓存
+.pytest_cache/
+.coverage
+htmlcov/
+# 日志
+*.log
+# IPython
+.ipynb_checkpoints/
+# 本地配置
+*.pyd
+*.so
+*.dll
+*.pyc
+# 工具配置
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
