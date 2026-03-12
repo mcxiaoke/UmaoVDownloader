@@ -156,6 +156,15 @@ abstract class BaseDownloader implements VideoDownloader {
           final total = streamed.contentLength == -1
               ? null
               : streamed.contentLength;
+
+          // Content-Length < 10 KB 一定是错误响应（如解析出音乐 URL 被当成视频地址）
+          // 换 UA / 换 CDN 均无效，直接抛异常告知用户
+          if (total != null && total < 10 * 1024) {
+            await streamed.stream.drain<void>();
+            if (await partFile.exists()) await partFile.delete();
+            throw Exception('Content-Length 异常（$total 字节），视频地址可能解析有误，请重新解析后再试');
+          }
+
           final totalMb = total != null
               ? '${(total / 1024 / 1024).toStringAsFixed(2)} MB'
               : '未知';

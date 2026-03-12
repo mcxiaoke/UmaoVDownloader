@@ -151,12 +151,10 @@ class DouyinParser {
     r'"bit_rate"\s*:\s*\[\s*\{[^{}]*"bit_rate"\s*:\s*(\d+)',
   );
 
-  // 图文作品图片：每个图片对象的 url_list 第一个 URL。
-  // tplv-dy-aweme-images = 旧版图文图片 transform
-  // tplv-dy-lqen-new     = 新版图文（note 类型）高清 transform
-  // 两种标记均可与头像/封面所用的 resize-walign-adapt 区分
-  static final _imageUrlRe = RegExp(
-    r'"url_list"\s*:\s*\["((?:[^"\\]|\\.)*tplv-dy-(?:aweme-images|lqen-new)(?:[^"\\]|\\.)*)"',
+  // 提取 url_list 数组第一个元素（处理 JSON 字符串转义，如 \u002F → /）
+  // 分类逻辑由 _extractImageUrls() 的 if/else 承担，无需在此写复杂断言
+  static final _urlListFirstRe = RegExp(
+    r'"url_list"\s*:\s*\["((?:[^"\\]|\\.)+)"',
   );
 
   // 图文作品背景音乐：HTML <audio> 标签的 src，直链 CDN MP3
@@ -189,6 +187,7 @@ class DouyinParser {
       throw DouyinParseException('无法从链接中提取视频 ID，最终 URL: $realUrl');
     }
     // 注意区分 /note/ 与 /video/ 类型——iesdouyin 使用不同的分享页路径
+    // /slides/ (live 图) 使用 /share/video/ 端点同样可获取完整数据
     final isNote = realUrl.contains('/note/');
     return await _parseSharePage(videoId, shareId: shareId, isNote: isNote);
   }
@@ -223,7 +222,8 @@ class DouyinParser {
 
   /// 从 URL 中提取 videoId（/video/xxx 或 /note/xxx）
   String? _extractVideoId(String url) {
-    return RegExp(r'/(?:video|note)/(\d+)').firstMatch(url)?.group(1);
+    // /video/ 普通视频  /note/ 图文  /slides/ live 动图
+    return RegExp(r'/(?:video|note|slides)/(\d+)').firstMatch(url)?.group(1);
   }
 
   /// 抓取 iesdouyin 分享页，从内嵌 JSON 中解析视频信息
@@ -260,11 +260,8 @@ class DouyinParser {
     final coverUrl = rawCover != null ? _decodeJsonString(rawCover) : null;
 
     // ── 检测图文作品 ───────────────────────────────────────────
-    // tplv-dy-aweme-images 是图文图片专用裁剪参数，头像/封面不包含此标记
-    final imageUrls = _imageUrlRe
-        .allMatches(html)
-        .map((m) => _decodeJsonString(m.group(1)!))
-        .toList();
+    // 按优先级尝试三种 transform：lqen-new > aweme-images > shrink:1000+
+    final imageUrls = _extractImageUrls(html);
 
     if (imageUrls.isNotEmpty) {
       // 图文作品：提取背景音乐直链（<audio src="...mp3">）及其标题
@@ -339,6 +336,35 @@ class DouyinParser {
       height: videoHeight,
       bitrateKbps: bitrateKbps,
     );
+  }
+
+  /// 从 HTML 中提取图文作品的图片 URL 列表。
+  /// 先收集所有 url_list 首 URL，再按 transform 类型分桶，优先返回高清无水印版本：
+  ///   lqen-new（无水印）/ aweme-images  >  shrink:N（N≥1000）
+  /// 封面/头像的 resize-walign-adapt、带水印的 lqen-new-water 均被排除。
+  static List<String> _extractImageUrls(String html) {
+    final hqUrls = <String>[]; // lqen-new（无水印）或 aweme-images
+    final shrinkUrls = <String>[]; // shrink:N，N≥1000
+
+    for (final m in _urlListFirstRe.allMatches(html)) {
+      final url = _decodeJsonString(m.group(1)!);
+      if (!url.contains('tplv-dy-')) continue;
+
+      if (url.contains('tplv-dy-lqen-new')) {
+        // 排除带水印版本 lqen-new-water
+        if (!url.contains('tplv-dy-lqen-new-water')) hqUrls.add(url);
+      } else if (url.contains('tplv-dy-aweme-images')) {
+        hqUrls.add(url);
+      } else if (url.contains('tplv-dy-shrink:')) {
+        // shrink:480 / shrink:960 是缩略图，排除宽度 < 1000 的
+        final wm = RegExp(r'shrink:(\d+)').firstMatch(url);
+        if (wm != null && int.parse(wm.group(1)!) >= 1000) shrinkUrls.add(url);
+      }
+    }
+
+    if (hqUrls.isNotEmpty) return hqUrls;
+    if (shrinkUrls.isNotEmpty) return shrinkUrls;
+    return const [];
   }
 
   /// 解码 JSON 字符串中的 unicode 转义（如 \u002F → /）和常规转义

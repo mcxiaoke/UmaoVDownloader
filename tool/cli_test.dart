@@ -73,6 +73,12 @@ Future<void> main(List<String> args) async {
   print('fileId   : ${info.videoFileId}');
   print('封面地址 : ${info.coverUrl ?? "无"}');
   print('可用清晰度: ${info.availableQualities.map((q) => q.ratio).join(", ")}');
+  if (info.imageUrls != null) {
+    print('图片数量 : ${info.imageUrls!.length} 张');
+    for (var i = 0; i < info.imageUrls!.length; i++) {
+      print('  图片${i + 1}: ${info.imageUrls![i].substring(0, 80)}...');
+    }
+  }
   _printSeparator();
 
   // ── 模式 2：UA 清晰度对比 ──────────────────────────────────────
