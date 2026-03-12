@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Umao VDownloader</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Umao VDownloader</h1>
+      <p>粘贴抖音分享链接，一键解析下载（无水印）</p>
+    </header>
+
+    <div class="card">
+      <div class="input-row">
+        <input
+          id="urlInput"
+          type="text"
+          placeholder="https://v.douyin.com/xxxxxx/"
+          autofocus
+        />
+        <button id="parseBtn">解析</button>
+      </div>
+      <div id="status"></div>
+      <div id="result"></div>
+    </div>
+
+    <footer>仅供个人学习使用，请勿用于侵权行为</footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+    <script type="module">
+      const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(
+        navigator.userAgent,
+      );
+
+      const input = document.getElementById("urlInput");
+      const btn = document.getElementById("parseBtn");
+      const status = document.getElementById("status");
+      const result = document.getElementById("result");
+
+      function setStatus(msg, isError = false) {
+        status.textContent = msg;
+        status.className = isError ? "error" : "";
+      }
+
+      function dlUrl(url, name) {
+        return `download?url=${encodeURIComponent(url)}&name=${encodeURIComponent(name)}`;
+      }
+
+      function renderVideo(info) {
+        const bestQuality = info.qualities?.[0] ?? "";
+        const ext = ".mp4";
+        const safeName = info.title
+          .replace(/[\\/:"*?<>|]/g, "_")
+          .substring(0, 60);
+
+        const qualityBtns = (info.qualities ?? [bestQuality])
+          .map((q, i) => {
+            const url = info.qualityUrls?.[q] ?? info.videoUrl;
+            const isPrimary = i === 0;
+            return `<a class="btn-dl ${isPrimary ? "primary" : ""}"
+                   href="${dlUrl(url, `${safeName}_${q}${ext}`)}"
+                   download>↓ ${q}</a>`;
+          })
+          .join("");
+
+        result.innerHTML = `
+        ${info.coverUrl ? `<img class="video-cover" src="${info.coverUrl}" loading="lazy" />` : ""}
+        <div class="info-title">${escHtml(info.title)}</div>
+        <div class="info-meta">
+          ${info.width && info.height ? `${info.width}×${info.height}` : ""}
+          ${info.shareId ? ` · ${info.shareId}` : ""}
+        </div>
+        <div class="quality-btns">${qualityBtns}</div>
+      `;
+      }
+
+      function renderImages(info) {
+        const safeName = info.title
+          .replace(/[\\/:"*?<>|]/g, "_")
+          .substring(0, 40);
+
+        const items = info.imageUrls
+          .map(
+            (url, i) => `
+        <div class="image-item">
+          <img src="${url}" loading="lazy" />
+          <button class="img-dl-btn" data-url="${url}" data-idx="${i}">${isMobile ? "↓ JPG" : "↓ WebP"}</button>
+        </div>
+      `,
+          )
+          .join("");
+
+        const musicBtn = info.musicUrl
+          ? `<a class="btn-dl" style="margin-top:.5rem"
+              href="${dlUrl(info.musicUrl, `${safeName}_music.mp3`)}" download>
+              ♪ 下载背景音乐${info.musicTitle ? " · " + escHtml(info.musicTitle.substring(0, 20)) : ""}
+           </a>`
+          : "";
+
+        result.innerHTML = `
+        <div class="info-title">${escHtml(info.title)}</div>
+        <div class="info-meta">${info.imageCount} 张图片${info.shareId ? ` · ${info.shareId}` : ""}</div>
+        <div class="image-grid">${items}</div>
+        <button class="btn-dl-all" id="zipBtn">📦 打包下载全部 WebP（${info.imageCount} 张）</button>
+        ${musicBtn}
+      `;
+
+        result.querySelectorAll(".img-dl-btn").forEach((dlBtn) => {
+          dlBtn.addEventListener("click", async () => {
+            dlBtn.disabled = true;
+            const idx = parseInt(dlBtn.dataset.idx);
+            if (isMobile) {
+              dlBtn.textContent = "转换中…";
+              try {
+                const name = `${safeName}_${String(idx + 1).padStart(2, "0")}.jpg`;
+                await downloadAsJpeg(dlBtn.dataset.url, name);
+              } catch (e) {
+                setStatus("下载失败：" + e.message, true);
+              } finally {
+                dlBtn.disabled = false;
+                dlBtn.textContent = "↓ JPG";
+              }
+            } else {
+              try {
+                const name = `${safeName}_${String(idx + 1).padStart(2, "0")}.webp`;
+                const a = document.createElement("a");
+                a.href = dlUrl(dlBtn.dataset.url, name);
+                a.download = name;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+              } finally {
+                dlBtn.disabled = false;
+                dlBtn.textContent = "↓ WebP";
+              }
+            }
+          });
+        });
+
+        document.getElementById("zipBtn").addEventListener("click", () =>
+          downloadAllAsZip(
+            info.imageUrls,
+            info.imageUrls.map(
+              (_, i) => `${safeName}_${String(i + 1).padStart(2, "0")}.webp`,
+            ),
+            `${safeName}.zip`,
+          ),
+        );
+      }
+
+      function escHtml(s) {
+        return s
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;");
+      }
+
+      // 从任意文本中提取第一个抖音链接（支持分享文案夹带 URL）
+      function extractDouyinUrl(text) {
+        const m = text.match(/https?:\/\/(?:v|www)\.douyin\.com\/\S+/);
+        return m ? m[0].replace(/[，。、\s]+$/, "") : null;
+      }
+
+      async function doParse() {
+        const raw = input.value.trim();
+        if (!raw) {
+          setStatus("请输入链接", true);
+          return;
+        }
+        const url = extractDouyinUrl(raw);
+        if (!url) {
+          setStatus(
+            "未识别到抖音链接，支持 v.douyin.com 或 www.douyin.com",
+            true,
+          );
+          return;
+        }
+        // 回填清理后的链接，方便用户确认
+        input.value = url;
+
+        btn.disabled = true;
+        result.innerHTML = "";
+        setStatus("正在解析…");
+
+        try {
+          const resp = await fetch(`parse?url=${encodeURIComponent(url)}`);
+          const info = await resp.json();
+          if (!resp.ok) {
+            setStatus(info.error ?? "解析失败", true);
+            return;
+          }
+
+          setStatus(
+            `解析完成 · ${info.type === "image" ? "图文 " + info.imageCount + " 张" : "视频 " + (info.qualities?.join("/") ?? "")}`,
+          );
+          if (info.type === "image") renderImages(info);
+          else renderVideo(info);
+        } catch (e) {
+          setStatus("请求失败：" + e.message, true);
+        } finally {
+          btn.disabled = false;
+        }
+      }
+
+      // 通过代理拉取图片，canvas 转 JPEG，返回 Blob
+      async function fetchAndConvertToJpeg(cdnUrl) {
+        const proxyUrl = `download?url=${encodeURIComponent(cdnUrl)}&name=img`;
+        const resp = await fetch(proxyUrl);
+        if (!resp.ok) throw new Error(`代理请求失败 ${resp.status}`);
+        const blob = await resp.blob();
+        const objUrl = URL.createObjectURL(blob);
+        try {
+          const img = new Image();
+          img.src = objUrl;
+          await new Promise((res, rej) => {
+            img.onload = res;
+            img.onerror = () => rej(new Error("图片加载失败"));
+          });
+          const canvas = document.createElement("canvas");
+          canvas.width = img.naturalWidth;
+          canvas.height = img.naturalHeight;
+          canvas.getContext("2d").drawImage(img, 0, 0);
+          return await new Promise((res) =>
+            canvas.toBlob(res, "image/jpeg", 0.8),
+          );
+        } finally {
+          URL.revokeObjectURL(objUrl);
+        }
+      }
+
+      // 单张：转 JPEG 后触发浏览器下载
+      async function downloadAsJpeg(cdnUrl, filename) {
+        const jpegBlob = await fetchAndConvertToJpeg(cdnUrl);
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(jpegBlob);
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(a.href);
+      }
+
+      // 全部打包 ZIP：始终下载原始 WebP（服务端打包）
+      async function downloadAllAsZip(urls, names, zipFilename) {
+        const zipBtn = document.getElementById("zipBtn");
+        if (zipBtn) {
+          zipBtn.disabled = true;
+          zipBtn.textContent = "打包中…";
+        }
+        try {
+          const resp = await fetch("zip", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ urls, names, filename: zipFilename }),
+          });
+          if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            setStatus("打包失败：" + (err.error ?? resp.status), true);
+            return;
+          }
+          const blob = await resp.blob();
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = zipFilename;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(a.href);
+          setStatus(`已打包 ${urls.length} 张 WebP，下载完成`);
+        } catch (e) {
+          setStatus("打包失败：" + e.message, true);
+        } finally {
+          if (zipBtn) {
+            zipBtn.disabled = false;
+            zipBtn.textContent = `📦 打包下载全部 WebP（${urls.length} 张）`;
+          }
+        }
+      }
+
+      btn.addEventListener("click", doParse);
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") doParse();
+      });
+    </script>
+  </body>
+</html>

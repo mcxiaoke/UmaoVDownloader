@@ -1,0 +1,1 @@
+scp -r package.json server.js parser.js public/ root@192.168.1.118:/data/www/umaovd/

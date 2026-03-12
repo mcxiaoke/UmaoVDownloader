@@ -1,0 +1,19 @@
+{
+  "name": "umao-vd-backend",
+  "version": "1.0.0",
+  "description": "Douyin parser & download proxy server",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node test.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "archiver": "^7.0.1",
+    "express": "^5.1.0"
+  }
+}

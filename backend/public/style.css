@@ -1,0 +1,203 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #f4f6f9;
+  color: #1a1a2e;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 2rem 1rem;
+}
+
+header {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+header h1 {
+  font-size: 1.8rem;
+  color: #1565c0;
+}
+header p {
+  color: #666;
+  margin-top: 0.4rem;
+  font-size: 0.9rem;
+}
+
+.card {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+  padding: 1.5rem;
+  width: 100%;
+  max-width: 640px;
+}
+
+.input-row {
+  display: flex;
+  gap: 0.5rem;
+}
+.input-row input {
+  flex: 1;
+  padding: 0.65rem 0.9rem;
+  border: 1.5px solid #d0d7de;
+  border-radius: 8px;
+  font-size: 1rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.input-row input:focus {
+  border-color: #1976d2;
+}
+.input-row button {
+  padding: 0.65rem 1.2rem;
+  background: #1976d2;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 1rem;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.2s;
+}
+.input-row button:disabled {
+  background: #90a4ae;
+  cursor: not-allowed;
+}
+.input-row button:not(:disabled):hover {
+  background: #1565c0;
+}
+
+#status {
+  margin-top: 0.8rem;
+  font-size: 0.88rem;
+  color: #555;
+  min-height: 1.2em;
+}
+#status.error {
+  color: #c62828;
+}
+
+#result {
+  margin-top: 1.2rem;
+}
+
+/* 视频结果 */
+.video-cover {
+  width: 100%;
+  max-height: 280px;
+  object-fit: cover;
+  border-radius: 8px;
+  display: block;
+}
+.info-title {
+  margin-top: 0.8rem;
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.5;
+  word-break: break-word;
+}
+.info-meta {
+  margin-top: 0.3rem;
+  font-size: 0.82rem;
+  color: #777;
+}
+.quality-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.9rem;
+}
+.btn-dl {
+  padding: 0.5rem 1rem;
+  border: 1.5px solid #1976d2;
+  border-radius: 6px;
+  color: #1976d2;
+  background: #fff;
+  font-size: 0.9rem;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.15s;
+}
+.btn-dl:hover {
+  background: #1976d2;
+  color: #fff;
+}
+.btn-dl.primary {
+  background: #1976d2;
+  color: #fff;
+}
+.btn-dl.primary:hover {
+  background: #1565c0;
+}
+
+/* 图文结果 */
+.image-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 0.6rem;
+  margin-top: 0.9rem;
+}
+.image-item {
+  position: relative;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #eee;
+  aspect-ratio: 3/4;
+}
+.image-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.image-item a,
+.image-item .img-dl-btn {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  font-size: 0.8rem;
+  text-decoration: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+.image-item:hover a,
+.image-item:hover .img-dl-btn {
+  opacity: 1;
+}
+.btn-dl-all {
+  display: block;
+  width: 100%;
+  margin-top: 0.9rem;
+  padding: 0.6rem;
+  background: #1976d2;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.btn-dl-all:hover {
+  background: #1565c0;
+}
+
+footer {
+  margin-top: 2.5rem;
+  font-size: 0.78rem;
+  color: #aaa;
+}
