@@ -22,6 +22,7 @@ abstract class VideoDownloader {
     VideoQuality? quality,
     String? directory,
     String? filename,
+    bool downloadMusic = false,
     void Function(int received, int? total)? onProgress,
     void Function(String message)? onLog,
   });

@@ -194,6 +194,37 @@ Future<void> main(List<String> args) async {
   }
   _printSep();
 
+  // ── 图文作品：images 数组探测 ──────────────────────────────
+  print('── 图文作品（images 字段）探测 ──');
+  // images 数组嵌套，不能用简单正则截取整块，直接在整个 html 里
+  // 搜索 douyinpic.com URL 来确认是否是图文作品
+  final imgUrlRe = RegExp(
+    r'"url_list"\s*:\s*\[("https?:[^"]*douyinpic\.com[^"]*"(?:\s*,\s*"[^"]*")*)\]',
+    dotAll: true,
+  );
+  final allImgMatches = imgUrlRe.allMatches(html).toList();
+  if (allImgMatches.isEmpty) {
+    print('  未找到图片字段 → 这是纯视频作品');
+  } else {
+    print('  ✅ 图文作品，共找到 ${allImgMatches.length} 个图片 url_list：');
+    for (int i = 0; i < allImgMatches.length; i++) {
+      final urls = _extractUrls(allImgMatches[i].group(1)!);
+      // 取第一个（最高质量在末尾，但需实测）
+      final first = urls.isNotEmpty ? urls.first : '(空)';
+      final last = urls.length > 1 ? urls.last : '';
+      print('  图片 $i（共 ${urls.length} 个 URL）：');
+      print(
+        '    [0] ${first.length > 100 ? "${first.substring(0, 100)}…" : first}',
+      );
+      if (last.isNotEmpty) {
+        print(
+          '    [-1] ${last.length > 100 ? "${last.substring(0, 100)}…" : last}',
+        );
+      }
+    }
+  }
+  _printSep();
+
   // ── 搜索 4K 相关字段名 ─────────────────────────────────────
   final qualityFields = RegExp(
     r'"(play_addr_4k|play_addr_h265|play_addr_hdr|bitrateInfo|urlList|url_list_hdr)",',

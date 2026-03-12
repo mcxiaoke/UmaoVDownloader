@@ -1,3 +1,7 @@
+# ==================== 构建产物输出目录 ====================
+# build_release.ps1 生成的 release 产物（APK / ZIP），不提交到代码库
+/release/
+
 # ==================== 通用基础（Windows + Git 通用） ====================
 # Windows 系统文件
 Thumbs.db
@@ -147,3 +151,8 @@ coverage.xml
 *.py,cover
 
 test/
+
+
+key.properties
+*.jks
+*.keystore

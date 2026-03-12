@@ -41,6 +41,7 @@ class _HomePageState extends State<HomePage> {
   // 下载状态
   bool _downloading = false;
   double? _downloadProgress; // null = 不显示，0.0–1.0
+  bool _downloadMusic = false; // 图文：是否同时下载背景音乐
 
   LogService get _log => widget.log;
   SettingsService get _settings => widget.settings;
@@ -79,20 +80,28 @@ class _HomePageState extends State<HomePage> {
 
       setState(() {
         _videoInfo = info;
-        // 默认选最高清晰度
-        _selectedQuality = info.availableQualities.first;
         _fileSizeBytes = null;
+        _downloadMusic = false;
+        // 图文作品没有视频清晰度概念
+        if (!info.isImagePost) {
+          _selectedQuality = info.availableQualities.first;
+        }
       });
-      _fetchFileSize(info, info.availableQualities.first);
+      if (!info.isImagePost) {
+        _fetchFileSize(info, info.availableQualities.first);
+      }
       _log.info('解析成功：${info.title}');
-      _log.info('videoId=${info.videoId}  fileId=${info.videoFileId}');
-      _log.info(
-        '可用清晰度：${info.availableQualities.map((q) => q.ratio).join(' / ')}',
-      );
-      // resolution/bitrate from play_addr reflects mobile stream size, skip for now
-      // 输出各清晰度的实际下载地址
-      for (final q in info.availableQualities) {
-        _log.info('  ${q.ratio}: ${info.qualityUrls[q]}');
+      _log.info('videoId=${info.videoId}');
+      if (info.isImagePost) {
+        _log.info('图文作品，共 ${info.imageUrls.length} 张图片');
+      } else {
+        _log.info('fileId=${info.videoFileId}');
+        _log.info(
+          '可用清晰度：${info.availableQualities.map((q) => q.ratio).join(' / ')}',
+        );
+        for (final q in info.availableQualities) {
+          _log.info('  ${q.ratio}: ${info.qualityUrls[q]}');
+        }
       }
     } catch (e) {
       _log.error('解析失败：$e');
@@ -151,7 +160,11 @@ class _HomePageState extends State<HomePage> {
       _downloading = true;
       _downloadProgress = 0;
     });
-    _log.info('开始下载 [${_selectedQuality.ratio}]：${info.title}');
+    _log.info(
+      info.isImagePost
+          ? '开始下载图文（${info.imageUrls.length} 张）：${info.title}'
+          : '开始下载 [${_selectedQuality.ratio}]：${info.title}',
+    );
 
     try {
       final downloader = (Platform.isAndroid || Platform.isIOS)
@@ -159,13 +172,21 @@ class _HomePageState extends State<HomePage> {
           : DesktopDownloader();
       final path = await downloader.downloadVideo(
         info,
-        quality: _selectedQuality,
+        quality: info.isImagePost ? null : _selectedQuality,
         directory: _settings.downloadDir,
+        downloadMusic: _downloadMusic,
         onProgress: (received, total) {
           if (!mounted) return;
-          final t = total ?? _fileSizeBytes;
-          if (t != null && t > 0) {
-            setState(() => _downloadProgress = received / t);
+          if (info.isImagePost) {
+            // received = 当前张数， total = 总张数
+            if (total != null && total > 0) {
+              setState(() => _downloadProgress = received / total);
+            }
+          } else {
+            final t = total ?? _fileSizeBytes;
+            if (t != null && t > 0) {
+              setState(() => _downloadProgress = received / t);
+            }
           }
         },
         onLog: (msg) => _log.info('[DL] $msg'),
@@ -343,7 +364,7 @@ class _HomePageState extends State<HomePage> {
                   style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
                 ),
                 const SizedBox(height: 12),
-                // 质量选择 + 下载按钮：屏幕宽则并排，流则堆叠
+                // 操作区：图文展示张数标签；视频展示清晰度下拉
                 if (narrow)
                   _buildActionsNarrow(info, qualities)
                 else
@@ -353,7 +374,14 @@ class _HomePageState extends State<HomePage> {
                     (_downloadProgress != null && _downloadProgress! < 1.0))
                   Padding(
                     padding: const EdgeInsets.only(top: 8),
-                    child: LinearProgressIndicator(value: _downloadProgress),
+                    child: info.isImagePost
+                        // 图文：展示张数 X/N
+                        ? LinearProgressIndicator(
+                            value: _downloadProgress,
+                            semanticsLabel:
+                                '已下载 ${((_downloadProgress ?? 0) * info.imageUrls.length).round()} / ${info.imageUrls.length} 张',
+                          )
+                        : LinearProgressIndicator(value: _downloadProgress),
                   ),
               ],
             ),
@@ -364,6 +392,59 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _buildActionsWide(VideoInfo info, List<VideoQuality> qualities) {
+    // 下载按钮公用部分
+    final downloadBtn = FilledButton.icon(
+      onPressed: _downloading ? null : _download,
+      icon: _downloading
+          ? const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.white,
+              ),
+            )
+          : const Icon(Icons.download, size: 18),
+      label: Text(_downloading ? '下载中…' : '下载'),
+    );
+    final doneLabel = _downloadProgress == 1.0
+        ? const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.check_circle, color: Colors.green, size: 18),
+              SizedBox(width: 4),
+              Text('下载完成', style: TextStyle(color: Colors.green, fontSize: 13)),
+            ],
+          )
+        : const SizedBox.shrink();
+
+    if (info.isImagePost) {
+      return Row(
+        children: [
+          Text(
+            '图文作品  ${info.imageUrls.length} 张图片',
+            style: const TextStyle(fontSize: 13),
+          ),
+          if (info.musicUrl != null) ...[
+            const SizedBox(width: 12),
+            Checkbox(
+              value: _downloadMusic,
+              onChanged: _downloading
+                  ? null
+                  : (v) => setState(() => _downloadMusic = v ?? false),
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              visualDensity: VisualDensity.compact,
+            ),
+            const Text('含背景音乐', style: TextStyle(fontSize: 13)),
+          ],
+          const Spacer(),
+          doneLabel,
+          const SizedBox(width: 8),
+          downloadBtn,
+        ],
+      );
+    }
+
     return Row(
       children: [
         const Text('清晰度：', style: TextStyle(fontSize: 13)),
@@ -382,34 +463,72 @@ class _HomePageState extends State<HomePage> {
         const SizedBox(width: 8),
         _FileSizeLabel(bytes: _fileSizeBytes, loading: _fetchingSize),
         const Spacer(),
-        if (_downloadProgress == 1.0)
-          const Row(
-            children: [
-              Icon(Icons.check_circle, color: Colors.green, size: 18),
-              SizedBox(width: 4),
-              Text('下载完成', style: TextStyle(color: Colors.green, fontSize: 13)),
-            ],
-          ),
+        doneLabel,
         const SizedBox(width: 8),
-        FilledButton.icon(
-          onPressed: _downloading ? null : _download,
-          icon: _downloading
-              ? const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Colors.white,
-                  ),
-                )
-              : const Icon(Icons.download, size: 18),
-          label: Text(_downloading ? '下载中…' : '下载'),
-        ),
+        downloadBtn,
       ],
     );
   }
 
   Widget _buildActionsNarrow(VideoInfo info, List<VideoQuality> qualities) {
+    final downloadBtn = FilledButton.icon(
+      onPressed: _downloading ? null : _download,
+      icon: _downloading
+          ? const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.white,
+              ),
+            )
+          : const Icon(Icons.download, size: 18),
+      label: Text(_downloading ? '下载中…' : '下载'),
+    );
+
+    if (info.isImagePost) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Text(
+                '图文作品  ${info.imageUrls.length} 张图片',
+                style: const TextStyle(fontSize: 13),
+              ),
+              if (_downloadProgress == 1.0) ...const [
+                Spacer(),
+                Icon(Icons.check_circle, color: Colors.green, size: 18),
+                SizedBox(width: 4),
+                Text(
+                  '下载完成',
+                  style: TextStyle(color: Colors.green, fontSize: 13),
+                ),
+              ],
+            ],
+          ),
+          if (info.musicUrl != null) ...[
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                Checkbox(
+                  value: _downloadMusic,
+                  onChanged: _downloading
+                      ? null
+                      : (v) => setState(() => _downloadMusic = v ?? false),
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  visualDensity: VisualDensity.compact,
+                ),
+                const Text('含背景音乐', style: TextStyle(fontSize: 13)),
+              ],
+            ),
+          ],
+          const SizedBox(height: 8),
+          downloadBtn,
+        ],
+      );
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -439,20 +558,7 @@ class _HomePageState extends State<HomePage> {
           ],
         ),
         const SizedBox(height: 8),
-        FilledButton.icon(
-          onPressed: _downloading ? null : _download,
-          icon: _downloading
-              ? const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Colors.white,
-                  ),
-                )
-              : const Icon(Icons.download, size: 18),
-          label: Text(_downloading ? '下载中…' : '下载'),
-        ),
+        downloadBtn,
       ],
     );
   }

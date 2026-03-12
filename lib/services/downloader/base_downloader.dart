@@ -56,6 +56,7 @@ abstract class BaseDownloader implements VideoDownloader {
     VideoQuality? quality,
     String? directory,
     String? filename,
+    bool downloadMusic = false,
     void Function(int received, int? total)? onProgress,
     void Function(String message)? onLog,
   }) async {
@@ -64,15 +65,28 @@ abstract class BaseDownloader implements VideoDownloader {
     final dir = directory?.isNotEmpty == true
         ? directory!
         : await getDefaultDirectory();
-    final resolvedQuality = quality ?? VideoQuality.p1080;
-    final qualityLabel = resolvedQuality.ratio;
 
     final prefix = info.shareId ?? info.videoId;
-    // 先清理标题，再截断到 30 字符，然后拼前缀
     final cleanTitle = _sanitizeFilename(info.title);
     final baseName = filename != null && filename.isNotEmpty
         ? _sanitizeFilename(filename)
         : '${prefix}_$cleanTitle';
+
+    // ── 图文作品：批量下载图片 ──────────────────────────────────
+    if (info.isImagePost) {
+      return await _downloadImages(
+        info,
+        dir,
+        baseName,
+        onProgress,
+        onLog,
+        downloadMusic: downloadMusic,
+      );
+    }
+
+    // ── 视频作品 ─────────────────────────────────────────────
+    final resolvedQuality = quality ?? VideoQuality.p1080;
+    final qualityLabel = resolvedQuality.ratio;
     // 默认不加时间后缀；文件名冲突时才追加时间戳
     final basePath =
         '$dir${Platform.pathSeparator}${baseName}_$qualityLabel.mp4';
@@ -270,6 +284,150 @@ abstract class BaseDownloader implements VideoDownloader {
     return resolved;
   }
 
+  /// 图文作品：按序下载每张图片，保存为 {baseName}_001.webp / _002.webp … (扩展名由 URL 决定)
+  /// 返回第一张图片的完整路径（方便 UI 显示结果）
+  Future<String> _downloadImages(
+    VideoInfo info,
+    String dir,
+    String baseName,
+    void Function(int received, int? total)? onProgress,
+    void Function(String message)? onLog, {
+    bool downloadMusic = false,
+  }) async {
+    final total = info.imageUrls.length;
+    onLog?.call('图文作品，共 $total 张图片，开始下载…');
+
+    String firstPath = '';
+    final client = http.Client();
+    try {
+      for (int i = 0; i < total; i++) {
+        final url = info.imageUrls[i];
+        final idx = _p3(i + 1);
+        final ext = _imageExtension(url);
+        final basePath = '$dir${Platform.pathSeparator}${baseName}_$idx$ext';
+        final String imgPath;
+        if (File(basePath).existsSync()) {
+          final now = DateTime.now();
+          final stamp =
+              '${now.year}${_p2(now.month)}${_p2(now.day)}'
+              '_${_p2(now.hour)}${_p2(now.minute)}${_p2(now.second)}';
+          imgPath =
+              '$dir${Platform.pathSeparator}${baseName}_${idx}_$stamp$ext';
+        } else {
+          imgPath = basePath;
+        }
+
+        onLog?.call('下载图片 ${i + 1}/$total…');
+
+        final partFile = File('$imgPath.part');
+        await partFile.parent.create(recursive: true);
+
+        bool saved = false;
+        for (final ua in downloadUserAgents) {
+          final req = http.Request('GET', Uri.parse(url));
+          req.headers[HttpHeaders.userAgentHeader] = ua;
+          final streamed = await client.send(req);
+          if (streamed.statusCode >= 300) {
+            await streamed.stream.drain<void>();
+            continue;
+          }
+          final sink = partFile.openWrite();
+          try {
+            await for (final chunk in streamed.stream.timeout(
+              const Duration(seconds: 30),
+            )) {
+              sink.add(chunk);
+            }
+            saved = true;
+          } on TimeoutException {
+            // 超时：换 UA 重试
+          } catch (_) {
+            // 其他流错误：换 UA
+          } finally {
+            await sink.close();
+          }
+          if (saved) break;
+          // 此 UA 下载失败，清理残留并换下一个 UA
+          if (await partFile.exists()) await partFile.delete();
+        }
+
+        if (!saved) {
+          if (await partFile.exists()) await partFile.delete();
+          onLog?.call('图片 ${i + 1} 下载失败，跳过');
+          continue;
+        }
+
+        await partFile.rename(imgPath);
+        await afterDownload(imgPath);
+        onProgress?.call(i + 1, total);
+        if (i == 0) firstPath = imgPath;
+      }
+    } finally {
+      client.close();
+    }
+
+    if (firstPath.isEmpty) throw Exception('所有图片下载失败');
+    // 可选：下载背景音乐
+    if (downloadMusic && info.musicUrl != null) {
+      await _downloadAudio(info.musicUrl!, dir, '${baseName}_bgm', onLog);
+    }
+    onLog?.call('图片下载完成，共 $total 张');
+    return firstPath;
+  }
+
+  /// 下载背景音乐（MP3 直连 CDN），失败时仅记录日志不抛异常
+  Future<void> _downloadAudio(
+    String url,
+    String dir,
+    String baseName,
+    void Function(String message)? onLog,
+  ) async {
+    final savePath = '$dir${Platform.pathSeparator}$baseName.mp3';
+    final partFile = File('$savePath.part');
+    await partFile.parent.create(recursive: true);
+    onLog?.call('正在下载背景音乐…');
+    final client = http.Client();
+    bool saved = false;
+    try {
+      for (final ua in downloadUserAgents) {
+        final req = http.Request('GET', Uri.parse(url));
+        req.headers[HttpHeaders.userAgentHeader] = ua;
+        final streamed = await client.send(req);
+        if (streamed.statusCode >= 300) {
+          await streamed.stream.drain<void>();
+          continue;
+        }
+        final sink = partFile.openWrite();
+        try {
+          await for (final chunk in streamed.stream.timeout(
+            const Duration(seconds: 30),
+          )) {
+            sink.add(chunk);
+          }
+          saved = true;
+        } on TimeoutException {
+          // 超时换 UA
+        } catch (_) {
+          // 其他错误换 UA
+        } finally {
+          await sink.close();
+        }
+        if (saved) break;
+        if (await partFile.exists()) await partFile.delete();
+      }
+    } finally {
+      client.close();
+    }
+    if (saved) {
+      await partFile.rename(savePath);
+      await afterDownload(savePath);
+      onLog?.call('背景音乐下载完成');
+    } else {
+      if (await partFile.exists()) await partFile.delete();
+      onLog?.call('背景音乐下载失败，跳过');
+    }
+  }
+
   /// 只保留白名单字符（CJK + ASCII 字母数字 + 常见标点），去除 emoji
   /// 及其他非常用 Unicode，截断到 [maxLen] 字符（默认 30）。
   String _sanitizeFilename(String name, {int maxLen = 30}) {
@@ -294,4 +452,15 @@ abstract class BaseDownloader implements VideoDownloader {
   }
 
   String _p2(int n) => n.toString().padLeft(2, '0');
+  String _p3(int n) => n.toString().padLeft(3, '0');
+
+  /// 从图片 URL 路径部分（? 号前）提取文件后缀，未识别时回退 .jpg
+  String _imageExtension(String url) {
+    final path = url.split('?').first.toLowerCase();
+    if (path.endsWith('.webp')) return '.webp';
+    if (path.endsWith('.png')) return '.png';
+    if (path.endsWith('.gif')) return '.gif';
+    if (path.endsWith('.jpeg')) return '.jpeg';
+    return '.jpg';
+  }
 }

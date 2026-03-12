@@ -12,43 +12,16 @@ library;
 import 'dart:io';
 
 import 'package:dviewer/services/douyin_parser.dart';
+import 'package:dviewer/services/downloader/base_downloader.dart';
 import 'package:dviewer/services/downloader/desktop_downloader.dart';
 import 'package:dviewer/services/url_extractor.dart';
 import 'package:http/http.dart' as http;
 
 // ── UA 列表（用于对比测试）────────────────────────────────────
 const _testUAs = [
-  (
-    label: '桌面 Edge 145',
-    ua:
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-        'AppleWebKit/537.36 (KHTML, like Gecko) '
-        'Chrome/145.0.0.0 Safari/537.36 Edg/145.0.0.0',
-  ),
-  (
-    label: 'iOS Safari 18',
-    ua:
-        'Mozilla/5.0 (iPhone; CPU iPhone OS 18_3_2 like Mac OS X) '
-        'AppleWebKit/605.1.15 (KHTML, like Gecko) '
-        'Version/18.3.1 Mobile/15E148 Safari/604.1',
-  ),
-  (
-    label: 'iOS 微信 8.0.69',
-    ua:
-        'Mozilla/5.0 (iPhone; CPU iPhone OS 18_6_2 like Mac OS X) '
-        'AppleWebKit/605.1.15 (KHTML, like Gecko) '
-        'Mobile/15E148 MicroMessenger/8.0.69(0x28004553) '
-        'NetType/WIFI Language/zh_CN',
-  ),
-  (
-    label: 'Android 微信 8.0.69',
-    ua:
-        'Mozilla/5.0 (Linux; Android 16; 23456PN2CC Build/BP2A.250605.031.A3; wv) '
-        'AppleWebKit/537.36 (KHTML, like Gecko) '
-        'Version/4.0 Chrome/142.0.7444.173 Mobile Safari/537.36 '
-        'MMWEBID/3396 MicroMessenger/8.0.69.3040(0x28004553) '
-        'WeChat/arm64 Weixin NetType/WIFI Language/zh_CN ABI/arm64',
-  ),
+  (label: '桌面 Edge 145', ua: kUaEdge),
+  (label: 'iOS 微信 8.0.69', ua: kUaIosWechat),
+  (label: '抖音 App 36.7', ua: kUaIosDouyin),
 ];
 
 Future<void> main(List<String> args) async {

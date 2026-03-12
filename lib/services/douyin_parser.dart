@@ -50,6 +50,16 @@ class VideoInfo {
   /// 视频码率（kbps），从分享页 bit_rate 数组解析，可能为 null
   final int? bitrateKbps;
 
+  /// 图文作品的图片 URL 列表（按原始顺序，已去除头像等无关项）
+  /// 纯视频作品为空列表
+  final List<String> imageUrls;
+
+  /// 图文作品背景音乐的直连 CDN URL（MP3），无背景音乐或视频作品时为 null
+  final String? musicUrl;
+
+  /// 背景音乐标题，null 表示无音乐或未能解析
+  final String? musicTitle;
+
   const VideoInfo({
     required this.videoId,
     required this.title,
@@ -60,7 +70,13 @@ class VideoInfo {
     this.width,
     this.height,
     this.bitrateKbps,
+    this.imageUrls = const [],
+    this.musicUrl,
+    this.musicTitle,
   });
+
+  /// 是否为图文作品（有图片列表）
+  bool get isImagePost => imageUrls.isNotEmpty;
 
   /// 分辨率标签，如 "1920×1080"、"3840×2160 (4K)"，无数据时返回 null
   String? get resolutionLabel {
@@ -135,6 +151,23 @@ class DouyinParser {
     r'"bit_rate"\s*:\s*\[\s*\{[^{}]*"bit_rate"\s*:\s*(\d+)',
   );
 
+  // 图文作品图片：每个图片对象的 url_list 第一个 URL。
+  // tplv-dy-aweme-images = 旧版图文图片 transform
+  // tplv-dy-lqen-new     = 新版图文（note 类型）高清 transform
+  // 两种标记均可与头像/封面所用的 resize-walign-adapt 区分
+  static final _imageUrlRe = RegExp(
+    r'"url_list"\s*:\s*\["((?:[^"\\]|\\.)*tplv-dy-(?:aweme-images|lqen-new)(?:[^"\\]|\\.)*)"',
+  );
+
+  // 图文作品背景音乐：HTML <audio> 标签的 src，直链 CDN MP3
+  static final _audioTagRe = RegExp(r'<audio[^>]+src="(https://[^"]+\.mp3)"');
+
+  // music 对象 title 字段（dotAll 跨越嵌套内容）
+  static final _musicTitleRe = RegExp(
+    r'"music"\s*:\s*\{.*?"title"\s*:\s*"((?:[^"\\]|\\.*)*)"',
+    dotAll: true,
+  );
+
   // 无水印播放接口模板（跳转到 CDN，不含水印）
   static const _playBase = 'https://aweme.snssdk.com/aweme/v1/play/';
 
@@ -155,7 +188,9 @@ class DouyinParser {
     if (videoId == null) {
       throw DouyinParseException('无法从链接中提取视频 ID，最终 URL: $realUrl');
     }
-    return await _parseSharePage(videoId, shareId: shareId);
+    // 注意区分 /note/ 与 /video/ 类型——iesdouyin 使用不同的分享页路径
+    final isNote = realUrl.contains('/note/');
+    return await _parseSharePage(videoId, shareId: shareId, isNote: isNote);
   }
 
   /// 手动跟随重定向，返回最终落地 URL
@@ -192,9 +227,15 @@ class DouyinParser {
   }
 
   /// 抓取 iesdouyin 分享页，从内嵌 JSON 中解析视频信息
-  Future<VideoInfo> _parseSharePage(String videoId, {String? shareId}) async {
+  Future<VideoInfo> _parseSharePage(
+    String videoId, {
+    String? shareId,
+    bool isNote = false,
+  }) async {
+    // note 类型使用 /share/note/ 端点，video 类型使用 /share/video/
+    final segment = isNote ? 'note' : 'video';
     final shareUrl = Uri.parse(
-      'https://www.iesdouyin.com/share/video/$videoId/',
+      'https://www.iesdouyin.com/share/$segment/$videoId/',
     );
 
     final response = await _httpClient.get(
@@ -208,6 +249,44 @@ class DouyinParser {
 
     final html = response.body;
 
+    // 提取标题
+    final rawDesc = _descRe.firstMatch(html)?.group(1);
+    final title = (rawDesc != null && rawDesc.isNotEmpty)
+        ? _decodeJsonString(rawDesc)
+        : '作品_$videoId';
+
+    // 提取封面（可选）
+    final rawCover = _coverRe.firstMatch(html)?.group(1);
+    final coverUrl = rawCover != null ? _decodeJsonString(rawCover) : null;
+
+    // ── 检测图文作品 ───────────────────────────────────────────
+    // tplv-dy-aweme-images 是图文图片专用裁剪参数，头像/封面不包含此标记
+    final imageUrls = _imageUrlRe
+        .allMatches(html)
+        .map((m) => _decodeJsonString(m.group(1)!))
+        .toList();
+
+    if (imageUrls.isNotEmpty) {
+      // 图文作品：提取背景音乐直链（<audio src="...mp3">）及其标题
+      final musicUrl = _audioTagRe.firstMatch(html)?.group(1);
+      final rawMusicTitle = _musicTitleRe.firstMatch(html)?.group(1);
+      final musicTitle = rawMusicTitle != null
+          ? _decodeJsonString(rawMusicTitle)
+          : null;
+      return VideoInfo(
+        videoId: videoId,
+        title: title,
+        videoFileId: '',
+        qualityUrls: const {},
+        coverUrl: coverUrl,
+        shareId: shareId,
+        imageUrls: imageUrls,
+        musicUrl: musicUrl,
+        musicTitle: musicTitle,
+      );
+    }
+
+    // ── 视频作品 ────────────────────────────────────────────────
     // 从 play_addr 的 URL 里提取 video_id 和 ratio 参数
     final rawPlayUrl = _playAddrRe.firstMatch(html)?.group(1);
     if (rawPlayUrl == null) {
@@ -221,22 +300,10 @@ class DouyinParser {
     }
 
     // CDN 实际存在两条独立码流：720p（较小体积）和 1080p（标准质量）
-    // 测试显示 360p / 480p / 2160p 均与 1080p 返回相同文件大小，属同一码流
-    // 始终注册这两个选项，UI 默认选 1080p，用户可切换至 720p
     final qualityUrls = <VideoQuality, String>{
       VideoQuality.p720: '$_playBase?video_id=$videoFileId&ratio=720p&line=0',
       VideoQuality.p1080: '$_playBase?video_id=$videoFileId&ratio=1080p&line=0',
     };
-
-    // 提取标题
-    final rawDesc = _descRe.firstMatch(html)?.group(1);
-    final title = (rawDesc != null && rawDesc.isNotEmpty)
-        ? _decodeJsonString(rawDesc)
-        : '视频_$videoId';
-
-    // 提取封面（可选）
-    final rawCover = _coverRe.firstMatch(html)?.group(1);
-    final coverUrl = rawCover != null ? _decodeJsonString(rawCover) : null;
 
     // 提取视频尺寸：在 play_addr 位置之后搜索，避免匹配到头像等小图
     int? videoWidth, videoHeight;
@@ -247,7 +314,6 @@ class DouyinParser {
       final wm = RegExp(r'"width"\s*:\s*(\d+)').firstMatch(sub);
       final h = hm != null ? int.tryParse(hm.group(1)!) : null;
       final w = wm != null ? int.tryParse(wm.group(1)!) : null;
-      // 过滤掉明显不是视频分辨率的小尺寸（<120px）
       if ((h ?? 0) >= 120 && (w ?? 0) >= 120) {
         videoHeight = h;
         videoWidth = w;
