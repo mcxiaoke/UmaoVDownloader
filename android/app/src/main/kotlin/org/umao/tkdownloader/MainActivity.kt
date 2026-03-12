@@ -1,4 +1,4 @@
-package com.example.dviewer
+package org.umao.tkdownloader
 
 import android.media.MediaScannerConnection
 import io.flutter.embedding.android.FlutterActivity
@@ -6,7 +6,7 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
-    private val channel = "com.example.dviewer/media"
+    private val channel = "org.umao.tkdownloader/media"
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)

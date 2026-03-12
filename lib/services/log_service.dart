@@ -34,12 +34,12 @@ class LogService extends ChangeNotifier {
 
   String? get logFilePath => _logFilePath;
 
-  /// 初始化文件日志，写到系统临时目录 dviewer_logs/ 子目录
+  /// 初始化文件日志，写到系统临时目录
   Future<void> init() async {
     try {
       final dir = await getTemporaryDirectory();
       final logDir = Directory(
-        '${dir.path}${Platform.pathSeparator}dviewer_logs',
+        '${dir.path}${Platform.pathSeparator}umao_vdownloader_logs',
       );
       await logDir.create(recursive: true);
 
@@ -47,7 +47,7 @@ class LogService extends ChangeNotifier {
       final stamp =
           '${now.year}${_p2(now.month)}${_p2(now.day)}_${_p2(now.hour)}${_p2(now.minute)}${_p2(now.second)}';
       _logFilePath =
-          '${logDir.path}${Platform.pathSeparator}dviewer_$stamp.log';
+          '${logDir.path}${Platform.pathSeparator}umao_vdownloader_$stamp.log';
       _fileSink = File(_logFilePath!).openWrite(mode: FileMode.append);
       _append(LogLevel.info, 'LogService 初始化，日志文件: $_logFilePath');
     } catch (e) {

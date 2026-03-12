@@ -10,7 +10,7 @@ library;
 
 import 'dart:io';
 
-import 'package:dviewer/services/url_extractor.dart';
+import 'package:umao_vdownloader/services/url_extractor.dart';
 import 'package:http/http.dart' as http;
 
 // iesdouyin 分享页需要手机 UA

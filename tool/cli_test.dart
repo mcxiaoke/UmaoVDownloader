@@ -11,10 +11,10 @@ library;
 
 import 'dart:io';
 
-import 'package:dviewer/services/douyin_parser.dart';
-import 'package:dviewer/services/downloader/base_downloader.dart';
-import 'package:dviewer/services/downloader/desktop_downloader.dart';
-import 'package:dviewer/services/url_extractor.dart';
+import 'package:umao_vdownloader/services/douyin_parser.dart';
+import 'package:umao_vdownloader/services/downloader/base_downloader.dart';
+import 'package:umao_vdownloader/services/downloader/desktop_downloader.dart';
+import 'package:umao_vdownloader/services/url_extractor.dart';
 import 'package:http/http.dart' as http;
 
 // ── UA 列表（用于对比测试）────────────────────────────────────

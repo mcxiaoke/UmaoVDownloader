@@ -42,17 +42,17 @@ class SettingsService extends ChangeNotifier {
     const base = '/storage/emulated/0';
     final appPrivate = await getExternalStorageDirectory();
     return [
-      AndroidQuickDir('Movies', '$base/Movies/dviewer'),
-      AndroidQuickDir('Downloads', '$base/Download/dviewer'),
+      AndroidQuickDir('Movies', '$base/Movies/umaov'),
+      AndroidQuickDir('Downloads', '$base/Download/umaov'),
       if (appPrivate != null)
-        AndroidQuickDir('App私有', '${appPrivate.path}/dviewer'),
+        AndroidQuickDir('App私有', '${appPrivate.path}/umaov'),
     ];
   }
 
   static Future<String> _defaultDirAsync() async {
     if (Platform.isAndroid) {
-      // 默认存到 Movies/dviewer
-      return '/storage/emulated/0/Movies/dviewer';
+      // 默认存到 Movies/umaov
+      return '/storage/emulated/0/Movies/umaov';
     }
     if (Platform.isWindows) {
       final home =

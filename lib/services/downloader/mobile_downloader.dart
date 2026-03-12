@@ -39,11 +39,11 @@ class MobileDownloader extends BaseDownloader {
   @override
   Future<String> getDefaultDirectory() async {
     // Android：优先 App 私有外部存储（不需要权限，用户可在文件管理器 Android/data 下访问）
-    // 路径示例：/storage/emulated/0/Android/data/com.example.dviewer/files/dviewer
+    // 路径示例：/storage/emulated/0/Android/data/org.umao.tkdownloader/files/umaov
     try {
       final externalDir = await getExternalStorageDirectory();
       if (externalDir != null) {
-        return '${externalDir.path}${Platform.pathSeparator}dviewer';
+        return '${externalDir.path}${Platform.pathSeparator}umaov';
       }
     } catch (_) {}
     // Fallback：App 内部文档目录
@@ -98,7 +98,7 @@ class MobileDownloader extends BaseDownloader {
   /// 通知 Android MediaStore 扫描新文件，使其出现在相册等媒体库中
   Future<void> _scanMediaFile(String path) async {
     try {
-      const channel = MethodChannel('com.example.dviewer/media');
+      const channel = MethodChannel('org.umao.tkdownloader/media');
       await channel.invokeMethod('scanFile', {'path': path});
     } catch (_) {}
   }

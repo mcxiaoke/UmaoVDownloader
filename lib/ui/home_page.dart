@@ -255,7 +255,7 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('DViewer - 抖音视频下载')),
+      appBar: AppBar(title: const Text('Umao VDownloader - 短视频下载')),
       body: Padding(
         padding: const EdgeInsets.all(12.0),
         child: Column(
