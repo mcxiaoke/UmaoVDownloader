@@ -208,21 +208,24 @@ class DouyinParser {
 
     final html = response.body;
 
-    // 从 play_addr 的 URL 里提取 video_id 参数
+    // 从 play_addr 的 URL 里提取 video_id 和 ratio 参数
     final rawPlayUrl = _playAddrRe.firstMatch(html)?.group(1);
     if (rawPlayUrl == null) {
       throw DouyinParseException('分享页中未找到视频地址，页面结构可能已变更');
     }
     final playUrl = _decodeJsonString(rawPlayUrl);
-    final videoFileId = Uri.parse(playUrl).queryParameters['video_id'];
+    final parsedPlayUri = Uri.parse(playUrl);
+    final videoFileId = parsedPlayUri.queryParameters['video_id'];
     if (videoFileId == null || videoFileId.isEmpty) {
       throw DouyinParseException('无法从播放地址提取 video_id: $playUrl');
     }
 
-    // 构造各清晰度的无水印 play URL（跟随重定向时才会产生带时效的 CDN URL）
+    // CDN 实际存在两条独立码流：720p（较小体积）和 1080p（标准质量）
+    // 测试显示 360p / 480p / 2160p 均与 1080p 返回相同文件大小，属同一码流
+    // 始终注册这两个选项，UI 默认选 1080p，用户可切换至 720p
     final qualityUrls = <VideoQuality, String>{
-      for (final q in VideoQuality.values)
-        q: '$_playBase?video_id=$videoFileId&ratio=${q.ratio}&line=0',
+      VideoQuality.p720: '$_playBase?video_id=$videoFileId&ratio=720p&line=0',
+      VideoQuality.p1080: '$_playBase?video_id=$videoFileId&ratio=1080p&line=0',
     };
 
     // 提取标题

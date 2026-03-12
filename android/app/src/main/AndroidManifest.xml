@@ -1,4 +1,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 网络访问（解析 + 下载视频） -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Android 9 及以下写外部存储； Android 10 默认给与 -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="29"/>
+    <!-- Android 11+ 写 Movies/Downloads 公共目录需要此权限 -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"/>
     <application
         android:label="dviewer"
         android:name="${applicationName}"

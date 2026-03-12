@@ -1,11 +1,12 @@
 /// CLI 测试入口
 ///
-/// 用法：
+/// 模式 1 - 默认：解析 + 下载
 ///   dart run tool/cli_test.dart <抖音分享文本或链接>
 ///   dart run tool/cli_test.dart          # 交互式输入
 ///
-/// 示例：
-///   dart run tool/cli_test.dart "4.88 复制这段内容... https://v.douyin.com/xxxxxxxx/"
+/// 模式 2 - UA 清晰度对比（--ua-test）：
+///   dart run tool/cli_test.dart --ua-test <抖音分享文本或链接>
+///   对同一视频用 4 种 UA 各发一次 HEAD 请求，对比 Content-Length（文件大小）
 library;
 
 import 'dart:io';
@@ -13,12 +14,52 @@ import 'dart:io';
 import 'package:dviewer/services/douyin_parser.dart';
 import 'package:dviewer/services/downloader/desktop_downloader.dart';
 import 'package:dviewer/services/url_extractor.dart';
+import 'package:http/http.dart' as http;
+
+// ── UA 列表（用于对比测试）────────────────────────────────────
+const _testUAs = [
+  (
+    label: '桌面 Edge 145',
+    ua:
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+        'AppleWebKit/537.36 (KHTML, like Gecko) '
+        'Chrome/145.0.0.0 Safari/537.36 Edg/145.0.0.0',
+  ),
+  (
+    label: 'iOS Safari 18',
+    ua:
+        'Mozilla/5.0 (iPhone; CPU iPhone OS 18_3_2 like Mac OS X) '
+        'AppleWebKit/605.1.15 (KHTML, like Gecko) '
+        'Version/18.3.1 Mobile/15E148 Safari/604.1',
+  ),
+  (
+    label: 'iOS 微信 8.0.69',
+    ua:
+        'Mozilla/5.0 (iPhone; CPU iPhone OS 18_6_2 like Mac OS X) '
+        'AppleWebKit/605.1.15 (KHTML, like Gecko) '
+        'Mobile/15E148 MicroMessenger/8.0.69(0x28004553) '
+        'NetType/WIFI Language/zh_CN',
+  ),
+  (
+    label: 'Android 微信 8.0.69',
+    ua:
+        'Mozilla/5.0 (Linux; Android 16; 23456PN2CC Build/BP2A.250605.031.A3; wv) '
+        'AppleWebKit/537.36 (KHTML, like Gecko) '
+        'Version/4.0 Chrome/142.0.7444.173 Mobile Safari/537.36 '
+        'MMWEBID/3396 MicroMessenger/8.0.69.3040(0x28004553) '
+        'WeChat/arm64 Weixin NetType/WIFI Language/zh_CN ABI/arm64',
+  ),
+];
 
 Future<void> main(List<String> args) async {
-  // ── 1. 获取输入 ──────────────────────────────────────────────
+  // ── 解析 --ua-test 开关 ───────────────────────────────────────
+  final uaTestMode = args.contains('--ua-test');
+  final restArgs = args.where((a) => a != '--ua-test').toList();
+
+  // ── 1. 获取输入 ───────────────────────────────────────────────
   String input;
-  if (args.isNotEmpty) {
-    input = args.join(' ');
+  if (restArgs.isNotEmpty) {
+    input = restArgs.join(' ');
   } else {
     stdout.write('请输入抖音分享内容或链接: ');
     input = stdin.readLineSync() ?? '';
@@ -58,9 +99,16 @@ Future<void> main(List<String> args) async {
   print('标题     : ${info.title}');
   print('fileId   : ${info.videoFileId}');
   print('封面地址 : ${info.coverUrl ?? "无"}');
+  print('可用清晰度: ${info.availableQualities.map((q) => q.ratio).join(", ")}');
   _printSeparator();
 
-  // ── 4. 询问是否下载 ───────────────────────────────────────────
+  // ── 模式 2：UA 清晰度对比 ──────────────────────────────────────
+  if (uaTestMode) {
+    await _runUaTest(info);
+    return;
+  }
+
+  // ── 模式 1：正常下载流程 ───────────────────────────────────────
   stdout.write('是否下载视频？[y/N] ');
   final answer = stdin.readLineSync()?.trim().toLowerCase() ?? '';
   if (answer != 'y' && answer != 'yes') {
@@ -68,8 +116,8 @@ Future<void> main(List<String> args) async {
     return;
   }
 
-  // ── 5. 选择清晰度 ────────────────────────────────────────────
-  final qualities = info.availableQualities; // 从高到低
+  // ── 5. 选择清晰度 ─────────────────────────────────────────────
+  final qualities = info.availableQualities;
   VideoQuality selectedQuality;
   if (qualities.length == 1) {
     selectedQuality = qualities.first;
@@ -85,7 +133,7 @@ Future<void> main(List<String> args) async {
     final choice = stdin.readLineSync()?.trim() ?? '';
     final idx = int.tryParse(choice);
     if (idx == null || idx < 1 || idx > qualities.length) {
-      selectedQuality = qualities.first; // 默认最高
+      selectedQuality = qualities.first;
     } else {
       selectedQuality = qualities[idx - 1];
     }
@@ -108,6 +156,101 @@ Future<void> main(List<String> args) async {
     stderr.writeln('下载失败: $e');
     exit(1);
   }
+}
+
+/// 用各 UA 对所有清晰度 ratio 发 HEAD 请求，对比 Content-Length
+/// 注意：直接用 videoFileId 构造各 ratio URL，而非 urlFor() fallback
+Future<void> _runUaTest(VideoInfo info) async {
+  final qualities = [VideoQuality.p720, VideoQuality.p1080, VideoQuality.p2160];
+  const playBase = 'https://aweme.snssdk.com/aweme/v1/play/';
+  print('UA 清晰度对比测试（共 ${_testUAs.length} 个 UA × ${qualities.length} 个清晰度）');
+  print('方法：HEAD 请求取 Content-Length，请求间隔 3s 避免限流\n');
+
+  final uaLabels = _testUAs.map((u) => u.label).toList();
+  const colW = 24;
+  const qColW = 8;
+  stdout.write('清晰度  '.padRight(qColW));
+  for (final label in uaLabels) {
+    stdout.write(label.padRight(colW));
+  }
+  print('');
+  _printSeparator();
+
+  final client = http.Client();
+  try {
+    for (final quality in qualities) {
+      // 直接构造该 ratio 的真实 URL
+      final downloadUrl =
+          '$playBase?video_id=${info.videoFileId}&ratio=${quality.ratio}&line=0';
+      stdout.write(quality.ratio.padRight(qColW));
+
+      for (final entry in _testUAs) {
+        final result = await _headRequest(client, downloadUrl, entry.ua);
+        String label;
+        if (result == null) {
+          label = '(失败)';
+        } else if (result.size != null && result.size! > 10240) {
+          label = _formatBytes(result.size!);
+        } else {
+          // 文件很小说明是错误页，显示状态码
+          label =
+              'HTTP ${result.status} (${result.size != null ? _formatBytes(result.size!) : "?"})';
+        }
+        stdout.write(label.padRight(colW));
+        // 每次请求后等待，避免 CDN 限流
+        await Future.delayed(const Duration(milliseconds: 3000));
+      }
+      print('');
+    }
+  } finally {
+    client.close();
+  }
+
+  _printSeparator();
+  print('说明: 同 UA 不同 ratio 若大小相同，说明 CDN 只有一条码流。');
+}
+
+typedef _HeadResult = ({int status, int? size});
+
+/// 发送 HEAD 请求，返回状态码和 Content-Length；彻底失败返回 null
+Future<_HeadResult?> _headRequest(
+  http.Client client,
+  String url,
+  String ua,
+) async {
+  try {
+    // 跟随一次 302 重定向
+    final ioClient = HttpClient();
+    String finalUrl = url;
+    try {
+      final req = await ioClient.getUrl(Uri.parse(url));
+      req.headers.set(HttpHeaders.userAgentHeader, ua);
+      req.followRedirects = false;
+      final resp = await req.close();
+      await resp.drain<void>();
+      if (resp.statusCode >= 300 && resp.statusCode < 400) {
+        finalUrl = resp.headers.value(HttpHeaders.locationHeader) ?? url;
+      }
+    } finally {
+      ioClient.close();
+    }
+
+    final request = http.Request('HEAD', Uri.parse(finalUrl));
+    request.headers[HttpHeaders.userAgentHeader] = ua;
+    final resp = await client.send(request);
+    final cl = resp.headers['content-length'];
+    return (
+      status: resp.statusCode,
+      size: cl != null ? int.tryParse(cl) : null,
+    );
+  } catch (_) {
+    return null;
+  }
+}
+
+String _formatBytes(int bytes) {
+  if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+  return '${(bytes / (1024 * 1024)).toStringAsFixed(2)} MB';
 }
 
 void _printSeparator() => print('─' * 50);

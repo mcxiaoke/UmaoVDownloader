@@ -1,90 +1,105 @@
 import 'dart:io';
 
-import 'package:http/http.dart' as http;
+import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 
-import '../douyin_parser.dart';
-import 'video_downloader.dart';
+import 'base_downloader.dart';
+
+/// 用户永久拒绝存储权限时抛出此异常（仅 Android 9 及以下可能触发）
+class StoragePermissionDeniedException implements Exception {
+  const StoragePermissionDeniedException();
+
+  @override
+  String toString() => '存储权限被永久拒绝，请在系统设置中手动开启';
+}
 
 /// Android / iOS 移动端下载器
 ///
-/// Android 会先申请存储权限，再执行流式下载。
-class MobileDownloader implements VideoDownloader {
-  static const _userAgent =
-      'Mozilla/5.0 (Linux; Android 13; Pixel 7) '
-      'AppleWebKit/537.36 (KHTML, like Gecko) '
-      'Chrome/145.0.0.0 Mobile Safari/537.36';
+/// 采用流式下载避免大文件占用过多内存。
+/// Android 10+ 访问 App 私有外部目录无需权限；
+/// Android 9 及以下需要 WRITE_EXTERNAL_STORAGE 权限。
+class MobileDownloader extends BaseDownloader {
+  @override
+  List<String> get downloadUserAgents => const [
+    kUaIosDouyin,
+    kUaAndroidWechat,
+    kUaEdge,
+    kUaIosWechat,
+  ];
 
   @override
-  Future<String> downloadVideo(
-    VideoInfo info, {
-    VideoQuality? quality,
-    String? directory,
-    String? filename,
-  }) async {
-    await _ensureStoragePermission();
+  Future<void> beforeDownload() => _ensureStoragePermission();
 
-    final dir = directory ?? await getDefaultDirectory();
-    final resolvedQuality = quality ?? VideoQuality.p1080;
-    final qualityLabel = resolvedQuality.ratio;
-    final name = _sanitizeFilename(filename ?? info.title);
-    final filePath = '$dir${Platform.pathSeparator}${name}_$qualityLabel.mp4';
-
-    final file = File(filePath);
-    await file.parent.create(recursive: true);
-
-    final downloadUrl = info.urlFor(resolvedQuality);
-    final client = http.Client();
-    try {
-      final request = http.Request('GET', Uri.parse(downloadUrl));
-      request.headers.addAll({
-        HttpHeaders.userAgentHeader: _userAgent,
-        // 不发送 Referer：douyinvod CDN 对 douyin.com Referer 做防盗链拦截
-      });
-
-      final streamed = await client.send(request);
-      if (streamed.statusCode != 200) {
-        throw Exception('下载请求失败，状态码: ${streamed.statusCode}');
-      }
-
-      await streamed.stream.pipe(file.openWrite());
-      return filePath;
-    } finally {
-      client.close();
-    }
+  @override
+  Future<void> afterDownload(String filePath) async {
+    if (Platform.isAndroid) await _scanMediaFile(filePath);
   }
 
   @override
   Future<String> getDefaultDirectory() async {
-    // 优先使用外部存储（SD 卡或共享存储）
-    final externalDir = await getExternalStorageDirectory();
-    if (externalDir != null) {
-      // 保存到 .../Download/dviewer/ 子目录
-      return '${externalDir.path}${Platform.pathSeparator}Download';
-    }
-    // Fallback：App 专属文档目录
+    // Android：优先 App 私有外部存储（不需要权限，用户可在文件管理器 Android/data 下访问）
+    // 路径示例：/storage/emulated/0/Android/data/com.example.dviewer/files/dviewer
+    try {
+      final externalDir = await getExternalStorageDirectory();
+      if (externalDir != null) {
+        return '${externalDir.path}${Platform.pathSeparator}dviewer';
+      }
+    } catch (_) {}
+    // Fallback：App 内部文档目录
     return (await getApplicationDocumentsDirectory()).path;
   }
 
-  /// 申请存储权限（Android 10 以下需要；Android 11+ 访问 App 专属目录不需要）
+  /// 申请存储权限
+  /// - Android 11+（API 30+）：申请 manageExternalStorage，可写 Movies/Downloads
+  /// - Android 10 及以下：申请 storage，可写外部存储
   Future<void> _ensureStoragePermission() async {
     if (!Platform.isAndroid) return;
-    final status = await Permission.storage.status;
-    if (!status.isGranted) {
-      final result = await Permission.storage.request();
-      if (!result.isGranted) {
-        throw Exception('存储权限被拒绝，无法保存文件');
+
+    // 判断 Android 版本：SDK 30 = Android 11
+    final sdkInt = await _androidSdkVersion();
+
+    final Permission perm = sdkInt >= 30
+        ? Permission.manageExternalStorage
+        : Permission.storage;
+
+    final status = await perm.status;
+    if (status.isGranted || status.isLimited) return;
+
+    if (status.isPermanentlyDenied) {
+      throw const StoragePermissionDeniedException();
+    }
+
+    final result = await perm.request();
+    // manageExternalStorage 在模拟器/某些机型上弹系统设置页，
+    // 用户返回后结果仍为 denied，但实际可能已授权，再检查一次
+    if (result.isDenied || result.isPermanentlyDenied) {
+      final recheck = await perm.status;
+      if (!recheck.isGranted) {
+        if (recheck.isPermanentlyDenied) {
+          throw const StoragePermissionDeniedException();
+        }
+        // Android 11+ 未授权 manageExternalStorage 时降级用 App 私有目录继续下载
+        // （已在 getDefaultDirectory fallback 里处理）
       }
     }
   }
 
-  String _sanitizeFilename(String name) {
-    var result = name
-        .replaceAll(RegExp(r'[<>:"/\\|?*\x00-\x1f]'), '_')
-        .trim()
-        .replaceAll(RegExp(r'_+'), '_');
-    if (result.length > 200) result = result.substring(0, 200);
-    return result.isEmpty ? 'video' : result;
+  /// 读取 Android SDK 版本，失败时返回 0（当做旧版本处理）
+  Future<int> _androidSdkVersion() async {
+    try {
+      final result = await Process.run('getprop', ['ro.build.version.sdk']);
+      return int.tryParse((result.stdout as String).trim()) ?? 0;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  /// 通知 Android MediaStore 扫描新文件，使其出现在相册等媒体库中
+  Future<void> _scanMediaFile(String path) async {
+    try {
+      const channel = MethodChannel('com.example.dviewer/media');
+      await channel.invokeMethod('scanFile', {'path': path});
+    } catch (_) {}
   }
 }

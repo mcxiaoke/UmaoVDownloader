@@ -14,6 +14,8 @@ class WebDownloader implements VideoDownloader {
     VideoQuality? quality,
     String? directory,
     String? filename,
+    void Function(int received, int? total)? onProgress,
+    void Function(String message)? onLog,
   }) {
     // TODO: 实现 Web 下载
     throw UnimplementedError('Web 下载功能尚未实现');

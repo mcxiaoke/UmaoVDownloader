@@ -1,9 +1,17 @@
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 const _kDownloadDir = 'download_dir';
+
+/// Android 上可供用户快速切换的预设目录
+class AndroidQuickDir {
+  final String label;
+  final String path;
+  const AndroidQuickDir(this.label, this.path);
+}
 
 /// 持久化设置服务，目前只保存下载目录。
 class SettingsService extends ChangeNotifier {
@@ -17,7 +25,7 @@ class SettingsService extends ChangeNotifier {
     if (saved != null && saved.isNotEmpty) {
       _downloadDir = saved;
     } else {
-      _downloadDir = _defaultDir();
+      _downloadDir = await _defaultDirAsync();
     }
     notifyListeners();
   }
@@ -29,14 +37,31 @@ class SettingsService extends ChangeNotifier {
     notifyListeners();
   }
 
-  static String _defaultDir() {
+  /// Android 预设快捷目录（Movies / Downloads / App私有）
+  static Future<List<AndroidQuickDir>> androidQuickDirs() async {
+    const base = '/storage/emulated/0';
+    final appPrivate = await getExternalStorageDirectory();
+    return [
+      AndroidQuickDir('Movies', '$base/Movies/dviewer'),
+      AndroidQuickDir('Downloads', '$base/Download/dviewer'),
+      if (appPrivate != null)
+        AndroidQuickDir('App私有', '${appPrivate.path}/dviewer'),
+    ];
+  }
+
+  static Future<String> _defaultDirAsync() async {
+    if (Platform.isAndroid) {
+      // 默认存到 Movies/dviewer
+      return '/storage/emulated/0/Movies/dviewer';
+    }
     if (Platform.isWindows) {
       final home =
           Platform.environment['USERPROFILE'] ??
           Platform.environment['HOME'] ??
           '';
       return home.isEmpty ? Directory.current.path : '$home\\Downloads';
-    } else if (Platform.isMacOS || Platform.isLinux) {
+    }
+    if (Platform.isMacOS || Platform.isLinux) {
       final home = Platform.environment['HOME'] ?? '';
       return home.isEmpty ? Directory.current.path : '$home/Downloads';
     }
