@@ -115,6 +115,17 @@ header p {
   gap: 0.5rem;
   margin-top: 0.9rem;
 }
+/* 视频质量列表：垂直排列，每行一个 */
+.video-quality-list {
+  flex-direction: column;
+  align-items: stretch;
+}
+.video-quality-list .btn-dl {
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .btn-dl {
   padding: 0.5rem 1rem;
   border: 1.5px solid #1976d2;
@@ -178,6 +189,28 @@ header p {
 .image-item:hover a,
 .image-item:hover .img-dl-btn {
   opacity: 1;
+}
+/* Live Photo 视频下载按钮 */
+.image-item .img-video-btn {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  background: rgba(255, 107, 107, 0.9);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.2s;
+  z-index: 2;
+}
+.image-item:hover .img-video-btn {
+  opacity: 1;
+}
+.image-item .img-video-btn:hover {
+  background: rgba(255, 82, 82, 1);
 }
 .btn-dl-all {
   display: block;

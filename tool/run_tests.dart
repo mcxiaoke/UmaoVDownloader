@@ -55,13 +55,43 @@ class _CachingClient extends http.BaseClient {
         platformDir.createSync(recursive: true);
       }
 
-      // 用 id 作文件名
-      final name = '${_id}.html';
-      final file = io.File(path.join(platformDir.path, name));
-      await file.writeAsString(resp.body);
-      lastSavedPath = file.path;
+      // 保存 HTML
+      final htmlName = '${_id}.html';
+      final htmlFile = io.File(path.join(platformDir.path, htmlName));
+      await htmlFile.writeAsString(resp.body);
+      lastSavedPath = htmlFile.path;
+
+      // 提取并保存 __INITIAL_STATE__ JSON
+      final jsonData = _extractInitialState(resp.body);
+      if (jsonData != null) {
+        final jsonName = '${_id}.json';
+        final jsonFile = io.File(path.join(platformDir.path, jsonName));
+        await jsonFile.writeAsString(jsonData);
+      }
     }
     return resp;
+  }
+
+  // 从 HTML 中提取 __INITIAL_STATE__ JSON
+  String? _extractInitialState(String html) {
+    // 匹配 window.__INITIAL_STATE__ = {...}
+    final reg = RegExp(
+      r'window\.__INITIAL_STATE__\s*=\s*({.+?});?\s*</script>',
+      caseSensitive: false,
+      dotAll: true,
+    );
+    final match = reg.firstMatch(html);
+    if (match != null) {
+      var jsonStr = match.group(1)!;
+      // 将 JavaScript undefined 替换为 null，使其成为合法 JSON
+      // 使用 replaceAllMapped 来正确处理捕获组
+      jsonStr = jsonStr.replaceAllMapped(
+        RegExp(r':\s*undefined\s*([,}\]])'),
+        (m) => ':null${m.group(1)}',
+      );
+      return jsonStr;
+    }
+    return null;
   }
 }
 
@@ -78,9 +108,10 @@ Future<_Result> _testOne(
         RegExp(r'/(?:video|note|slides)/(\d+)').firstMatch(url)?.group(1) ??
         'unknown';
   } else {
-    // xhslink.com/o/xxx 或 xiaohongshu.com/explore/xxx
+    // xhslink.com/o/xxx 或 xiaohongshu.com/explore/xxx 或 /discovery/item/xxx
     id = RegExp(r'xhslink\.com/o/([A-Za-z0-9_-]+)').firstMatch(url)?.group(1) ??
         RegExp(r'/explore/(\w+)').firstMatch(url)?.group(1) ??
+        RegExp(r'/discovery/item/(\w+)').firstMatch(url)?.group(1) ??
         'unknown';
   }
 
@@ -177,14 +208,27 @@ Future<void> main(List<String> args) async {
     io.exit(1);
   }
 
-  // 根据文件名判断平台
-  final platform = urlsFileName.contains('xhs')
-      ? Platform.xiaohongshu
-      : Platform.douyin;
+  // 根据文件名或内容判断平台
+  Platform detectPlatform(String fileName, List<String> lines) {
+    if (fileName.contains('xhs')) return Platform.xiaohongshu;
+    // 检查文件内容中的 URL 特征
+    for (final line in lines) {
+      if (line.contains('xhslink.com') || line.contains('xiaohongshu.com')) {
+        return Platform.xiaohongshu;
+      }
+      if (line.contains('douyin.com') || line.contains('v.douyin.com')) {
+        return Platform.douyin;
+      }
+    }
+    return Platform.douyin; // 默认
+  }
+
+  final lines = urlsFile.readAsLinesSync();
+  final platform = detectPlatform(urlsFileName, lines);
 
   // 解析 urls.txt，跳过空行和纯注释行
   final entries = <({String url, String label})>[];
-  for (final line in urlsFile.readAsLinesSync()) {
+  for (final line in lines) {
     final trimmed = line.trim();
     if (trimmed.isEmpty || trimmed.startsWith('#')) continue;
 

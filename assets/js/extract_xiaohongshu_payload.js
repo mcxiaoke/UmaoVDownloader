@@ -178,7 +178,6 @@
 
   /**
    * 提取图片 URL 列表（无水印高清图）
-   * 使用 sns-webpic.xhscdn.com 域名支持受保护的图片（作者禁止直接保存）
    */
   function extractImageUrls(note) {
     const imageList = get(note, "imageList", []);
@@ -193,9 +192,7 @@
           if (best.url) {
             const result = extractFileIdFromUrl(best.url);
             if (result) {
-              // 使用 sns-webpic 域名构建高清无水印 URL（支持受保护图片）
-              // 格式: https://sns-webpic.xhscdn.com/notes_pre_post/{fileId}?imageView2/2/w/0/format/jpg/v3&c=v1
-              return `https://sns-webpic.xhscdn.com/notes_pre_post/${result.fileId}?imageView2/2/w/0/format/jpg/v3&c=v1`;
+              return `https://sns-img-hw.xhscdn.com/${result.prefix}${result.fileId}?imageView2/2/w/0/format/jpg`;
             }
             return best.url;
           }
@@ -204,7 +201,7 @@
         // 备用：traceId
         const traceId = img.traceId || get(img, "infoList.0.imageScene.traceId");
         if (traceId) {
-          return `https://sns-webpic.xhscdn.com/notes_pre_post/${traceId}?imageView2/2/w/0/format/jpg/v3&c=v1`;
+          return `https://sns-img-hw.xhscdn.com/${traceId}?imageView2/2/w/0/format/jpg`;
         }
 
         // 最后备用

@@ -9,6 +9,8 @@ import {
   fetchWithRetry,
   extractUrl,
 } from "./common.js";
+import { writeFileSync, mkdirSync, existsSync } from "fs";
+import { join } from "path";
 
 const XHS_UA =
   "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) " +
@@ -22,6 +24,7 @@ const XHS_HEADERS = {
 };
 
 let log = () => {};
+let currentShortId = ''; // 当前解析的短ID，用于调试文件名
 
 /**
  * 判断是否支持该 URL
@@ -31,17 +34,31 @@ export function canParse(url) {
 }
 
 /**
+ * 从URL中提取短ID (如 xhslink.com/o/98zulilsiJI 中的 98zulilsiJI)
+ */
+function extractShortId(url) {
+  const match = url.match(/xhslink\.com\/o\/([A-Za-z0-9_-]+)/);
+  if (match) return match[1];
+  // 备用：从路径中提取
+  const pathMatch = url.match(/\/item\/([A-Za-z0-9]+)/);
+  if (pathMatch) return pathMatch[1];
+  return '';
+}
+
+/**
  * 解析入口
  * @param {string} url - 小红书链接
  * @param {boolean} debug - 是否开启调试日志
  */
 export async function parse(url, debug = false) {
   log = debug ? (...args) => console.log("  [XHS]", ...args) : () => {};
+  currentShortId = extractShortId(url); // 设置当前短ID
 
   log(`开始解析: ${url}`);
 
   const extracted = extractUrl(url);
   log(`提取URL: ${extracted}`);
+  log(`短ID: ${currentShortId}`);
 
   // 跟随重定向获取真实 URL 和 HTML
   log("→ 请求页面...");
@@ -143,9 +160,72 @@ function extractSSRData(html) {
 
 /**
  * 从 HTML 中提取 __INITIAL_STATE__
- * 注意：小红书的数据包含 undefined，需要用 new Function 解析
+ * 优先使用 JSON 解析（将 undefined 替换为 null），失败则回退到手动提取
  */
 function extractInitialState(html) {
+  // 方法1: 先尝试用 JSON 解析
+  const jsonResult = extractInitialStateJson(html);
+  if (jsonResult) {
+    log("  使用 JSON 解析成功");
+    return jsonResult;
+  }
+
+  // 方法2: 回退到手动提取 + new Function 解析
+  log("  JSON 解析失败，回退到手动提取");
+  return extractInitialStateLegacy(html);
+}
+
+/**
+ * 使用 JSON 解析提取 __INITIAL_STATE__
+ * 将 JavaScript undefined 替换为 null 使其成为合法 JSON
+ */
+function extractInitialStateJson(html) {
+  // 匹配 window.__INITIAL_STATE__ = {...} 或 window.__INITIAL_STATE__={...}
+  const match = html.match(/window\.__INITIAL_STATE__\s*=\s*(\{[\s\S]*?\})(?:;|\s*<\/script>)/);
+  if (!match) return null;
+
+  let jsonStr = match[1];
+
+  // 将 JavaScript undefined 替换为 null
+  // 匹配: : undefined, : undefined} : undefined] 等情况
+  jsonStr = jsonStr.replace(/:\s*undefined\s*([,}\]])/g, ':null$1');
+
+  try {
+    const data = JSON.parse(jsonStr);
+    // 保存原始 JSON 到 temp 目录供调试
+    saveDebugJson(data, 'initial_state');
+    return data;
+  } catch (e) {
+    // JSON 解析失败，返回 null 让调用方使用备用方案
+    return null;
+  }
+}
+
+/**
+ * 保存调试 JSON 到 backend/temp 目录
+ */
+function saveDebugJson(data, prefix) {
+  try {
+    const tempDir = join(process.cwd(), 'temp');
+    if (!existsSync(tempDir)) {
+      mkdirSync(tempDir, { recursive: true });
+    }
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const idPrefix = currentShortId ? `${currentShortId}_` : '';
+    const filePath = join(tempDir, `${idPrefix}${prefix}_${timestamp}.json`);
+    writeFileSync(filePath, JSON.stringify(data, null, 2));
+    log(`  调试 JSON 已保存: ${filePath}`);
+  } catch (e) {
+    // 保存失败不影响主流程
+    log(`  保存调试 JSON 失败: ${e.message}`);
+  }
+}
+
+/**
+ * 备用方案：手动提取 + new Function 解析
+ * 处理边界情况（如嵌套引号、特殊字符等）
+ */
+function extractInitialStateLegacy(html) {
   // 兼容多种格式：window.__INITIAL_STATE__= 或 window.__INITIAL_STATE__ =
   const marker = html.match(/window\.__INITIAL_STATE__\s*=\s*/);
   if (!marker) return null;
@@ -196,13 +276,20 @@ function extractInitialState(html) {
 function extractNoteData(data) {
   // 新结构：noteData.data.noteData
   const note = data.noteData?.data?.noteData;
-  if (note) return note;
+  if (note) {
+    saveDebugJson(note, 'note_data');
+    return note;
+  }
 
   // 备用路径
   if (data.note?.noteDetailMap) {
     const noteMap = data.note.noteDetailMap;
     const keys = Object.keys(noteMap);
-    if (keys.length > 0) return noteMap[keys[0]];
+    if (keys.length > 0) {
+      const note = noteMap[keys[0]];
+      saveDebugJson(note, 'note_data');
+      return note;
+    }
   }
 
   return null;
@@ -219,14 +306,14 @@ async function buildResult(note) {
   // 封面图
   const coverUrl = extractCoverUrl(note);
 
-  // 提取图片列表
-  const imageUrls = extractImageUrls(note);
+  // 提取图片列表（返回 {thumb, full} 对象数组）
+  const imageList = extractImageUrls(note);
 
   // 提取视频信息 (async)
   const videoInfo = await extractVideoInfo(note);
 
   // 判断类型：有视频优先视频，否则图片
-  const type = videoInfo ? "video" : imageUrls.length > 0 ? "image" : "unknown";
+  const type = videoInfo ? "video" : imageList.length > 0 ? "image" : "unknown";
 
   const result = {
     type,
@@ -240,8 +327,11 @@ async function buildResult(note) {
   };
 
   if (type === "image") {
-    result.imageUrls = imageUrls;
-    result.imageCount = imageUrls.length;
+    // 兼容旧格式：同时提供 imageUrls（大图URL数组）和 imageList（含thumb/full的对象数组）
+    result.imageUrls = imageList.map(i => i.full);
+    result.imageThumbs = imageList.map(i => i.thumb);
+    result.imageList = imageList;
+    result.imageCount = imageList.length;
   } else if (type === "video" && videoInfo) {
     result.qualities = videoInfo.qualities;
     result.qualityUrls = videoInfo.qualityUrls;
@@ -282,32 +372,156 @@ function extractImageUrls(note) {
 
   return imageList
     .map((img, idx) => {
-      // 从 infoList 中提取原始 fileId 构建高清 URL
-      // 避免使用带 !style_xxx 后缀的压缩 URL
-      if (img.infoList?.length > 0) {
-        const best = img.infoList[img.infoList.length - 1];
-        if (best.url) {
-          // 从 URL 中提取 fileId 和路径前缀（去掉时间戳和压缩参数）
-          // URL 格式: http://xxx/时间戳/签名/[notes_uhdr/]fileId!style_xxx
-          const result = extractFileIdFromUrl(best.url);
-          if (result) {
-            // 使用 sns-img-hw 域名构建高清无水印 URL，保留前缀
-            return `https://sns-img-hw.xhscdn.com/${result.prefix}${result.fileId}?imageView2/2/w/0/format/jpg`;
-          }
-          return best.url;
+      // fullOrig: 带水印原图, fullNoWater: 无水印图(CDN替换)
+      const result = { 
+        thumb: null, 
+        full: null, 
+        fullOrig: null, 
+        fullNoWater: null,
+        videoUrl: null, 
+        isLivePhoto: false 
+      };
+
+      // 提取 Live Photo 视频 URL
+      if (img.livePhoto === true && img.stream) {
+        const videoStream = img.stream.h264?.[0] || img.stream.h265?.[0] || img.stream.av1?.[0];
+        if (videoStream?.masterUrl) {
+          result.videoUrl = videoStream.masterUrl;
+          result.isLivePhoto = true;
+          log(`  图片 ${idx + 1}: 检测到 Live Photo, 视频 URL: ${videoStream.masterUrl.substring(0, 60)}...`);
         }
       }
 
-      // 其次尝试 traceId 构建（备用）
-      const traceId = img.traceId || img.infoList?.[0]?.imageScene?.traceId;
-      if (traceId) {
-        return `https://sns-img-hw.xhscdn.com/${traceId}?imageView2/2/w/0/format/jpg`;
+      // 调试：打印 infoList 结构
+      if (img.infoList?.length > 0) {
+        log(`  图片 ${idx + 1}: infoList 有 ${img.infoList.length} 项`);
+        img.infoList.forEach((item, i) => {
+          log(`    [${i}] imageScene: ${item.imageScene}, url: ${item.url?.substring(0, 80)}...`);
+        });
+        
+        // 找大图：WB_DFT > H5_DTL > 其他含 DFT 的
+        const dftScenes = ["WB_DFT", "H5_DTL"];
+        for (const scene of dftScenes) {
+          const match = img.infoList.find(i => i.imageScene === scene && i.url);
+          if (match?.url) {
+            result.fullOrig = match.url;
+            log(`  图片 ${idx + 1}: 大图(原图)使用 ${scene}`);
+            break;
+          }
+        }
+        if (!result.fullOrig) {
+          const dftMatch = img.infoList.find(i => i.imageScene?.includes("DFT") && i.url);
+          if (dftMatch?.url) {
+            result.fullOrig = dftMatch.url;
+            log(`  图片 ${idx + 1}: 大图(原图)使用 ${dftMatch.imageScene}`);
+          }
+        }
+
+        // 找预览图：WB_PRV > H5_PRV > urlPre
+        const prvScenes = ["WB_PRV", "H5_PRV"];
+        for (const scene of prvScenes) {
+          const match = img.infoList.find(i => i.imageScene === scene && i.url);
+          if (match?.url) {
+            result.thumb = match.url;
+            log(`  图片 ${idx + 1}: 预览图使用 ${scene}`);
+            break;
+          }
+        }
+      } else {
+        log(`  图片 ${idx + 1}: 无 infoList`);
       }
 
-      // 最后备用：urlDefault 或 url
-      return img.urlDefault || img.url || null;
+      // 外层字段作为备选
+      if (!result.fullOrig) {
+        if (img.urlDefault) {
+          result.fullOrig = img.urlDefault;
+          log(`  图片 ${idx + 1}: 大图(原图)使用 urlDefault`);
+        } else if (img.url) {
+          result.fullOrig = img.url;
+          log(`  图片 ${idx + 1}: 大图(原图)使用 url`);
+        }
+      }
+
+      if (!result.thumb) {
+        if (img.urlPre) {
+          result.thumb = img.urlPre;
+          log(`  图片 ${idx + 1}: 预览图使用 urlPre`);
+        } else if (img.urlDefault) {
+          result.thumb = img.urlDefault;
+          log(`  图片 ${idx + 1}: 预览图使用 urlDefault`);
+        }
+      }
+
+      // 生成无水印 URL
+      // 正确格式: https://sns-img-hw.xhscdn.com/notes_pre_post/{fileId}?imageView2/2/w/0/format/jpg
+      if (result.fullOrig) {
+        result.fullNoWater = buildNoWatermarkUrl(result.fullOrig);
+        log(`  图片 ${idx + 1}: 无水印 URL: ${result.fullNoWater?.substring(0, 80)}...`);
+      }
+
+      // 决定使用哪个作为 full: 优先使用无水印图
+      if (result.fullNoWater) {
+        result.full = result.fullNoWater;
+        log(`  图片 ${idx + 1}: 使用无水印图`);
+      } else {
+        result.full = result.fullOrig;
+        log(`  图片 ${idx + 1}: 无水印图不可用，使用原图`);
+      }
+
+      // 如果没有大图，用预览图代替
+      if (!result.full && result.thumb) {
+        result.full = result.thumb;
+        log(`  图片 ${idx + 1}: 无大图，用预览图代替`);
+      }
+      // 如果没有预览图，用大图代替
+      if (!result.thumb && result.full) {
+        result.thumb = result.full;
+        log(`  图片 ${idx + 1}: 无预览图，用大图代替`);
+      }
+
+      if (!result.full && !result.thumb) {
+        log(`  图片 ${idx + 1}: 无可用 URL`);
+        return null;
+      }
+
+      return result;
     })
     .filter(Boolean);
+}
+
+/**
+ * 构建无水印图片 URL
+ * 原URL: http://sns-webpic-qc.xhscdn.com/202603132203/xxx/notes_pre_post/1040g...!h5_1080jpg
+ * 目标:   https://sns-img-hw.xhscdn.com/notes_pre_post/1040g...?imageView2/2/w/0/format/jpg
+ */
+function buildNoWatermarkUrl(originalUrl) {
+  if (!originalUrl) return null;
+
+  try {
+    const urlObj = new URL(originalUrl);
+    const pathParts = urlObj.pathname.split("/").filter(Boolean);
+
+    // 提取 fileId（最后一部分，去掉 ! 后缀）
+    const lastPart = pathParts[pathParts.length - 1];
+    const fileId = lastPart.split("!")[0];
+
+    if (!fileId || !/^[a-z0-9]+$/i.test(fileId)) {
+      return null;
+    }
+
+    // 确定路径前缀: notes_pre_post 或 notes_uhdr 或默认空
+    let prefix = "";
+    if (pathParts.includes("notes_pre_post")) {
+      prefix = "notes_pre_post/";
+    } else if (pathParts.includes("notes_uhdr")) {
+      prefix = "notes_uhdr/";
+    }
+
+    // 构建无水印 URL
+    return `https://sns-img-hw.xhscdn.com/${prefix}${fileId}?imageView2/2/w/0/format/jpg`;
+  } catch {
+    return null;
+  }
 }
 
 /**

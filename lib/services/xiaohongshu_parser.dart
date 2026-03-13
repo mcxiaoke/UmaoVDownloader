@@ -365,7 +365,6 @@ class XiaohongshuParser {
   }
 
   /// 提取图片 URL 列表（无水印）
-  /// 使用 sns-webpic.xhscdn.com 域名支持受保护的图片（作者禁止直接保存）
   List<String> _extractImageUrls(Map<String, dynamic> note) {
     final imageList = note['imageList'] ?? note['images'];
     if (imageList is! List) return [];
@@ -380,9 +379,8 @@ class XiaohongshuParser {
         if (best is Map && best['url'] is String) {
           final result = _extractFileIdFromUrl(best['url']);
           if (result != null) {
-            // 使用 sns-webpic 域名构建高清无水印 URL（支持受保护图片）
-            // 格式: https://sns-webpic.xhscdn.com/notes_pre_post/{fileId}?imageView2/2/w/0/format/jpg/v3&c=v1
-            return 'https://sns-webpic.xhscdn.com/notes_pre_post/${result.fileId}?imageView2/2/w/0/format/jpg/v3&c=v1';
+            // 使用 sns-img-hw 域名构建高清无水印 URL，保留前缀
+            return 'https://sns-img-hw.xhscdn.com/${result.prefix}${result.fileId}?imageView2/2/w/0/format/jpg';
           }
           return best['url'];
         }
@@ -391,7 +389,7 @@ class XiaohongshuParser {
       // 其次尝试 traceId 构建（备用）
       final traceId = img['traceId'];
       if (traceId is String) {
-        return 'https://sns-webpic.xhscdn.com/notes_pre_post/$traceId?imageView2/2/w/0/format/jpg/v3&c=v1';
+        return 'https://sns-img-hw.xhscdn.com/$traceId?imageView2/2/w/0/format/jpg';
       }
       final firstInfo = infoList is List && infoList.isNotEmpty ? infoList.first : null;
       if (firstInfo is Map) {
@@ -399,7 +397,7 @@ class XiaohongshuParser {
         if (imageScene is Map) {
           final traceId2 = imageScene['traceId'];
           if (traceId2 is String) {
-            return 'https://sns-webpic.xhscdn.com/notes_pre_post/$traceId2?imageView2/2/w/0/format/jpg/v3&c=v1';
+            return 'https://sns-img-hw.xhscdn.com/$traceId2?imageView2/2/w/0/format/jpg';
           }
         }
       }

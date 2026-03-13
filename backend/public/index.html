@@ -55,15 +55,31 @@
           .replace(/[\\/:"*?<>|]/g, "_")
           .substring(0, 60);
 
-        const qualityBtns = (info.qualities ?? [bestQuality])
-          .map((q, i) => {
-            const url = info.qualityUrls?.[q] ?? info.videoUrl;
-            const isPrimary = i === 0;
-            return `<a class="btn-dl ${isPrimary ? "primary" : ""}"
-                   href="${dlUrl(url, `${safeName}_${q}${ext}`)}"
-                   download>↓ ${q}</a>`;
-          })
-          .join("");
+        // 检查是否有详细的格式信息（小红书有，抖音没有）
+        const hasFormatInfo = info.formatInfo && Object.keys(info.formatInfo).length > 0;
+
+        let qualityBtns;
+        if (hasFormatInfo) {
+          // 为每个质量选项生成一行下载按钮，显示文件大小、比特率和分辨率
+          qualityBtns = (info.qualities ?? [bestQuality])
+            .map((q, i) => {
+              const url = info.qualityUrls?.[q] ?? info.videoUrl;
+              const fmt = info.formatInfo?.[q] ?? {};
+              const sizeMB = fmt.size ? (fmt.size / 1024 / 1024).toFixed(1) : "?";
+              const bitrate = fmt.bitrate ? Math.round(fmt.bitrate / 1000) : "?";
+              const width = fmt.width ?? "?";
+              const height = fmt.height ?? "?";
+              const isPrimary = i === 0;
+              return `<a class="btn-dl ${isPrimary ? "primary" : ""}"
+                     href="${dlUrl(url, `${safeName}_${q}${ext}`)}"
+                     download>↓ ${q} · ${sizeMB}MB · ${bitrate}kbps · ${width}×${height}</a>`;
+            })
+            .join("");
+        } else {
+          // 抖音等没有详细信息的平台，只显示简单下载按钮
+          const url = info.videoUrl ?? info.qualityUrls?.[bestQuality];
+          qualityBtns = `<a class="btn-dl primary" href="${dlUrl(url, `${safeName}${ext}`)}" download>↓ 下载视频</a>`;
+        }
 
         const coverProxyUrl = info.coverUrl
           ? `download?url=${encodeURIComponent(info.coverUrl)}&name=cover.jpg`
@@ -75,7 +91,7 @@
           ${info.width && info.height ? `${info.width}×${info.height}` : ""}
           ${info.shareId ? ` · ${info.shareId}` : ""}
         </div>
-        <div class="quality-btns">${qualityBtns}</div>
+        <div class="quality-btns video-quality-list">${qualityBtns}</div>
       `;
       }
 
@@ -84,19 +100,26 @@
           .replace(/[\\/:"*?<>|]/g, "_")
           .substring(0, 40);
 
-        // 生成缩略图 URL（限制宽度 400px）
-        function getThumbUrl(url) {
-          return url.replace(/w\/0/, "w/400");
-        }
+        // 使用后端返回的缩略图和大图
+        const imageList = info.imageList || [];      // 完整图片对象数组 {thumb, full, videoUrl, isLivePhoto}
+        const imageUrls = info.imageUrls || [];      // 大图（下载用）
+        const imageThumbs = info.imageThumbs || [];  // 小图（列表显示用）
 
-        const items = info.imageUrls
+        const items = imageUrls
           .map(
-            (url, i) => `
+            (url, i) => {
+              const imgData = imageList[i] || {};
+              const videoBtn = imgData.isLivePhoto && imgData.videoUrl
+                ? `<button class="img-video-btn" data-video="${imgData.videoUrl}" data-idx="${i}" title="下载 Live Photo 视频">🎬 MP4</button>`
+                : '';
+              return `
         <div class="image-item">
-          <img src="${`download?url=${encodeURIComponent(getThumbUrl(url))}&name=thumb_${i}.webp`}" loading="lazy" data-full="${url}" />
+          <img src="${`download?url=${encodeURIComponent(imageThumbs[i] || url)}&name=thumb_${i}.webp`}" loading="lazy" data-full="${url}" />
           <button class="img-dl-btn" data-url="${url}" data-idx="${i}">${isMobile ? "↓ JPG" : "↓ WebP"}</button>
+          ${videoBtn}
         </div>
-      `,
+      `;
+            },
           )
           .join("");
 
@@ -143,6 +166,27 @@
                 dlBtn.disabled = false;
                 dlBtn.textContent = "↓ WebP";
               }
+            }
+          });
+        });
+
+        // Live Photo 视频下载按钮
+        result.querySelectorAll(".img-video-btn").forEach((videoBtn) => {
+          videoBtn.addEventListener("click", async () => {
+            videoBtn.disabled = true;
+            const idx = parseInt(videoBtn.dataset.idx);
+            try {
+              const name = `${safeName}_${String(idx + 1).padStart(2, "0")}_live.mp4`;
+              const a = document.createElement("a");
+              a.href = dlUrl(videoBtn.dataset.video, name);
+              a.download = name;
+              document.body.appendChild(a);
+              a.click();
+              a.remove();
+            } catch (e) {
+              setStatus("视频下载失败：" + e.message, true);
+            } finally {
+              videoBtn.disabled = false;
             }
           });
         });
