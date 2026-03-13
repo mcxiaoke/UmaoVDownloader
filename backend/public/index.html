@@ -93,7 +93,7 @@
           .join("");
 
         const musicBtn = info.musicUrl
-          ? `<a class="btn-dl" style="margin-top:.5rem"
+          ? `<a class="btn-dl" style="margin-top:1rem;display:block;text-align:center"
               href="${dlUrl(info.musicUrl, `${safeName}_music.mp3`)}" download>
               ♪ 下载背景音乐${info.musicTitle ? " · " + escHtml(info.musicTitle.substring(0, 20)) : ""}
            </a>`

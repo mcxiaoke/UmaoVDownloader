@@ -197,7 +197,15 @@ export async function parse(url) {
     info.imageUrls = extractImageUrls(item);
     info.imageCount = info.imageUrls.length;
     info.musicTitle = item.music?.title ?? null;
-    info.musicUrl = item.music?.play_url?.url_list?.[0] ?? null;
+    // 优先从 music.play_url 获取，否则检查 video.play_addr.uri 是否为 mp3
+    let mUrl = item.music?.play_url?.url_list?.[0] ?? null;
+    if (!mUrl) {
+      const playUri = item.video?.play_addr?.uri;
+      if (typeof playUri === "string" && playUri.includes(".mp3")) {
+        mUrl = playUri;
+      }
+    }
+    info.musicUrl = mUrl;
   } else {
     const qualities = extractQualities(item);
     // qualityUrls: { "1080p": "https://aweme...", ... }
