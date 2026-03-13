@@ -152,6 +152,8 @@ coverage.xml
 *.py,cover
 
 test/
+temp/
+tmp/
 
 
 key.properties
