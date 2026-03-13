@@ -6,6 +6,28 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 const _kDownloadDir = 'download_dir';
 const _kVerboseLog = 'verbose_log';
+const _kParserStrategy = 'parser_strategy';
+const _kCompareParsers = 'compare_parsers';
+
+enum ParserStrategy {
+  webViewThenDart,
+  dartOnly,
+  dartThenWebView;
+
+  String get value => switch (this) {
+    ParserStrategy.webViewThenDart => 'webview_then_dart',
+    ParserStrategy.dartOnly => 'dart_only',
+    ParserStrategy.dartThenWebView => 'dart_then_webview',
+  };
+
+  static ParserStrategy fromValue(String? value) {
+    return switch (value) {
+      'webview_then_dart' => ParserStrategy.webViewThenDart,
+      'dart_then_webview' => ParserStrategy.dartThenWebView,
+      _ => ParserStrategy.webViewThenDart,
+    };
+  }
+}
 
 /// Android 上可供用户快速切换的预设目录
 class AndroidQuickDir {
@@ -18,9 +40,13 @@ class AndroidQuickDir {
 class SettingsService extends ChangeNotifier {
   String _downloadDir = '';
   bool _verboseLog = false;
+  bool _compareParsers = true;
+  ParserStrategy _parserStrategy = ParserStrategy.dartOnly;
 
   String get downloadDir => _downloadDir;
   bool get verboseLog => _verboseLog;
+  bool get compareParsers => _compareParsers;
+  ParserStrategy get parserStrategy => _parserStrategy;
 
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -31,6 +57,10 @@ class SettingsService extends ChangeNotifier {
       _downloadDir = await _defaultDirAsync();
     }
     _verboseLog = prefs.getBool(_kVerboseLog) ?? false;
+    _compareParsers = prefs.getBool(_kCompareParsers) ?? true;
+    _parserStrategy = ParserStrategy.fromValue(
+      prefs.getString(_kParserStrategy),
+    );
     notifyListeners();
   }
 
@@ -45,6 +75,20 @@ class SettingsService extends ChangeNotifier {
     _verboseLog = enabled;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_kVerboseLog, enabled);
+    notifyListeners();
+  }
+
+  Future<void> setCompareParsers(bool enabled) async {
+    _compareParsers = enabled;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kCompareParsers, enabled);
+    notifyListeners();
+  }
+
+  Future<void> setParserStrategy(ParserStrategy strategy) async {
+    _parserStrategy = strategy;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kParserStrategy, strategy.value);
     notifyListeners();
   }
 

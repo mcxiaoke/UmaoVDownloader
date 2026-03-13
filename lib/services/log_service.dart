@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:developer' as developer;
 
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
@@ -65,6 +66,16 @@ class LogService extends ChangeNotifier {
     if (entries.length >= _maxInMemory) entries.removeAt(0);
     entries.add(entry);
     _fileSink?.writeln(entry.toString());
+    // 同步到系统日志，方便通过 adb logcat 直接查看。
+    developer.log(
+      entry.toString(),
+      name: 'dviewer',
+      level: switch (level) {
+        LogLevel.info => 800,
+        LogLevel.warn => 900,
+        LogLevel.error => 1000,
+      },
+    );
     notifyListeners();
   }
 

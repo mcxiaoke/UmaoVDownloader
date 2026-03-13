@@ -11,6 +11,7 @@ import '../services/downloader/base_downloader.dart';
 import '../services/downloader/desktop_downloader.dart';
 import '../services/downloader/mobile_downloader.dart';
 import '../services/log_service.dart';
+import '../services/parser_facade.dart';
 import '../services/settings_service.dart';
 import '../services/url_extractor.dart';
 
@@ -28,6 +29,7 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   final _inputCtrl = TextEditingController();
   final _logScrollCtrl = ScrollController();
+  final _parserFacade = ParserFacade();
 
   // 解析状态
   bool _parsing = false;
@@ -82,14 +84,17 @@ class _HomePageState extends State<HomePage> {
     });
     _log.info('开始解析：$url');
     _vlog('当前平台: ${Platform.operatingSystem}');
+    _vlog('策略=${_settings.parserStrategy.value}');
+    _vlog('并行对比=${_settings.compareParsers ? "开启" : "关闭"}');
     final sw = Stopwatch()..start();
 
     try {
-      final parser = DouyinParser();
-      _vlog('DouyinParser 已创建');
-      final info = await parser.parse(url);
-      parser.dispose();
-      _vlog('DouyinParser 已释放');
+      final info = await _parserFacade.parse(
+        url,
+        strategy: _settings.parserStrategy,
+        compareParsers: _settings.compareParsers,
+        log: (m) => _vlog(m),
+      );
 
       setState(() {
         _videoInfo = info;
@@ -267,6 +272,98 @@ class _HomePageState extends State<HomePage> {
       await _settings.setDownloadDir(result);
       _log.info('下载目录已更改为：$result');
     }
+  }
+
+  void _copyLogContent() {
+    if (_log.entries.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('当前没有日志可复制'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
+    final content = _log.entries.map((e) => e.toString()).join('\n');
+    Clipboard.setData(ClipboardData(text: content));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('已复制日志内容（${_log.entries.length} 条）'),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  Future<void> _openLogSettingsPanel() async {
+    var verbose = _settings.verboseLog;
+    var compare = _settings.compareParsers;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setSheetState) {
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const ListTile(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.tune),
+                      title: Text('日志设置'),
+                    ),
+                    SwitchListTile.adaptive(
+                      value: verbose,
+                      onChanged: (v) async {
+                        setSheetState(() => verbose = v);
+                        await _settings.setVerboseLog(v);
+                        _log.info(v ? '已开启详细日志输出' : '已关闭详细日志输出');
+                      },
+                      title: const Text('详细日志'),
+                    ),
+                    SwitchListTile.adaptive(
+                      value: compare,
+                      onChanged: (v) async {
+                        setSheetState(() => compare = v);
+                        await _settings.setCompareParsers(v);
+                        _log.info(v ? '已开启双解析器并行对比' : '已关闭双解析器并行对比');
+                      },
+                      title: const Text('解析器并行对比'),
+                    ),
+                    if (_log.logFilePath != null)
+                      ListTile(
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                        ),
+                        leading: const Icon(Icons.copy_all),
+                        title: const Text('复制日志路径'),
+                        onTap: () {
+                          Clipboard.setData(
+                            ClipboardData(text: _log.logFilePath!),
+                          );
+                          Navigator.of(ctx).pop();
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('日志路径已复制'),
+                              duration: Duration(seconds: 2),
+                            ),
+                          );
+                        },
+                      ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   // 权限被永久拒绝时弹对话框引导用户去设置页
@@ -714,54 +811,44 @@ class _HomePageState extends State<HomePage> {
           // 标题栏
           Row(
             children: [
-              const Icon(Icons.terminal, size: 15, color: Colors.grey),
-              const SizedBox(width: 4),
-              const Text(
-                '日志',
-                style: TextStyle(fontSize: 12, color: Colors.grey),
-              ),
-              const SizedBox(width: 8),
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  const Icon(Icons.terminal, size: 15, color: Colors.grey),
+                  const SizedBox(width: 4),
                   const Text(
-                    '详细',
+                    '日志',
                     style: TextStyle(fontSize: 12, color: Colors.grey),
-                  ),
-                  const SizedBox(width: 2),
-                  Switch.adaptive(
-                    value: _settings.verboseLog,
-                    onChanged: (v) async {
-                      await _settings.setVerboseLog(v);
-                      _log.info(v ? '已开启详细日志输出' : '已关闭详细日志输出');
-                    },
-                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
                 ],
               ),
               const Spacer(),
-              if (_log.logFilePath != null)
-                TextButton.icon(
-                  onPressed: () {
-                    Clipboard.setData(ClipboardData(text: _log.logFilePath!));
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('日志路径已复制'),
-                        duration: Duration(seconds: 2),
-                      ),
-                    );
-                  },
-                  icon: const Icon(Icons.copy, size: 15),
-                  label: Text(
-                    '复制日志路径',
-                    style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
-                  ),
-                  style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 4),
-                    minimumSize: Size.zero,
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
+              TextButton.icon(
+                onPressed: _openLogSettingsPanel,
+                icon: const Icon(Icons.tune, size: 15),
+                label: Text(
+                  '设置',
+                  style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
                 ),
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ),
+              TextButton.icon(
+                onPressed: _copyLogContent,
+                icon: const Icon(Icons.content_copy, size: 15),
+                label: Text(
+                  '复制日志',
+                  style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+                ),
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ),
               TextButton.icon(
                 onPressed: () => setState(() => _log.entries.clear()),
                 icon: const Icon(Icons.delete_outline, size: 15),

@@ -509,14 +509,14 @@ class DouyinParser {
       }
 
       // 某些图文数据中没有 music.play_url，会把 mp3 放在 video.play_addr.uri
-      if (musicUrl == null || musicUrl!.isEmpty) {
+      if (musicUrl == null || musicUrl.isEmpty) {
         final playAddr = video is Map ? video['play_addr'] : null;
         final uri = playAddr is Map ? playAddr['uri']?.toString() : null;
         if (uri != null && uri.contains('.mp3')) {
           musicUrl = _decodeJsonString(uri);
         }
       }
-      if (musicUrl != null && musicUrl!.isEmpty) musicUrl = null;
+      if (musicUrl != null && musicUrl.isEmpty) musicUrl = null;
 
       return VideoInfo(
         videoId: id,
