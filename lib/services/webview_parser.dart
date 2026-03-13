@@ -10,11 +10,16 @@ import 'douyin_parser.dart';
 
 typedef WebViewParserLog = void Function(String message);
 
+/// JS 执行函数签名
+typedef JsExecutor = Future<String?> Function(String script);
+
 class WebViewParser {
   static const _timeout = Duration(seconds: 15);
   static const _extractScriptAssetPath = 'assets/js/extract_douyin_payload.js';
   static const _androidUserAgent =
       'Mozilla/5.0 (Linux; Android 16; 23456PN2CC Build/BP2A.250605.031.A3; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/142.0.7444.173 Mobile Safari/537.36 MMWEBID/3396 MicroMessenger/8.0.69.3040(0x28004553) WeChat/arm64 Weixin NetType/WIFI Language/zh_CN ABI/arm64';
+  static const _extractMaxRetries = 2;
+  static const _extractRetryDelay = Duration(milliseconds: 500);
   static String? _extractScriptCache;
 
   Future<VideoInfo?> tryParse(String input, {WebViewParserLog? log}) async {
@@ -110,39 +115,21 @@ class WebViewParser {
       final extractScript = await _loadExtractScript(log: log);
       if (extractScript == null) return null;
 
-      var data = await _runWindowsExtractWithRetry(
-        controller,
-        extractScript,
-        log: log,
+      final data = await _tryExtractWithFallback(
+        initialUrl: url,
+        currentUrl: currentUrl ?? url,
+        extractScript: extractScript,
+        executeJs: (script) async {
+          final raw = await controller.executeScript(script);
+          return _normalizeJsResult(raw);
+        },
+        loadUrl: (targetUrl) => loadAndWait(targetUrl, phase: '回退加载'),
+        log: (msg) => log?.call('WebView(Windows) $msg'),
       );
 
-      if ((data?['ok'] == true)) {
-        final info = _mapToVideoInfo(data!);
-        log?.call('WebView(Windows) 解析成功: id=${info.videoId}');
-        return info;
-      }
+      if (data == null) return null;
 
-      // 某些短链会落到不含 _ROUTER_DATA 的壳页，回退到 iesdouyin share 页重试。
-      if (data?['reason'] == 'no_router_data') {
-        final fallback = _buildIesShareFallbackUrl(currentUrl ?? url);
-        if (fallback != null && fallback != currentUrl) {
-          log?.call('WebView(Windows) 回退 share 页重试: $fallback');
-          if (await loadAndWait(fallback, phase: '回退加载')) {
-            data = await _runWindowsExtractWithRetry(
-              controller,
-              extractScript,
-              log: log,
-            );
-          }
-        }
-      }
-
-      if (data?['ok'] != true) {
-        log?.call('WebView(Windows) 提取失败: ${data?['reason'] ?? 'unknown'}');
-        return null;
-      }
-
-      final info = _mapToVideoInfo(data!);
+      final info = _mapToVideoInfo(data);
       log?.call('WebView(Windows) 解析成功: id=${info.videoId}');
       return info;
     } on PlatformException catch (e) {
@@ -156,52 +143,6 @@ class WebViewParser {
       await urlSub?.cancel();
       await controller.dispose();
     }
-  }
-
-  Future<Map<String, dynamic>?> _runWindowsExtractWithRetry(
-    wvwin.WebviewController controller,
-    String extractScript, {
-    WebViewParserLog? log,
-  }) async {
-    Map<String, dynamic>? last;
-    for (var i = 0; i < 6; i++) {
-      final data = await _runWindowsExtractOnce(
-        controller,
-        extractScript,
-        log: log,
-      );
-      if (data == null) return null;
-      last = data;
-      if (data['ok'] == true) return data;
-      if (data['reason'] != 'no_router_data') return data;
-      if (i < 5) {
-        await Future<void>.delayed(const Duration(milliseconds: 250));
-      }
-    }
-    return last;
-  }
-
-  Future<Map<String, dynamic>?> _runWindowsExtractOnce(
-    wvwin.WebviewController controller,
-    String extractScript, {
-    WebViewParserLog? log,
-  }) async {
-    final raw = await controller.executeScript(extractScript);
-    final jsonText = _normalizeJsResult(raw);
-    if (jsonText == null || jsonText.isEmpty) {
-      log?.call('WebView(Windows) JS 返回为空');
-      return null;
-    }
-
-    dynamic decoded;
-    try {
-      decoded = jsonDecode(jsonText);
-    } catch (e) {
-      log?.call('WebView(Windows) JSON 解析失败: $e');
-      return null;
-    }
-    if (decoded is! Map) return null;
-    return Map<String, dynamic>.from(decoded.cast<String, dynamic>());
   }
 
   String? _buildIesShareFallbackUrl(String sourceUrl) {
@@ -260,66 +201,77 @@ class WebViewParser {
     final extractScript = await _loadExtractScript(log: log);
     if (extractScript == null) return null;
 
-    Future<Map<String, dynamic>?> runExtractWithRetry() async {
-      Map<String, dynamic>? last;
-      for (var i = 0; i < 2; i++) {
-        final raw = await controller.runJavaScriptReturningResult(extractScript);
-        final jsonText = _normalizeJsResult(raw);
-        if (jsonText == null || jsonText.isEmpty) return null;
-
-        dynamic decoded;
-        try {
-          decoded = jsonDecode(jsonText);
-        } catch (e) {
-          log?.call('WebView JSON 解析失败: $e');
-          return null;
-        }
-        if (decoded is! Map) return null;
-
-        final data = Map<String, dynamic>.from(decoded.cast<String, dynamic>());
-        last = data;
-        if (data['ok'] == true) return data;
-        if (data['reason'] != 'no_router_data') return data;
-        if (i < 1) {
-          await Future<void>.delayed(const Duration(milliseconds: 500));
-        }
+    Future<bool> loadUrl(String targetUrl) async {
+      final retryFinished = Completer<void>();
+      controller.setNavigationDelegate(
+        NavigationDelegate(
+          onPageStarted: (u) => log?.call('WebView onPageStarted: $u'),
+          onPageFinished: (u) {
+            log?.call('WebView onPageFinished: $u');
+            currentUrl = u;
+            if (!retryFinished.isCompleted) retryFinished.complete();
+          },
+          onWebResourceError: (e) {
+            if ((e.description).contains('ERR_UNKNOWN_URL_SCHEME')) {
+              log?.call('WebView 资源错误(可忽略): ${e.description}');
+            } else {
+              log?.call('WebView 资源错误: ${e.description}');
+            }
+          },
+        ),
+      );
+      await controller.loadRequest(Uri.parse(targetUrl));
+      try {
+        await retryFinished.future.timeout(_timeout);
+        return true;
+      } on TimeoutException {
+        log?.call('WebView 回退页加载超时');
+        return false;
       }
-      return last;
     }
 
-    var data = await runExtractWithRetry();
+    final data = await _tryExtractWithFallback(
+      initialUrl: url,
+      currentUrl: currentUrl ?? url,
+      extractScript: extractScript,
+      executeJs: (script) async {
+        final raw = await controller.runJavaScriptReturningResult(script);
+        return _normalizeJsResult(raw);
+      },
+      loadUrl: loadUrl,
+      log: log,
+    );
+
+    return data == null ? null : _mapToVideoInfo(data);
+  }
+
+  /// 统一提取和回退逻辑
+  Future<Map<String, dynamic>?> _tryExtractWithFallback({
+    required String initialUrl,
+    required String currentUrl,
+    required String extractScript,
+    required JsExecutor executeJs,
+    required Future<bool> Function(String) loadUrl,
+    required WebViewParserLog? log,
+  }) async {
+    var data = await _runExtractWithRetry(
+      extractScript: extractScript,
+      executeJs: executeJs,
+      log: log,
+    );
 
     // 某些短链会落到不含 _ROUTER_DATA 的壳页，回退到 iesdouyin share 页重试
     if (data?['reason'] == 'no_router_data') {
-      final fallback = _buildIesShareFallbackUrl(currentUrl ?? url);
+      final fallback = _buildIesShareFallbackUrl(currentUrl);
       if (fallback != null && fallback != currentUrl) {
         log?.call('WebView 回退 share 页重试: $fallback');
-        final retryFinished = Completer<void>();
-        controller.setNavigationDelegate(
-          NavigationDelegate(
-            onPageStarted: (u) => log?.call('WebView onPageStarted: $u'),
-            onPageFinished: (u) {
-              log?.call('WebView onPageFinished: $u');
-              currentUrl = u;
-              if (!retryFinished.isCompleted) retryFinished.complete();
-            },
-            onWebResourceError: (e) {
-              if ((e.description).contains('ERR_UNKNOWN_URL_SCHEME')) {
-                log?.call('WebView 资源错误(可忽略): ${e.description}');
-              } else {
-                log?.call('WebView 资源错误: ${e.description}');
-              }
-            },
-          ),
-        );
-        await controller.loadRequest(Uri.parse(fallback));
-        try {
-          await retryFinished.future.timeout(_timeout);
-        } on TimeoutException {
-          log?.call('WebView 回退页加载超时');
-          return null;
+        if (await loadUrl(fallback)) {
+          data = await _runExtractWithRetry(
+            extractScript: extractScript,
+            executeJs: executeJs,
+            log: log,
+          );
         }
-        data = await runExtractWithRetry();
       }
     }
 
@@ -328,7 +280,41 @@ class WebViewParser {
       return null;
     }
 
-    return _mapToVideoInfo(data!);
+    return data;
+  }
+
+  /// 统一的重试提取逻辑
+  Future<Map<String, dynamic>?> _runExtractWithRetry({
+    required String extractScript,
+    required JsExecutor executeJs,
+    required WebViewParserLog? log,
+  }) async {
+    Map<String, dynamic>? last;
+    for (var i = 0; i < _extractMaxRetries; i++) {
+      final jsonText = await executeJs(extractScript);
+      if (jsonText == null || jsonText.isEmpty) {
+        log?.call('JS 返回为空');
+        return null;
+      }
+
+      dynamic decoded;
+      try {
+        decoded = jsonDecode(jsonText);
+      } catch (e) {
+        log?.call('JSON 解析失败: $e');
+        return null;
+      }
+      if (decoded is! Map) return null;
+
+      final data = Map<String, dynamic>.from(decoded.cast<String, dynamic>());
+      last = data;
+      if (data['ok'] == true) return data;
+      if (data['reason'] != 'no_router_data') return data;
+      if (i < _extractMaxRetries - 1) {
+        await Future<void>.delayed(_extractRetryDelay);
+      }
+    }
+    return last;
   }
 
   Future<String?> _loadExtractScript({WebViewParserLog? log}) async {
