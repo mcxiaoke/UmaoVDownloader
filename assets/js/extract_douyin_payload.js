@@ -1,141 +1,111 @@
-(() => {
-  const PLAY_BASE = "https://aweme.snssdk.com/aweme/v1/play/";
+/**
+ * 抖音分享页数据提取器（WebView 注入脚本）
+ * 从 window._ROUTER_DATA 或 HTML 源码中提取视频/图文信息
+ */
 
+(() => {
+  // ── 常量定义 ────────────────────────────────────────────────────────────────
+  const CONSTANTS = {
+    PLAY_BASE: "https://aweme.snssdk.com/aweme/v1/play/",
+    URL_PATTERNS: {
+      SHARE_ID: /v\.douyin\.com\/([A-Za-z0-9_-]+)/,
+      LQEN_NEW: /tplv-dy-lqen-new/,
+      WATERMARK: /-water/,
+      AWEME_IMAGES: /tplv-dy-aweme-images/,
+    },
+    PRIORITY: {
+      IMAGE_URLS: [
+        {
+          test: (u) => u.includes("tplv-dy-lqen-new") && !u.includes("-water"),
+          name: "lqen-new",
+        },
+        {
+          test: (u) => u.includes("tplv-dy-aweme-images"),
+          name: "aweme-images",
+        },
+      ],
+    },
+  };
+
+  // ── 错误类型 ────────────────────────────────────────────────────────────────
+  const ErrorCode = {
+    NO_ROUTER_DATA: "no_router_data",
+    NO_ITEM: "no_item",
+    EXTRACTION_FAILED: "extraction_failed",
+  };
+
+  // ── 工具函数 ────────────────────────────────────────────────────────────────
+
+  /**
+   * 安全获取嵌套对象属性
+   * @param {any} obj - 源对象
+   * @param {string} path - 点分隔路径，如 "a.b.c"
+   * @param {any} defaultValue - 默认值
+   */
+  function get(obj, path, defaultValue = null) {
+    const keys = path.split(".");
+    let result = obj;
+    for (const key of keys) {
+      if (result == null || typeof result !== "object") return defaultValue;
+      result = result[key];
+    }
+    return result ?? defaultValue;
+  }
+
+  /**
+   * 安全获取数组元素
+   * @param {any} obj
+   * @param {string} path
+   * @param {number} index
+   */
+  function getArrayItem(obj, path, index = 0) {
+    const arr = get(obj, path);
+    return Array.isArray(arr) ? arr[index] : null;
+  }
+
+  /**
+   * 返回失败的 JSON 响应
+   */
   function jsonFail(reason) {
     return JSON.stringify({ ok: false, reason });
   }
 
+  /**
+   * 解码 JSON 转义字符串（如 \u002F → /）
+   */
   function decodeJsonEscapedString(value) {
     if (typeof value !== "string") return value;
     try {
       return JSON.parse(
         '"' + value.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"',
       );
-    } catch (_) {
+    } catch {
       return value;
     }
   }
 
+  /**
+   * 从 URL 中提取分享 ID
+   * @param {string} url
+   */
   function extractShareId(url) {
-    const shareMatch = url.match(/v\.douyin\.com\/([A-Za-z0-9_-]+)/);
-    return shareMatch ? shareMatch[1] : null;
+    const match = url.match(CONSTANTS.URL_PATTERNS.SHARE_ID);
+    return match ? match[1] : null;
   }
 
-  function getLoaderData() {
-    return window._ROUTER_DATA && window._ROUTER_DATA.loaderData;
+  // ── 数据提取 ────────────────────────────────────────────────────────────────
+
+  /**
+   * 从 window 对象获取 _ROUTER_DATA
+   */
+  function getRouterDataFromWindow() {
+    return get(window, "_ROUTER_DATA");
   }
 
-  function findAwemeItem(loaderData) {
-    for (const key in loaderData) {
-      if (!Object.prototype.hasOwnProperty.call(loaderData, key)) continue;
-      if (!String(key).includes("/page")) continue;
-
-      const candidate =
-        loaderData[key] &&
-        loaderData[key].videoInfoRes &&
-        loaderData[key].videoInfoRes.item_list &&
-        loaderData[key].videoInfoRes.item_list[0];
-      if (candidate) return candidate;
-    }
-    return null;
-  }
-
-  function pickImageUrl(image) {
-    const urls = image && Array.isArray(image.url_list) ? image.url_list : [];
-
-    const lq = urls.find(
-      (u) =>
-        typeof u === "string" &&
-        u.includes("tplv-dy-lqen-new") &&
-        !u.includes("-water"),
-    );
-    if (lq) return decodeJsonEscapedString(lq);
-
-    const aweme = urls.find(
-      (u) => typeof u === "string" && u.includes("tplv-dy-aweme-images"),
-    );
-    if (aweme) return decodeJsonEscapedString(aweme);
-
-    return urls[0] ? decodeJsonEscapedString(urls[0]) : null;
-  }
-
-  function extractImageUrls(item) {
-    const images = Array.isArray(item.images) ? item.images : [];
-    return images.map(pickImageUrl).filter(Boolean);
-  }
-
-  function buildBaseResult(item, shareId, imageUrls) {
-    return {
-      ok: true,
-      id: String(item.aweme_id || ""),
-      title: String(item.desc || ""),
-      coverUrl:
-        item.video &&
-        item.video.cover &&
-        Array.isArray(item.video.cover.url_list)
-          ? decodeJsonEscapedString(item.video.cover.url_list[0])
-          : null,
-      width: item.video && item.video.width != null ? item.video.width : null,
-      height:
-        item.video && item.video.height != null ? item.video.height : null,
-      shareId,
-      type: imageUrls.length > 0 ? "image" : "video",
-      imageUrls,
-      musicTitle:
-        item.music && item.music.title ? String(item.music.title) : null,
-      musicUrl: null,
-      qualityUrls: {},
-    };
-  }
-
-  function fillImageMusic(item, out) {
-    const musicList =
-      item.music &&
-      item.music.play_url &&
-      Array.isArray(item.music.play_url.url_list)
-        ? item.music.play_url.url_list
-        : [];
-
-    if (musicList.length > 0) {
-      out.musicUrl = decodeJsonEscapedString(musicList[0]);
-      return;
-    }
-
-    const playUri =
-      item.video && item.video.play_addr && item.video.play_addr.uri;
-    if (typeof playUri === "string" && playUri.includes(".mp3")) {
-      out.musicUrl = decodeJsonEscapedString(playUri);
-    }
-  }
-
-  function fillVideoQualities(item, out) {
-    const bitRates =
-      item.video && Array.isArray(item.video.bit_rate)
-        ? item.video.bit_rate
-        : [];
-
-    for (const br of bitRates) {
-      const ratio =
-        br && br.gear_name ? String(br.gear_name).replace("gear_", "") : "";
-      const uri = br && br.play_addr ? br.play_addr.uri : null;
-      if (!ratio || !uri) continue;
-      out.qualityUrls[ratio] =
-        `${PLAY_BASE}?video_id=${uri}&ratio=${ratio}&line=0`;
-    }
-
-    if (Object.keys(out.qualityUrls).length > 0) return;
-
-    const uri =
-      item.video && item.video.play_addr ? item.video.play_addr.uri : null;
-    const h = item.video && item.video.height ? Number(item.video.height) : 0;
-    if (!uri) return;
-
-    const ratio = h >= 1080 ? "1080p" : "720p";
-    out.qualityUrls[ratio] =
-      `${PLAY_BASE}?video_id=${uri}&ratio=${ratio}&line=0`;
-  }
-
-  function extractFromHtml() {
+  /**
+   * 从 HTML 源码解析 _ROUTER_DATA
+   */
+  function parseRouterDataFromHtml() {
     const html = document.documentElement.innerHTML;
     const marker = "window._ROUTER_DATA = ";
     const start = html.indexOf(marker);
@@ -145,7 +115,6 @@
     let depth = 0;
     let inString = false;
     let escaped = false;
-    let end = -1;
 
     for (let i = jsonStart; i < html.length; i++) {
       const ch = html[i];
@@ -162,62 +131,172 @@
         continue;
       }
       if (inString) continue;
-      if (ch === "{") {
-        depth++;
-      } else if (ch === "}") {
+
+      if (ch === "{") depth++;
+      else if (ch === "}") {
         depth--;
         if (depth === 0) {
-          end = i;
-          break;
+          try {
+            return JSON.parse(html.substring(jsonStart, i + 1));
+          } catch {
+            return null;
+          }
         }
       }
     }
-
-    if (end <= jsonStart) return null;
-
-    try {
-      const raw = html.substring(jsonStart, end + 1);
-      return JSON.parse(raw);
-    } catch (e) {
-      return null;
-    }
+    return null;
   }
+
+  /**
+   * 获取 loaderData（优先从 window，其次从 HTML）
+   */
+  function getLoaderData() {
+    const fromWindow = getRouterDataFromWindow();
+    if (fromWindow?.loaderData) return fromWindow.loaderData;
+
+    const fromHtml = parseRouterDataFromHtml();
+    return fromHtml?.loaderData ?? null;
+  }
+
+  /**
+   * 从 loaderData 中查找 aweme item
+   */
+  function findAwemeItem(loaderData) {
+    const pageKey = Object.keys(loaderData).find((k) => k.includes("/page"));
+    if (!pageKey) return null;
+
+    return getArrayItem(loaderData[pageKey], "videoInfoRes.item_list");
+  }
+
+  // ── 结果构建 ────────────────────────────────────────────────────────────────
+
+  /**
+   * 从图片对象中选择最佳 URL
+   * @param {object} image
+   */
+  function pickBestImageUrl(image) {
+    const urls = get(image, "url_list", []);
+    if (!Array.isArray(urls) || urls.length === 0) return null;
+
+    // 按优先级匹配
+    for (const { test } of CONSTANTS.PRIORITY.IMAGE_URLS) {
+      const found = urls.find((u) => typeof u === "string" && test(u));
+      if (found) return decodeJsonEscapedString(found);
+    }
+
+    return decodeJsonEscapedString(urls[0]);
+  }
+
+  /**
+   * 提取图文作品的图片 URL 列表
+   */
+  function extractImageUrls(item) {
+    const images = get(item, "images", []);
+    return images.map(pickBestImageUrl).filter(Boolean);
+  }
+
+  /**
+   * 提取视频清晰度列表
+   */
+  function extractVideoQualities(item) {
+    const bitRates = get(item, "video.bit_rate", []);
+    const qualities = {};
+
+    // 从 bit_rate 数组提取多清晰度
+    for (const br of bitRates) {
+      const ratio = get(br, "gear_name", "").replace("gear_", "");
+      const uri = get(br, "play_addr.uri");
+      if (ratio && uri) {
+        qualities[ratio] =
+          `${CONSTANTS.PLAY_BASE}?video_id=${uri}&ratio=${ratio}&line=0`;
+      }
+    }
+
+    if (Object.keys(qualities).length > 0) return qualities;
+
+    // 降级：从 play_addr 猜测清晰度
+    const uri = get(item, "video.play_addr.uri");
+    const height = get(item, "video.height", 0);
+    if (!uri) return qualities;
+
+    const ratio = height >= 1080 ? "1080p" : "720p";
+    qualities[ratio] =
+      `${CONSTANTS.PLAY_BASE}?video_id=${uri}&ratio=${ratio}&line=0`;
+
+    return qualities;
+  }
+
+  /**
+   * 提取背景音乐 URL
+   */
+  function extractMusicUrl(item) {
+    // 优先从 music.play_url 获取
+    const musicUrl = getArrayItem(item, "music.play_url.url_list");
+    if (musicUrl) return decodeJsonEscapedString(musicUrl);
+
+    // 降级：检查 video.play_addr.uri 是否为 mp3
+    const playUri = get(item, "video.play_addr.uri");
+    if (typeof playUri === "string" && playUri.includes(".mp3")) {
+      return decodeJsonEscapedString(playUri);
+    }
+
+    return null;
+  }
+
+  /**
+   * 构建基础结果对象
+   */
+  function buildBaseResult(item, shareId) {
+    const imageUrls = extractImageUrls(item);
+    const coverUrl = getArrayItem(item, "video.cover.url_list");
+
+    return {
+      ok: true,
+      id: String(get(item, "aweme_id", "")),
+      title: String(get(item, "desc", "")),
+      coverUrl: coverUrl ? decodeJsonEscapedString(coverUrl) : null,
+      width: get(item, "video.width"),
+      height: get(item, "video.height"),
+      shareId,
+      type: imageUrls.length > 0 ? "image" : "video",
+      imageUrls,
+      musicTitle: get(item, "music.title"),
+      musicUrl: null,
+      qualityUrls: {},
+    };
+  }
+
+  // ── 主流程 ──────────────────────────────────────────────────────────────────
 
   function runExtract() {
     const inputUrl = location.href;
     const shareId = extractShareId(inputUrl);
 
-    // 尝试从 window._ROUTER_DATA 获取
-    let loaderData = getLoaderData();
+    // 获取 loaderData
+    const loaderData = getLoaderData();
+    if (!loaderData) return jsonFail(ErrorCode.NO_ROUTER_DATA);
 
-    // 如果失败，尝试从 HTML 中解析
-    if (!loaderData) {
-      const fromHtml = extractFromHtml();
-      if (fromHtml && fromHtml.loaderData) {
-        loaderData = fromHtml.loaderData;
-      }
-    }
-
-    if (!loaderData) return jsonFail("no_router_data");
-
+    // 查找 aweme item
     const item = findAwemeItem(loaderData);
-    if (!item) return jsonFail("no_item");
+    if (!item) return jsonFail(ErrorCode.NO_ITEM);
 
-    const imageUrls = extractImageUrls(item);
-    const out = buildBaseResult(item, shareId, imageUrls);
+    // 构建结果
+    const result = buildBaseResult(item, shareId);
 
-    if (out.type === "image") {
-      fillImageMusic(item, out);
-      return JSON.stringify(out);
+    // 根据类型填充额外数据
+    if (result.type === "image") {
+      result.musicUrl = extractMusicUrl(item);
+    } else {
+      result.qualityUrls = extractVideoQualities(item);
     }
 
-    fillVideoQualities(item, out);
-    return JSON.stringify(out);
+    return JSON.stringify(result);
   }
 
+  // 执行并返回结果
   try {
     return runExtract();
   } catch (e) {
-    return jsonFail(String(e));
+    return jsonFail(`${ErrorCode.EXTRACTION_FAILED}: ${e.message}`);
   }
 })();

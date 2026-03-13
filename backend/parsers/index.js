@@ -1,0 +1,24 @@
+/**
+ * index.js — 解析器统一入口
+ */
+
+import * as douyin from "./douyin.js";
+
+// 注册所有解析器
+const parsers = [douyin];
+
+/**
+ * 自动识别平台并解析
+ * @param {string} url - 视频链接
+ * @returns {Promise<VideoInfo>}
+ */
+export async function parse(url) {
+  const parser = parsers.find((p) => p.canParse(url));
+  if (!parser) {
+    throw new Error(`不支持的链接: ${url}`);
+  }
+  return await parser.parse(url);
+}
+
+// 导出各平台解析器供单独使用
+export { douyin };
