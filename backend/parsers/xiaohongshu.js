@@ -21,6 +21,8 @@ const XHS_HEADERS = {
   "Accept-Language": "zh-CN,zh;q=0.9",
 };
 
+let log = () => {};
+
 /**
  * 判断是否支持该 URL
  */
@@ -30,32 +32,61 @@ export function canParse(url) {
 
 /**
  * 解析入口
+ * @param {string} url - 小红书链接
+ * @param {boolean} debug - 是否开启调试日志
  */
-export async function parse(url) {
+export async function parse(url, debug = false) {
+  log = debug ? (...args) => console.log("  [XHS]", ...args) : () => {};
+
+  log(`开始解析: ${url}`);
+
   const extracted = extractUrl(url);
+  log(`提取URL: ${extracted}`);
 
   // 跟随重定向获取真实 URL 和 HTML
+  log("→ 请求页面...");
   const { html, finalUrl } = await resolveXhsUrl(extracted);
+  log(`  最终URL: ${finalUrl}`);
+  log(`  HTML长度: ${html.length} bytes`);
 
   // 尝试从 __INITIAL_STATE__ 提取数据
+  log("→ 提取 __INITIAL_STATE__...");
   let data = extractInitialState(html);
 
   // 如果失败，尝试 SSR 数据
   if (!data) {
+    log("  未找到 __INITIAL_STATE__, 尝试 SSR 数据...");
     data = extractSSRData(html);
   }
 
   if (!data) {
     throw new Error("未找到 __INITIAL_STATE__ 或 SSR 数据");
   }
+  log("  ✓ 数据提取成功");
 
   // 提取笔记数据
+  log("→ 提取笔记数据...");
   const note = extractNoteData(data);
   if (!note) {
     throw new Error("无法提取笔记数据");
   }
+  log(`  ✓ noteId: ${note.noteId || note.id || "unknown"}`);
+  log(`  ✓ title: ${(note.title || note.desc || "").substring(0, 50)}`);
+  log(`  ✓ type: ${note.video ? "video" : note.imageList ? "image" : "unknown"}`);
 
-  return buildResult(note);
+  const result = buildResult(note);
+
+  log("→ 构建结果:");
+  log(`  type: ${result.type}`);
+  log(`  imageCount: ${result.imageCount || 0}`);
+  if (result.qualities) {
+    log(`  qualities: ${result.qualities.join(", ")}`);
+  }
+  if (result.imageUrls?.length > 0) {
+    log(`  imageUrls[0]: ${result.imageUrls[0]}`);
+  }
+
+  return result;
 }
 
 // ── 内部函数 ─────────────────────────────────────────────────────────────────
@@ -232,8 +263,12 @@ function extractImageUrls(note) {
 
   return imageList
     .map((img) => {
-      // 小红书图片格式
-      // 优先 urlDefault，其次 url
+      // 优先使用 traceId 构建无水印原图 URL
+      const traceId = img.traceId || img.infoList?.[0]?.imageScene?.traceId;
+      if (traceId) {
+        return `https://sns-img-hw.xhscdn.com/${traceId}?imageView2/2/w/0/format/jpg`;
+      }
+      // 备用：urlDefault 或 url
       return img.urlDefault || img.url || null;
     })
     .filter(Boolean);

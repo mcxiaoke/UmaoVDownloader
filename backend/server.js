@@ -2,6 +2,8 @@
  * server.js — HTTP API 服务
  *
  * 启动: node server.js
+ *        node server.js --debug      # 开启详细日志
+ *        DEBUG=1 node server.js      # 开启详细日志
  * 开发: node --watch server.js
  *
  * 端点:
@@ -20,6 +22,12 @@ const __dir = dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = process.env.PORT ?? 3333;
 const BASE = (process.env.BASE_PATH ?? "").replace(/\/+$/, ""); // e.g. "/vd"
+
+// 日志开关
+const DEBUG = process.env.DEBUG || process.argv.includes("--debug");
+const log = DEBUG ? (...args) => console.log("[DEBUG]", ...args) : () => {};
+const logTime = (label) => DEBUG ? console.time(label) : () => {};
+const logTimeEnd = (label) => DEBUG ? console.timeEnd(label) : () => {};
 
 // 动态注入 <base href> 到 index.html
 app.get([BASE + "/", BASE + "/index.html", BASE || "/"], async (req, res) => {
@@ -59,12 +67,28 @@ const UA_PROXY =
 // ── GET /parse ────────────────────────────────────────────────────────────────
 app.get("/parse", async (req, res) => {
   const { url } = req.query;
-  if (!url) return res.status(400).json({ error: "缺少 url 参数" });
+  log(`→ /parse 请求: ${url}`);
+  if (!url) {
+    log("  ✗ 缺少 url 参数");
+    return res.status(400).json({ error: "缺少 url 参数" });
+  }
 
+  logTime("  parse耗时");
   try {
-    const info = await parse(url);
+    const info = await parse(url, DEBUG);
+    logTimeEnd("  parse耗时");
+    log(`  ✓ 解析成功: type=${info.type}, platform=${info.platform}`);
+    if (info.type === "video") {
+      log(`    qualities: ${info.qualities?.join(", ") || "none"}`);
+      log(`    videoUrl: ${info.videoUrl}`);
+    } else {
+      log(`    imageCount: ${info.imageCount}`);
+      log(`    imageUrls[0]: ${info.imageUrls?.[0]}`);
+    }
     res.json(info);
   } catch (e) {
+    logTimeEnd("  parse耗时");
+    log(`  ✗ 解析失败: ${e.message}`);
     res.status(500).json({ error: e.message });
   }
 });
@@ -73,25 +97,35 @@ app.get("/parse", async (req, res) => {
 // 代理转发视频/图片流，绕过浏览器 CORS，同时触发下载
 app.get("/download", async (req, res) => {
   const { url, name } = req.query;
-  if (!url) return res.status(400).json({ error: "缺少 url 参数" });
+  log(`→ /download 请求: ${name || "unnamed"}`);
+  log(`  url: ${url}`);
+
+  if (!url) {
+    log("  ✗ 缺少 url 参数");
+    return res.status(400).json({ error: "缺少 url 参数" });
+  }
 
   // 白名单校验，防止 SSRF
   let parsedUrl;
   try {
     parsedUrl = new URL(url);
   } catch {
+    log("  ✗ 无效的 URL");
     return res.status(400).json({ error: "无效的 URL" });
   }
   if (!ALLOWED_DOMAINS.some((d) => parsedUrl.hostname.endsWith(d))) {
+    log(`  ✗ 域名不在白名单: ${parsedUrl.hostname}`);
     return res.status(403).json({ error: "不允许代理该域名" });
   }
 
   try {
+    log(`  开始代理: ${parsedUrl.hostname}`);
     const upstream = await fetch(url, {
       headers: { "User-Agent": UA_PROXY },
       redirect: "follow",
     });
     if (!upstream.ok) {
+      log(`  ✗ 上游返回 ${upstream.status}`);
       return res
         .status(upstream.status)
         .json({ error: `上游返回 ${upstream.status}` });
@@ -109,12 +143,16 @@ app.get("/download", async (req, res) => {
     const cl = upstream.headers.get("content-length");
     if (cl) res.setHeader("Content-Length", cl);
 
+    log(`  ✓ 开始流式转发, Content-Type: ${upstream.headers.get("content-type")}`);
+
     // 流式转发，不缓存到内存
     for await (const chunk of upstream.body) {
       res.write(chunk);
     }
     res.end();
+    log(`  ✓ 转发完成`);
   } catch (e) {
+    log(`  ✗ 代理失败: ${e.message}`);
     if (!res.headersSent) res.status(500).json({ error: e.message });
   }
 });
@@ -176,7 +214,11 @@ app.post("/zip", async (req, res) => {
 // ── 启动 ──────────────────────────────────────────────────────────────────────
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`umao-vd backend listening on http://0.0.0.0:${PORT}`);
-  console.log("  GET  /parse?url=<抖音链接>");
+  console.log("  GET  /parse?url=<链接>");
   console.log("  GET  /download?url=<直链>&name=<文件名>");
   console.log("  POST /zip  { urls, names, filename }");
+  if (DEBUG) {
+    console.log("\n[DEBUG 模式已开启] 详细日志已启用");
+    console.log("  使用 DEBUG=1 或 --debug 开启调试日志\n");
+  }
 });

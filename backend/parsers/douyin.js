@@ -16,6 +16,8 @@ const PLAY_BASE = "https://aweme.snssdk.com/aweme/v1/play/";
 // 各质量档 ratio 字符串
 const QUALITY_RATIOS = ["2160p", "1080p", "720p", "480p", "360p"];
 
+let log = () => {};
+
 /**
  * 判断是否支持该 URL
  */
@@ -25,38 +27,57 @@ export function canParse(url) {
 
 /**
  * 解析入口
+ * @param {string} url - 抖音链接
+ * @param {boolean} debug - 是否开启调试日志
  */
-export async function parse(url) {
+export async function parse(url, debug = false) {
+  log = debug ? (...args) => console.log("  [DY]", ...args) : () => {};
+
+  log(`开始解析: ${url}`);
+
   const extracted = extractUrl(url);
+  log(`提取URL: ${extracted}`);
 
   // 跟随重定向获取 HTML
+  log("→ 请求页面...");
   const { html: rawHtml, finalUrl, shareId } = await resolveAndFetch(extracted);
+  log(`  最终URL: ${finalUrl}`);
+  log(`  HTML长度: ${rawHtml.length} bytes`);
+
   const awemeId = extractVideoId(finalUrl);
   if (!awemeId) {
     throw new Error(`无法从链接提取视频 ID，最终 URL: ${finalUrl}`);
   }
+  log(`  awemeId: ${awemeId}`);
 
   const isNote = finalUrl.includes("/note/");
+  log(`  类型: ${isNote ? "图文(note)" : "视频(video)"}`);
 
   // 若页面不含数据，重新请求 share 页
   let html = rawHtml;
   if (!html.includes("window._ROUTER_DATA")) {
+    log("  未找到 _ROUTER_DATA, 请求 share 页面...");
     const shareBase = `https://www.iesdouyin.com/share/${isNote ? "note" : "video"}/${awemeId}/`;
     const origParams = new URL(finalUrl).search;
     html = await fetchSharePage(shareBase + origParams);
   }
 
+  log("→ 提取 _ROUTER_DATA...");
   const routerData = extractWindowData(html, "_ROUTER_DATA");
   if (!routerData) {
     throw new Error("未找到 _ROUTER_DATA");
   }
+  log("  ✓ 提取成功");
 
+  log("→ 提取视频/图文数据...");
   const item = extractItem(routerData);
   if (!item) {
     throw new Error("videoInfoRes.item_list 为空");
   }
+  log(`  ✓ title: ${(item.desc || "").substring(0, 50)}`);
 
   const isImagePost = Array.isArray(item.images) && item.images.length > 0;
+  log(`  ✓ 内容类型: ${isImagePost ? "图文 " + item.images.length + " 张" : "视频"}`);
 
   const info = {
     type: isImagePost ? "image" : "video",
@@ -69,11 +90,19 @@ export async function parse(url) {
     height: item.video?.height ?? null,
   };
 
+  log("→ 构建结果:");
   if (isImagePost) {
     info.imageUrls = extractImageUrls(item);
     info.imageCount = info.imageUrls.length;
     info.musicTitle = item.music?.title ?? null;
     info.musicUrl = extractMusicUrl(item);
+    log(`  type: image, imageCount: ${info.imageCount}`);
+    if (info.imageUrls.length > 0) {
+      log(`  imageUrls[0]: ${info.imageUrls[0]}`);
+    }
+    if (info.musicUrl) {
+      log(`  musicUrl: ${info.musicUrl}`);
+    }
   } else {
     const qualities = extractQualities(item);
     info.qualities = qualities.map((q) => q.ratio);
@@ -81,6 +110,8 @@ export async function parse(url) {
       qualities.map((q) => [q.ratio, buildPlayUrl(q.videoFileId, q.ratio)]),
     );
     info.videoUrl = info.qualityUrls[qualities[0]?.ratio] ?? null;
+    log(`  type: video, qualities: ${info.qualities.join(", ") || "none"}`);
+    log(`  videoUrl: ${info.videoUrl || "none"}`);
   }
 
   return info;
