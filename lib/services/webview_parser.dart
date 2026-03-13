@@ -8,6 +8,23 @@ import 'package:webview_windows/webview_windows.dart' as wvwin;
 
 import 'douyin_parser.dart';
 
+/// 支持的平台类型
+enum ParserPlatform {
+  douyin,
+  xiaohongshu,
+  unknown;
+
+  static ParserPlatform fromUrl(String url) {
+    if (url.contains('douyin.com') || url.contains('iesdouyin.com')) {
+      return ParserPlatform.douyin;
+    }
+    if (url.contains('xiaohongshu.com') || url.contains('xhslink.com')) {
+      return ParserPlatform.xiaohongshu;
+    }
+    return ParserPlatform.unknown;
+  }
+}
+
 typedef WebViewParserLog = void Function(String message);
 
 /// JS 执行函数签名
@@ -15,12 +32,15 @@ typedef JsExecutor = Future<String?> Function(String script);
 
 class WebViewParser {
   static const _timeout = Duration(seconds: 15);
-  static const _extractScriptAssetPath = 'assets/js/extract_douyin_payload.js';
+  static const _douyinScriptPath = 'assets/js/extract_douyin_payload.js';
+  static const _xhsScriptPath = 'assets/js/extract_xiaohongshu_payload.js';
   static const _androidUserAgent =
       'Mozilla/5.0 (Linux; Android 16; 23456PN2CC Build/BP2A.250605.031.A3; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/142.0.7444.173 Mobile Safari/537.36 MMWEBID/3396 MicroMessenger/8.0.69.3040(0x28004553) WeChat/arm64 Weixin NetType/WIFI Language/zh_CN ABI/arm64';
+  static const _xhsUserAgent =
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1';
   static const _extractMaxRetries = 2;
   static const _extractRetryDelay = Duration(milliseconds: 500);
-  static String? _extractScriptCache;
+  static final Map<String, String?> _scriptCache = {};
 
   Future<VideoInfo?> tryParse(String input, {WebViewParserLog? log}) async {
     final url = RegExp(r'https?://[^\s，,。]+').firstMatch(input)?.group(0);
@@ -29,8 +49,16 @@ class WebViewParser {
       return null;
     }
 
+    final platform = ParserPlatform.fromUrl(url);
+    if (platform == ParserPlatform.unknown) {
+      log?.call('WebView 不支持的平台: $url');
+      return null;
+    }
+
+    log?.call('WebView 解析平台: ${platform.name}');
+
     if (Platform.isWindows) {
-      return _tryParseOnWindows(url, log: log);
+      return _tryParseOnWindows(url, platform: platform, log: log);
     }
 
     if (!Platform.isAndroid) {
@@ -38,10 +66,16 @@ class WebViewParser {
       return null;
     }
 
-    log?.call('WebView 使用固定 UA 解析');
+    // 根据平台选择 UA
+    final ua = platform == ParserPlatform.xiaohongshu
+        ? _xhsUserAgent
+        : _androidUserAgent;
+
+    log?.call('WebView 使用 ${platform.name} UA 解析');
     final info = await _tryParseWithUserAgent(
       url,
-      ua: _androidUserAgent,
+      platform: platform,
+      ua: ua,
       log: log,
     );
     if (info != null) {
@@ -55,6 +89,7 @@ class WebViewParser {
 
   Future<VideoInfo?> _tryParseOnWindows(
     String url, {
+    required ParserPlatform platform,
     WebViewParserLog? log,
   }) async {
     log?.call('WebView(Windows) 开始初始化');
@@ -72,12 +107,17 @@ class WebViewParser {
     Completer<void>? navCompleted;
     String? currentUrl;
 
+    // 根据平台选择 UA
+    final ua = platform == ParserPlatform.xiaohongshu
+        ? _xhsUserAgent
+        : _androidUserAgent;
+
     try {
       await controller.initialize();
       await controller.setPopupWindowPolicy(
         wvwin.WebviewPopupWindowPolicy.deny,
       );
-      await controller.setUserAgent(_androidUserAgent);
+      await controller.setUserAgent(ua);
 
       urlSub = controller.url.listen((u) {
         currentUrl = u;
@@ -112,12 +152,13 @@ class WebViewParser {
 
       if (!await loadAndWait(url, phase: '开始加载')) return null;
 
-      final extractScript = await _loadExtractScript(log: log);
+      final extractScript = await _loadExtractScript(platform, log: log);
       if (extractScript == null) return null;
 
       final data = await _tryExtractWithFallback(
         initialUrl: url,
         currentUrl: currentUrl ?? url,
+        platform: platform,
         extractScript: extractScript,
         executeJs: (script) async {
           final raw = await controller.executeScript(script);
@@ -160,6 +201,7 @@ class WebViewParser {
 
   Future<VideoInfo?> _tryParseWithUserAgent(
     String url, {
+    required ParserPlatform platform,
     required String ua,
     WebViewParserLog? log,
   }) async {
@@ -198,7 +240,7 @@ class WebViewParser {
       return null;
     }
 
-    final extractScript = await _loadExtractScript(log: log);
+    final extractScript = await _loadExtractScript(platform, log: log);
     if (extractScript == null) return null;
 
     Future<bool> loadUrl(String targetUrl) async {
@@ -233,6 +275,7 @@ class WebViewParser {
     final data = await _tryExtractWithFallback(
       initialUrl: url,
       currentUrl: currentUrl ?? url,
+      platform: platform,
       extractScript: extractScript,
       executeJs: (script) async {
         final raw = await controller.runJavaScriptReturningResult(script);
@@ -249,6 +292,7 @@ class WebViewParser {
   Future<Map<String, dynamic>?> _tryExtractWithFallback({
     required String initialUrl,
     required String currentUrl,
+    required ParserPlatform platform,
     required String extractScript,
     required JsExecutor executeJs,
     required Future<bool> Function(String) loadUrl,
@@ -260,8 +304,8 @@ class WebViewParser {
       log: log,
     );
 
-    // 某些短链会落到不含 _ROUTER_DATA 的壳页，回退到 iesdouyin share 页重试
-    if (data?['reason'] == 'no_router_data') {
+    // 抖音：某些短链会落到不含 _ROUTER_DATA 的壳页，回退到 iesdouyin share 页重试
+    if (platform == ParserPlatform.douyin && data?['reason'] == 'no_router_data') {
       final fallback = _buildIesShareFallbackUrl(currentUrl);
       if (fallback != null && fallback != currentUrl) {
         log?.call('WebView 回退 share 页重试: $fallback');
@@ -317,17 +361,26 @@ class WebViewParser {
     return last;
   }
 
-  Future<String?> _loadExtractScript({WebViewParserLog? log}) async {
-    if (_extractScriptCache != null && _extractScriptCache!.isNotEmpty) {
-      return _extractScriptCache;
+  Future<String?> _loadExtractScript(
+    ParserPlatform platform, {
+    WebViewParserLog? log,
+  }) async {
+    final assetPath = platform == ParserPlatform.xiaohongshu
+        ? _xhsScriptPath
+        : _douyinScriptPath;
+
+    // 检查缓存
+    if (_scriptCache.containsKey(assetPath)) {
+      return _scriptCache[assetPath];
     }
+
     try {
-      final script = await rootBundle.loadString(_extractScriptAssetPath);
+      final script = await rootBundle.loadString(assetPath);
       if (script.trim().isEmpty) {
-        log?.call('WebView JS 资源为空: $_extractScriptAssetPath');
+        log?.call('WebView JS 资源为空: $assetPath');
         return null;
       }
-      _extractScriptCache = script;
+      _scriptCache[assetPath] = script;
       return script;
     } catch (e) {
       log?.call('加载 WebView JS 资源失败: $e');
@@ -354,6 +407,7 @@ class WebViewParser {
   }
 
   VideoInfo _mapToVideoInfo(Map<String, dynamic> data) {
+    final platform = data['platform']?.toString() ?? 'douyin';
     final type = data['type']?.toString() ?? 'video';
     final id = data['id']?.toString() ?? '';
     final title = data['title']?.toString() ?? '作品_$id';
@@ -388,12 +442,26 @@ class WebViewParser {
     final q = data['qualityUrls'];
     if (q is Map) {
       for (final e in q.entries) {
-        final quality = VideoQuality.fromRatio(e.key.toString());
+        // 小红书格式: "HD" -> url, 抖音格式: "720p" -> url
+        var qualityKey = e.key.toString();
+        // 小红书清晰度映射
+        if (platform == 'xiaohongshu') {
+          if (qualityKey == '原画') qualityKey = '1080p';
+          else if (qualityKey.contains('HD')) qualityKey = '720p';
+        }
+        final quality = VideoQuality.fromRatio(qualityKey);
         final u = e.value?.toString();
         if (quality != null && u != null && u.isNotEmpty) {
           qualityUrls[quality] = u;
         }
       }
+    }
+
+    // 小红书可能有单独的 videoUrl 字段
+    final videoUrl = data['videoUrl']?.toString();
+    if (videoUrl != null && videoUrl.isNotEmpty && qualityUrls.isEmpty) {
+      // 小红书只有一个视频 URL，使用 720p 作为默认
+      qualityUrls[VideoQuality.p720] = videoUrl;
     }
 
     final fileId = _pickBestVideoFileId(qualityUrls);

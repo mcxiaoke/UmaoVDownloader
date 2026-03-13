@@ -4,6 +4,23 @@ import 'webview_parser.dart';
 
 typedef ParserLog = void Function(String message);
 
+/// 支持的平台类型
+enum ParserPlatform {
+  douyin,
+  xiaohongshu,
+  unknown;
+
+  static ParserPlatform fromUrl(String url) {
+    if (url.contains('douyin.com') || url.contains('iesdouyin.com')) {
+      return ParserPlatform.douyin;
+    }
+    if (url.contains('xiaohongshu.com') || url.contains('xhslink.com')) {
+      return ParserPlatform.xiaohongshu;
+    }
+    return ParserPlatform.unknown;
+  }
+}
+
 /// 解析门面：统一接入解析策略，后续在这里挂接 WebView 后备解析。
 class ParserFacade {
   static final _webViewParser = WebViewParser();
@@ -16,8 +33,20 @@ class ParserFacade {
     bool compareParsers = false,
     ParserLog? log,
   }) async {
+    // 检测平台
+    final url = RegExp(r'https?://[^\s，,。]+').firstMatch(input)?.group(0);
+    final platform = url != null ? ParserPlatform.fromUrl(url) : ParserPlatform.unknown;
+    log?.call('检测到平台: ${platform.name}');
     log?.call('解析策略: ${strategy.value}');
     log?.call('并行对比: ${compareParsers ? "开启" : "关闭"}');
+
+    // 小红书目前仅支持 WebView 解析
+    if (platform == ParserPlatform.xiaohongshu) {
+      log?.call('小红书仅支持 WebView 解析');
+      final webview = await _tryParseByWebView(input, log: log);
+      if (webview != null) return _normalize(webview);
+      throw Exception('小红书 WebView 解析失败');
+    }
 
     if (compareParsers && strategy == ParserStrategy.auto) {
       return _parseWithCompare(input, strategy: strategy, log: log);

@@ -64,6 +64,7 @@ flutter:
 
   assets:
     - assets/js/extract_douyin_payload.js
+    - assets/js/extract_xiaohongshu_payload.js
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
