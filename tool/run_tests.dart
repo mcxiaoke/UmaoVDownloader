@@ -49,6 +49,7 @@ class _CachingClient extends http.BaseClient {
 Future<_Result> _testOne(String url, Directory cacheDir) async {
   final shortId =
       RegExp(r'v\.douyin\.com/([A-Za-z0-9_-]+)').firstMatch(url)?.group(1) ??
+      RegExp(r'/(?:video|note|slides)/(\d+)').firstMatch(url)?.group(1) ??
       'unknown';
   final inner = http.Client();
   final caching = _CachingClient(inner, cacheDir, shortId);
@@ -113,9 +114,22 @@ Future<void> main() async {
   for (final line in urlsFile.readAsLinesSync()) {
     final trimmed = line.trim();
     if (trimmed.isEmpty || trimmed.startsWith('#')) continue;
-    final parts = trimmed.split('#');
-    final url = parts[0].trim();
-    final label = parts.length > 1 ? parts[1].trim() : '';
+
+    // 兼容两种格式：
+    // 1) <url> # label
+    // 2) <url> label（遗漏 # 也能继续测试）
+    final urlMatch = RegExp(r'https?://\S+').firstMatch(trimmed);
+    if (urlMatch == null) continue;
+    final url = urlMatch.group(0)!;
+
+    String label = '';
+    if (trimmed.contains('#')) {
+      final parts = trimmed.split('#');
+      label = parts.length > 1 ? parts.sublist(1).join('#').trim() : '';
+    } else {
+      label = trimmed.substring(urlMatch.end).trim();
+    }
+
     if (url.isNotEmpty) entries.add((url: url, label: label));
   }
 
@@ -130,8 +144,13 @@ Future<void> main() async {
 
   print('共 ${entries.length} 条 URL，开始测试…\n');
 
+  const delayMs = 6000;
   final results = <(String label, _Result result)>[];
-  for (final e in entries) {
+  for (var i = 0; i < entries.length; i++) {
+    final e = entries[i];
+    if (i > 0) {
+      await Future<void>.delayed(const Duration(milliseconds: delayMs));
+    }
     stdout.write('  测试 ${e.label.padRight(20)} ${e.url} … ');
     final r = await _testOne(e.url, cacheDir);
     stdout.writeln(r.ok ? 'OK' : 'FAIL');

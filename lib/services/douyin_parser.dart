@@ -168,6 +168,7 @@ class DouyinParser {
 
   // 无水印播放接口模板（跳转到 CDN，不含水印）
   static const _playBase = 'https://aweme.snssdk.com/aweme/v1/play/';
+  static const _routerDataMarker = 'window._ROUTER_DATA = ';
 
   /// [httpClient] 可传入 mock client 方便单元测试
   final http.Client _httpClient;
@@ -177,11 +178,17 @@ class DouyinParser {
 
   /// 主入口：传入任意抖音链接，返回视频信息
   Future<VideoInfo> parse(String url) async {
+    final extracted =
+        RegExp(r'https?://[^\s，,。]+').firstMatch(url)?.group(0) ?? url;
+
     // 从原始缓存短链 ID（跳转后丢失）
     final shareId = RegExp(
       r'v\.douyin\.com/([A-Za-z0-9_-]+)',
-    ).firstMatch(url)?.group(1);
-    final realUrl = await _resolveUrl(url);
+    ).firstMatch(extracted)?.group(1);
+    final realUrl = await _resolveUrl(extracted);
+    final query = Uri.parse(realUrl).hasQuery
+        ? '?${Uri.parse(realUrl).query}'
+        : '';
     final videoId = _extractVideoId(realUrl);
     if (videoId == null) {
       throw DouyinParseException('无法从链接中提取视频 ID，最终 URL: $realUrl');
@@ -189,7 +196,12 @@ class DouyinParser {
     // 注意区分 /note/ 与 /video/ 类型——iesdouyin 使用不同的分享页路径
     // /slides/ (live 图) 使用 /share/video/ 端点同样可获取完整数据
     final isNote = realUrl.contains('/note/');
-    return await _parseSharePage(videoId, shareId: shareId, isNote: isNote);
+    return await _parseSharePage(
+      videoId,
+      shareId: shareId,
+      isNote: isNote,
+      query: query,
+    );
   }
 
   /// 手动跟随重定向，返回最终落地 URL
@@ -201,6 +213,7 @@ class DouyinParser {
       for (var i = 0; i < maxRedirects; i++) {
         final request = await ioClient.getUrl(currentUri);
         request.headers.set(HttpHeaders.userAgentHeader, _mobileUA);
+        request.headers.set(HttpHeaders.refererHeader, _referer);
         request.followRedirects = false;
 
         final response = await request.close();
@@ -231,23 +244,38 @@ class DouyinParser {
     String videoId, {
     String? shareId,
     bool isNote = false,
+    String? initialHtml,
+    String query = '',
   }) async {
     // note 类型使用 /share/note/ 端点，video 类型使用 /share/video/
     final segment = isNote ? 'note' : 'video';
-    final shareUrl = Uri.parse(
-      'https://www.iesdouyin.com/share/$segment/$videoId/',
-    );
+    final shareUrl = 'https://www.iesdouyin.com/share/$segment/$videoId/$query';
 
-    final response = await _httpClient.get(
-      shareUrl,
-      headers: {HttpHeaders.userAgentHeader: _mobileUA, 'Referer': _referer},
-    );
-
-    if (response.statusCode != 200) {
-      throw DouyinParseException('分享页请求失败，状态码: ${response.statusCode}');
+    var html = initialHtml ?? '';
+    if (!html.contains(_routerDataMarker)) {
+      final response = await _httpClient.get(
+        Uri.parse(shareUrl),
+        headers: {HttpHeaders.userAgentHeader: _mobileUA, 'Referer': _referer},
+      );
+      if (response.statusCode != 200) {
+        throw DouyinParseException('分享页请求失败，状态码: ${response.statusCode}');
+      }
+      html = response.body;
     }
 
-    final html = response.body;
+    if (_looksLikeWafChallenge(html)) {
+      stderr.writeln('[DouyinParser] 命中风控挑战页: $shareUrl');
+      throw const DouyinParseException('触发风控挑战页，请更换网络后重试');
+    }
+
+    final item = _extractItemFromRouterData(html);
+    if (item != null) {
+      return _buildFromRouterItem(
+        item,
+        fallbackVideoId: videoId,
+        shareId: shareId,
+      );
+    }
 
     // 提取标题
     final rawDesc = _descRe.firstMatch(html)?.group(1);
@@ -334,6 +362,234 @@ class DouyinParser {
       shareId: shareId,
       width: videoWidth,
       height: videoHeight,
+      bitrateKbps: bitrateKbps,
+    );
+  }
+
+  bool _looksLikeWafChallenge(String html) {
+    return html.contains('Please wait...') &&
+        (html.contains('waf_js') ||
+            html.contains('_wafchallengeid') ||
+            html.contains('waf-jschallenge'));
+  }
+
+  Map<String, dynamic>? _extractItemFromRouterData(String html) {
+    final start = html.indexOf(_routerDataMarker);
+    if (start < 0) return null;
+
+    final jsonStart = start + _routerDataMarker.length;
+    var depth = 0;
+    var inString = false;
+    var escaped = false;
+    var end = -1;
+
+    for (var i = jsonStart; i < html.length; i++) {
+      final ch = html[i];
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch == '\\') {
+        escaped = true;
+        continue;
+      }
+      if (ch == '"') {
+        inString = !inString;
+        continue;
+      }
+      if (inString) continue;
+      if (ch == '{') {
+        depth++;
+      } else if (ch == '}') {
+        depth--;
+        if (depth == 0) {
+          end = i;
+          break;
+        }
+      }
+    }
+
+    if (end <= jsonStart) return null;
+
+    try {
+      final raw = html.substring(jsonStart, end + 1);
+      final data = jsonDecode(raw);
+      if (data is! Map<String, dynamic>) return null;
+      final loader = data['loaderData'];
+      if (loader is! Map) return null;
+      for (final entry in loader.entries) {
+        if (!entry.key.toString().contains('/page')) continue;
+        final page = entry.value;
+        if (page is! Map) continue;
+        final videoInfoRes = page['videoInfoRes'];
+        if (videoInfoRes is! Map) continue;
+        final itemList = videoInfoRes['item_list'];
+        if (itemList is List && itemList.isNotEmpty && itemList.first is Map) {
+          return Map<String, dynamic>.from(itemList.first as Map);
+        }
+      }
+    } catch (_) {
+      return null;
+    }
+    return null;
+  }
+
+  VideoInfo _buildFromRouterItem(
+    Map<String, dynamic> item, {
+    required String fallbackVideoId,
+    String? shareId,
+  }) {
+    final id = item['aweme_id']?.toString() ?? fallbackVideoId;
+    final title = item['desc']?.toString().trim().isNotEmpty == true
+        ? item['desc'].toString()
+        : '作品_$id';
+
+    final video = item['video'];
+    String? coverUrl;
+    int? width;
+    int? height;
+    int? bitrateKbps;
+
+    if (video is Map) {
+      final cover = video['cover'];
+      if (cover is Map) {
+        final urlList = cover['url_list'];
+        if (urlList is List && urlList.isNotEmpty) {
+          coverUrl = urlList.first?.toString();
+        }
+      }
+      width = int.tryParse(video['width']?.toString() ?? '');
+      height = int.tryParse(video['height']?.toString() ?? '');
+
+      final bitRates = video['bit_rate'];
+      if (bitRates is List && bitRates.isNotEmpty && bitRates.first is Map) {
+        final bps = int.tryParse(
+          (bitRates.first as Map)['bit_rate']?.toString() ?? '',
+        );
+        if (bps != null && bps > 0) bitrateKbps = bps ~/ 1000;
+      }
+    }
+
+    final images = item['images'];
+    if (images is List && images.isNotEmpty) {
+      final imageUrls = <String>[];
+      for (final img in images) {
+        if (img is! Map) continue;
+        final urlList = img['url_list'];
+        if (urlList is! List || urlList.isEmpty) continue;
+        String? picked;
+        for (final u in urlList) {
+          final s = u.toString();
+          if (s.contains('tplv-dy-lqen-new') && !s.contains('-water')) {
+            picked = s;
+            break;
+          }
+        }
+        picked ??= urlList
+            .map((e) => e.toString())
+            .firstWhere(
+              (u) => u.contains('tplv-dy-aweme-images'),
+              orElse: () => urlList.first.toString(),
+            );
+        imageUrls.add(picked);
+      }
+
+      String? musicUrl;
+      String? musicTitle;
+      final music = item['music'];
+      if (music is Map) {
+        musicTitle = music['title']?.toString();
+        final playUrl = music['play_url'];
+        if (playUrl is Map) {
+          final list = playUrl['url_list'];
+          if (list is List && list.isNotEmpty)
+            musicUrl = list.first?.toString();
+        }
+      }
+
+      return VideoInfo(
+        videoId: id,
+        title: title,
+        videoFileId: '',
+        qualityUrls: const {},
+        coverUrl: coverUrl,
+        shareId: shareId,
+        width: width,
+        height: height,
+        bitrateKbps: bitrateKbps,
+        imageUrls: imageUrls,
+        musicUrl: musicUrl,
+        musicTitle: musicTitle,
+      );
+    }
+
+    final qualityUrls = <VideoQuality, String>{};
+    String? bestVideoFileId;
+
+    if (video is Map) {
+      final bitRates = video['bit_rate'];
+      if (bitRates is List) {
+        for (final br in bitRates) {
+          if (br is! Map) continue;
+          final ratio =
+              br['gear_name']?.toString().replaceFirst('gear_', '') ?? '';
+          final quality = VideoQuality.fromRatio(ratio);
+          final playAddr = br['play_addr'];
+          final uri = playAddr is Map ? playAddr['uri']?.toString() : null;
+          if (quality == null || uri == null || uri.isEmpty) continue;
+          qualityUrls[quality] =
+              '$_playBase?video_id=$uri&ratio=${quality.ratio}&line=0';
+        }
+      }
+
+      if (qualityUrls.isEmpty) {
+        final playAddr = video['play_addr'];
+        final uri = playAddr is Map ? playAddr['uri']?.toString() : null;
+        if (uri != null && uri.isNotEmpty) {
+          final h = int.tryParse(video['height']?.toString() ?? '');
+          final guessed = h != null && h >= 1080
+              ? VideoQuality.p1080
+              : VideoQuality.p720;
+          qualityUrls[guessed] =
+              '$_playBase?video_id=$uri&ratio=${guessed.ratio}&line=0';
+        }
+      }
+    }
+
+    if (qualityUrls.isEmpty) {
+      throw DouyinParseException('分享页中未找到视频地址，页面结构可能已变更');
+    }
+
+    for (final q in [
+      VideoQuality.p2160,
+      VideoQuality.p1080,
+      VideoQuality.p720,
+      VideoQuality.p480,
+      VideoQuality.p360,
+    ]) {
+      final url = qualityUrls[q];
+      if (url != null) {
+        final videoId = Uri.parse(url).queryParameters['video_id'];
+        if (videoId != null && videoId.isNotEmpty) {
+          bestVideoFileId = videoId;
+          break;
+        }
+      }
+    }
+
+    if (bestVideoFileId == null) {
+      throw DouyinParseException('无法从播放地址提取 video_id');
+    }
+
+    return VideoInfo(
+      videoId: id,
+      title: title,
+      videoFileId: bestVideoFileId,
+      qualityUrls: qualityUrls,
+      coverUrl: coverUrl,
+      shareId: shareId,
+      width: width,
+      height: height,
       bitrateKbps: bitrateKbps,
     );
   }

@@ -34,7 +34,10 @@ const DELAY_MS = 2000;
 for (let idx = 0; idx < entries.length; idx++) {
   const { url, label } = entries[idx];
   if (idx > 0) await new Promise((r) => setTimeout(r, DELAY_MS));
-  const shortId = url.match(/v\.douyin\.com\/([A-Za-z0-9_-]+)/)?.[1] ?? "?";
+  let shortId = url.match(/v\.douyin\.com\/([A-Za-z0-9_-]+)/)?.[1];
+  if (!shortId) {
+    shortId = url.match(/\/(?:video|note|slides)\/(\d+)/)?.[1] ?? "?";
+  }
   process.stdout.write(`  测试 ${label.padEnd(20)} ${url} … `);
   const t0 = Date.now();
   try {

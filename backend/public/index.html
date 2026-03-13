@@ -160,7 +160,9 @@
 
       // 从任意文本中提取第一个抖音链接（支持分享文案夹带 URL）
       function extractDouyinUrl(text) {
-        const m = text.match(/https?:\/\/(?:v|www)\.douyin\.com\/\S+/);
+        const m = text.match(
+          /https?:\/\/(?:[a-zA-Z0-9-]+\.)*(?:douyin|iesdouyin)\.com\/\S+/,
+        );
         return m ? m[0].replace(/[，。、\s]+$/, "") : null;
       }
 
@@ -173,7 +175,7 @@
         const url = extractDouyinUrl(raw);
         if (!url) {
           setStatus(
-            "未识别到抖音链接，支持 v.douyin.com 或 www.douyin.com",
+            "未识别到抖音链接，支持 v.douyin.com, www.douyin.com, 包含 iesdouyin.com 等",
             true,
           );
           return;
