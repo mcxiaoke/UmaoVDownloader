@@ -84,11 +84,16 @@
           .replace(/[\\/:"*?<>|]/g, "_")
           .substring(0, 40);
 
+        // 生成缩略图 URL（限制宽度 400px）
+        function getThumbUrl(url) {
+          return url.replace(/w\/0/, "w/400");
+        }
+
         const items = info.imageUrls
           .map(
             (url, i) => `
         <div class="image-item">
-          <img src="${`download?url=${encodeURIComponent(url)}&name=img_${i}.webp`}" loading="lazy" />
+          <img src="${`download?url=${encodeURIComponent(getThumbUrl(url))}&name=thumb_${i}.webp`}" loading="lazy" data-full="${url}" />
           <button class="img-dl-btn" data-url="${url}" data-idx="${i}">${isMobile ? "↓ JPG" : "↓ WebP"}</button>
         </div>
       `,
