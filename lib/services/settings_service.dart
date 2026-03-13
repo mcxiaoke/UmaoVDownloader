@@ -10,21 +10,24 @@ const _kParserStrategy = 'parser_strategy';
 const _kCompareParsers = 'compare_parsers';
 
 enum ParserStrategy {
-  webViewThenDart,
+  auto,
   dartOnly,
-  dartThenWebView;
+  jsOnly;
 
   String get value => switch (this) {
-    ParserStrategy.webViewThenDart => 'webview_then_dart',
+    ParserStrategy.auto => 'auto',
     ParserStrategy.dartOnly => 'dart_only',
-    ParserStrategy.dartThenWebView => 'dart_then_webview',
+    ParserStrategy.jsOnly => 'js_only',
   };
 
   static ParserStrategy fromValue(String? value) {
     return switch (value) {
-      'webview_then_dart' => ParserStrategy.webViewThenDart,
-      'dart_then_webview' => ParserStrategy.dartThenWebView,
-      _ => ParserStrategy.webViewThenDart,
+      'dart_only' => ParserStrategy.dartOnly,
+      'js_only' => ParserStrategy.jsOnly,
+      // 向后兼容旧值，统一落到自动模式。
+      'webview_then_dart' => ParserStrategy.auto,
+      'dart_then_webview' => ParserStrategy.auto,
+      _ => ParserStrategy.auto,
     };
   }
 }
@@ -41,7 +44,7 @@ class SettingsService extends ChangeNotifier {
   String _downloadDir = '';
   bool _verboseLog = false;
   bool _compareParsers = true;
-  ParserStrategy _parserStrategy = ParserStrategy.dartOnly;
+  ParserStrategy _parserStrategy = ParserStrategy.auto;
 
   String get downloadDir => _downloadDir;
   bool get verboseLog => _verboseLog;

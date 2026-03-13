@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_windows/webview_windows.dart' as wvwin;
 
 import 'douyin_parser.dart';
 
@@ -17,14 +18,18 @@ class WebViewParser {
   static String? _extractScriptCache;
 
   Future<VideoInfo?> tryParse(String input, {WebViewParserLog? log}) async {
-    if (!Platform.isAndroid) {
-      log?.call('WebView 解析当前仅实现 Android');
-      return null;
-    }
-
     final url = RegExp(r'https?://[^\s，,。]+').firstMatch(input)?.group(0);
     if (url == null || url.isEmpty) {
       log?.call('WebView 解析输入中无有效 URL');
+      return null;
+    }
+
+    if (Platform.isWindows) {
+      return _tryParseOnWindows(url, log: log);
+    }
+
+    if (!Platform.isAndroid) {
+      log?.call('WebView 解析当前仅实现 Android/Windows');
       return null;
     }
 
@@ -41,6 +46,175 @@ class WebViewParser {
 
     log?.call('WebView 解析失败');
     return null;
+  }
+
+  Future<VideoInfo?> _tryParseOnWindows(
+    String url, {
+    WebViewParserLog? log,
+  }) async {
+    log?.call('WebView(Windows) 开始初始化');
+
+    final runtimeVersion = await wvwin.WebviewController.getWebViewVersion();
+    if (runtimeVersion == null || runtimeVersion.trim().isEmpty) {
+      log?.call('WebView2 Runtime 未安装，跳过 Windows WebView 解析');
+      return null;
+    }
+    log?.call('WebView2 Runtime: $runtimeVersion');
+
+    final controller = wvwin.WebviewController();
+    StreamSubscription<wvwin.LoadingState>? loadingSub;
+    StreamSubscription<String>? urlSub;
+    Completer<void>? navCompleted;
+    String? currentUrl;
+
+    try {
+      await controller.initialize();
+      await controller.setPopupWindowPolicy(
+        wvwin.WebviewPopupWindowPolicy.deny,
+      );
+      await controller.setUserAgent(_androidUserAgent);
+
+      urlSub = controller.url.listen((u) {
+        currentUrl = u;
+      });
+
+      loadingSub = controller.loadingState.listen((state) {
+        if (state == wvwin.LoadingState.loading) {
+          log?.call('WebView(Windows) loading...');
+        } else if (state == wvwin.LoadingState.navigationCompleted) {
+          log?.call('WebView(Windows) navigationCompleted');
+          if (navCompleted != null && !navCompleted!.isCompleted) {
+            navCompleted!.complete();
+          }
+        }
+      });
+
+      Future<bool> loadAndWait(
+        String targetUrl, {
+        required String phase,
+      }) async {
+        navCompleted = Completer<void>();
+        log?.call('WebView(Windows) $phase: $targetUrl');
+        await controller.loadUrl(targetUrl);
+        try {
+          await navCompleted!.future.timeout(_timeout);
+          return true;
+        } on TimeoutException {
+          log?.call('WebView(Windows) $phase超时');
+          return false;
+        }
+      }
+
+      if (!await loadAndWait(url, phase: '开始加载')) return null;
+
+      final extractScript = await _loadExtractScript(log: log);
+      if (extractScript == null) return null;
+
+      var data = await _runWindowsExtractWithRetry(
+        controller,
+        extractScript,
+        log: log,
+      );
+
+      if ((data?['ok'] == true)) {
+        final info = _mapToVideoInfo(data!);
+        log?.call('WebView(Windows) 解析成功: id=${info.videoId}');
+        return info;
+      }
+
+      // 某些短链会落到不含 _ROUTER_DATA 的壳页，回退到 iesdouyin share 页重试。
+      if (data?['reason'] == 'no_router_data') {
+        final fallback = _buildIesShareFallbackUrl(currentUrl ?? url);
+        if (fallback != null && fallback != currentUrl) {
+          log?.call('WebView(Windows) 回退 share 页重试: $fallback');
+          if (await loadAndWait(fallback, phase: '回退加载')) {
+            data = await _runWindowsExtractWithRetry(
+              controller,
+              extractScript,
+              log: log,
+            );
+          }
+        }
+      }
+
+      if (data?['ok'] != true) {
+        log?.call('WebView(Windows) 提取失败: ${data?['reason'] ?? 'unknown'}');
+        return null;
+      }
+
+      final info = _mapToVideoInfo(data!);
+      log?.call('WebView(Windows) 解析成功: id=${info.videoId}');
+      return info;
+    } on PlatformException catch (e) {
+      log?.call('WebView(Windows) 平台错误: ${e.code} ${e.message ?? ''}');
+      return null;
+    } catch (e) {
+      log?.call('WebView(Windows) 异常: $e');
+      return null;
+    } finally {
+      await loadingSub?.cancel();
+      await urlSub?.cancel();
+      await controller.dispose();
+    }
+  }
+
+  Future<Map<String, dynamic>?> _runWindowsExtractWithRetry(
+    wvwin.WebviewController controller,
+    String extractScript, {
+    WebViewParserLog? log,
+  }) async {
+    Map<String, dynamic>? last;
+    for (var i = 0; i < 6; i++) {
+      final data = await _runWindowsExtractOnce(
+        controller,
+        extractScript,
+        log: log,
+      );
+      if (data == null) return null;
+      last = data;
+      if (data['ok'] == true) return data;
+      if (data['reason'] != 'no_router_data') return data;
+      if (i < 5) {
+        await Future<void>.delayed(const Duration(milliseconds: 250));
+      }
+    }
+    return last;
+  }
+
+  Future<Map<String, dynamic>?> _runWindowsExtractOnce(
+    wvwin.WebviewController controller,
+    String extractScript, {
+    WebViewParserLog? log,
+  }) async {
+    final raw = await controller.executeScript(extractScript);
+    final jsonText = _normalizeJsResult(raw);
+    if (jsonText == null || jsonText.isEmpty) {
+      log?.call('WebView(Windows) JS 返回为空');
+      return null;
+    }
+
+    dynamic decoded;
+    try {
+      decoded = jsonDecode(jsonText);
+    } catch (e) {
+      log?.call('WebView(Windows) JSON 解析失败: $e');
+      return null;
+    }
+    if (decoded is! Map) return null;
+    return Map<String, dynamic>.from(decoded.cast<String, dynamic>());
+  }
+
+  String? _buildIesShareFallbackUrl(String sourceUrl) {
+    final uri = Uri.tryParse(sourceUrl);
+    if (uri == null) return null;
+
+    final awemeId = RegExp(
+      r'/(?:video|note|slides|detail)/(\d+)',
+    ).firstMatch(uri.path)?.group(1);
+    if (awemeId == null || awemeId.isEmpty) return null;
+
+    final query = uri.hasQuery ? '?${uri.query}' : '';
+    return 'https://www.iesdouyin.com/share/video/$awemeId/$query';
   }
 
   Future<VideoInfo?> _tryParseWithUserAgent(

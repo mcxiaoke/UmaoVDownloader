@@ -85,14 +85,17 @@ class _HomePageState extends State<HomePage> {
     _log.info('开始解析：$url');
     _vlog('当前平台: ${Platform.operatingSystem}');
     _vlog('策略=${_settings.parserStrategy.value}');
-    _vlog('并行对比=${_settings.compareParsers ? "开启" : "关闭"}');
+    final enableCompare =
+        _settings.compareParsers &&
+        _settings.parserStrategy == ParserStrategy.auto;
+    _vlog('并行对比=${enableCompare ? "开启" : "关闭"}');
     final sw = Stopwatch()..start();
 
     try {
       final info = await _parserFacade.parse(
         url,
         strategy: _settings.parserStrategy,
-        compareParsers: _settings.compareParsers,
+        compareParsers: enableCompare,
         log: (m) => _vlog(m),
       );
 
@@ -298,6 +301,15 @@ class _HomePageState extends State<HomePage> {
   Future<void> _openLogSettingsPanel() async {
     var verbose = _settings.verboseLog;
     var compare = _settings.compareParsers;
+    var parserStrategy = _settings.parserStrategy;
+
+    String parserLabel(ParserStrategy s) {
+      return switch (s) {
+        ParserStrategy.auto => '自动',
+        ParserStrategy.dartOnly => 'Dart解析器',
+        ParserStrategy.jsOnly => 'JS解析器',
+      };
+    }
 
     await showModalBottomSheet<void>(
       context: context,
@@ -329,12 +341,47 @@ class _HomePageState extends State<HomePage> {
                     ),
                     SwitchListTile.adaptive(
                       value: compare,
-                      onChanged: (v) async {
-                        setSheetState(() => compare = v);
-                        await _settings.setCompareParsers(v);
-                        _log.info(v ? '已开启双解析器并行对比' : '已关闭双解析器并行对比');
-                      },
+                      onChanged: parserStrategy == ParserStrategy.auto
+                          ? (v) async {
+                              setSheetState(() => compare = v);
+                              await _settings.setCompareParsers(v);
+                              _log.info(v ? '已开启双解析器并行对比' : '已关闭双解析器并行对比');
+                            }
+                          : null,
+                      subtitle: parserStrategy == ParserStrategy.auto
+                          ? null
+                          : const Text('仅自动模式生效'),
                       title: const Text('解析器并行对比'),
+                    ),
+                    ListTile(
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+                      leading: const Icon(Icons.memory),
+                      title: const Text('解析器选择'),
+                      subtitle: Text(parserLabel(parserStrategy)),
+                      trailing: DropdownButton<ParserStrategy>(
+                        value: parserStrategy,
+                        underline: const SizedBox.shrink(),
+                        items: const [
+                          DropdownMenuItem(
+                            value: ParserStrategy.auto,
+                            child: Text('自动'),
+                          ),
+                          DropdownMenuItem(
+                            value: ParserStrategy.dartOnly,
+                            child: Text('Dart解析器'),
+                          ),
+                          DropdownMenuItem(
+                            value: ParserStrategy.jsOnly,
+                            child: Text('JS解析器'),
+                          ),
+                        ],
+                        onChanged: (v) async {
+                          if (v == null) return;
+                          setSheetState(() => parserStrategy = v);
+                          await _settings.setParserStrategy(v);
+                          _log.info('解析器已切换为：${parserLabel(v)}');
+                        },
+                      ),
                     ),
                     if (_log.logFilePath != null)
                       ListTile(
@@ -397,14 +444,14 @@ class _HomePageState extends State<HomePage> {
     return Scaffold(
       appBar: AppBar(title: const Text('Umao VDownloader - 短视频下载')),
       body: Padding(
-        padding: const EdgeInsets.all(12.0),
+        padding: const EdgeInsets.fromLTRB(12, 6, 12, 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             _buildInputRow(),
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
             _buildResultCard(),
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
             _buildDirectoryRow(),
             const SizedBox(height: 8),
             Expanded(child: _buildLogPanel()),
@@ -417,40 +464,55 @@ class _HomePageState extends State<HomePage> {
   // ── 输入区 ───────────────────────────────────────────────────
 
   Widget _buildInputRow() {
-    return Row(
-      children: [
-        Expanded(
-          child: TextField(
-            controller: _inputCtrl,
-            decoration: const InputDecoration(
-              hintText: '粘贴抖音分享文本或链接…',
-              border: OutlineInputBorder(),
-              isDense: true,
-              contentPadding: EdgeInsets.symmetric(
-                horizontal: 10,
-                vertical: 10,
+    final parseButton = FilledButton.icon(
+      onPressed: _parsing ? null : _parse,
+      icon: _parsing
+          ? const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.white,
               ),
-            ),
-            maxLines: 1,
-            onSubmitted: (_) => _parse(),
-          ),
-        ),
-        const SizedBox(width: 8),
-        FilledButton.icon(
-          onPressed: _parsing ? null : _parse,
-          icon: _parsing
-              ? const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Colors.white,
-                  ),
-                )
-              : const Icon(Icons.search, size: 18),
-          label: const Text('解析'),
-        ),
-      ],
+            )
+          : const Icon(Icons.search, size: 18),
+      label: const Text('解析'),
+    );
+
+    final inputField = TextField(
+      controller: _inputCtrl,
+      decoration: const InputDecoration(
+        hintText: '粘贴抖音分享文本或链接…',
+        border: OutlineInputBorder(),
+        isDense: true,
+        contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+      ),
+      maxLines: 1,
+      onSubmitted: (_) => _parse(),
+    );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final narrow = constraints.maxWidth < 520;
+        if (narrow) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              inputField,
+              const SizedBox(height: 8),
+              SizedBox(height: 40, child: parseButton),
+            ],
+          );
+        }
+
+        return Row(
+          children: [
+            Expanded(child: inputField),
+            const SizedBox(width: 8),
+            parseButton,
+          ],
+        );
+      },
     );
   }
 
@@ -805,114 +867,139 @@ class _HomePageState extends State<HomePage> {
   Widget _buildLogPanel() {
     return ListenableBuilder(
       listenable: _settings,
-      builder: (context, _) => Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // 标题栏
-          Row(
+      builder: (context, _) => LayoutBuilder(
+        builder: (context, constraints) {
+          final narrow = constraints.maxWidth < 430;
+
+          final actionStyle = TextButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            minimumSize: const Size(56, 34),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          );
+
+          final actions = [
+            TextButton.icon(
+              onPressed: _openLogSettingsPanel,
+              icon: const Icon(Icons.tune, size: 17),
+              label: Text(
+                '设置',
+                style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
+              ),
+              style: actionStyle,
+            ),
+            TextButton.icon(
+              onPressed: _copyLogContent,
+              icon: const Icon(Icons.content_copy, size: 17),
+              label: Text(
+                '复制日志',
+                style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
+              ),
+              style: actionStyle,
+            ),
+            TextButton.icon(
+              onPressed: () => setState(() => _log.entries.clear()),
+              icon: const Icon(Icons.delete_outline, size: 17),
+              label: Text(
+                '清空',
+                style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
+              ),
+              style: actionStyle,
+            ),
+          ];
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.terminal, size: 15, color: Colors.grey),
-                  const SizedBox(width: 4),
-                  const Text(
-                    '日志',
-                    style: TextStyle(fontSize: 12, color: Colors.grey),
-                  ),
-                ],
-              ),
-              const Spacer(),
-              TextButton.icon(
-                onPressed: _openLogSettingsPanel,
-                icon: const Icon(Icons.tune, size: 15),
-                label: Text(
-                  '设置',
-                  style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+              // 标题栏
+              if (narrow)
+                Wrap(
+                  runSpacing: 4,
+                  spacing: 2,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: const [
+                        Icon(Icons.terminal, size: 15, color: Colors.grey),
+                        SizedBox(width: 4),
+                        Text(
+                          '日志',
+                          style: TextStyle(fontSize: 12, color: Colors.grey),
+                        ),
+                      ],
+                    ),
+                    ...actions,
+                  ],
+                )
+              else
+                Row(
+                  children: [
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: const [
+                        Icon(Icons.terminal, size: 15, color: Colors.grey),
+                        SizedBox(width: 4),
+                        Text(
+                          '日志',
+                          style: TextStyle(fontSize: 12, color: Colors.grey),
+                        ),
+                      ],
+                    ),
+                    const Spacer(),
+                    ...actions,
+                  ],
                 ),
-                style: TextButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                  minimumSize: Size.zero,
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                ),
-              ),
-              TextButton.icon(
-                onPressed: _copyLogContent,
-                icon: const Icon(Icons.content_copy, size: 15),
-                label: Text(
-                  '复制日志',
-                  style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
-                ),
-                style: TextButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                  minimumSize: Size.zero,
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                ),
-              ),
-              TextButton.icon(
-                onPressed: () => setState(() => _log.entries.clear()),
-                icon: const Icon(Icons.delete_outline, size: 15),
-                label: Text(
-                  '清空',
-                  style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
-                ),
-                style: TextButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                  minimumSize: Size.zero,
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              const Divider(height: 4),
+              Expanded(
+                child: ListenableBuilder(
+                  listenable: _log,
+                  builder: (context, _) {
+                    // 自动滚动到底部
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (_logScrollCtrl.hasClients) {
+                        _logScrollCtrl.animateTo(
+                          _logScrollCtrl.position.maxScrollExtent,
+                          duration: const Duration(milliseconds: 150),
+                          curve: Curves.easeOut,
+                        );
+                      }
+                    });
+
+                    return Container(
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1E1E1E),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      padding: const EdgeInsets.all(8),
+                      child: SelectionArea(
+                        child: ListView.builder(
+                          controller: _logScrollCtrl,
+                          itemCount: _log.entries.length,
+                          itemBuilder: (_, i) {
+                            final e = _log.entries[i];
+                            return Text(
+                              e.toString(),
+                              style: TextStyle(
+                                fontFamily: 'monospace',
+                                fontSize: 11,
+                                height: 1.5,
+                                color: switch (e.level) {
+                                  LogLevel.error => const Color(0xFFFF6B6B),
+                                  LogLevel.warn => const Color(0xFFFFD93D),
+                                  LogLevel.info => const Color(0xFFB0BEC5),
+                                },
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    );
+                  },
                 ),
               ),
             ],
-          ),
-          const Divider(height: 4),
-          Expanded(
-            child: ListenableBuilder(
-              listenable: _log,
-              builder: (context, _) {
-                // 自动滚动到底部
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (_logScrollCtrl.hasClients) {
-                    _logScrollCtrl.animateTo(
-                      _logScrollCtrl.position.maxScrollExtent,
-                      duration: const Duration(milliseconds: 150),
-                      curve: Curves.easeOut,
-                    );
-                  }
-                });
-
-                return Container(
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF1E1E1E),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  padding: const EdgeInsets.all(8),
-                  child: SelectionArea(
-                    child: ListView.builder(
-                      controller: _logScrollCtrl,
-                      itemCount: _log.entries.length,
-                      itemBuilder: (_, i) {
-                        final e = _log.entries[i];
-                        return Text(
-                          e.toString(),
-                          style: TextStyle(
-                            fontFamily: 'monospace',
-                            fontSize: 11,
-                            height: 1.5,
-                            color: switch (e.level) {
-                              LogLevel.error => const Color(0xFFFF6B6B),
-                              LogLevel.warn => const Color(0xFFFFD93D),
-                              LogLevel.info => const Color(0xFFB0BEC5),
-                            },
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-        ],
+          );
+        },
       ),
     );
   }
