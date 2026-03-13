@@ -60,6 +60,10 @@ class VideoInfo {
   /// 背景音乐标题，null 表示无音乐或未能解析
   final String? musicTitle;
 
+  /// 实况图视频 URL 列表（小红书 Live Photo）
+  /// 每个实况图对应一个短视频，按顺序下载
+  final List<String> livePhotoUrls;
+
   const VideoInfo({
     required this.videoId,
     required this.title,
@@ -73,10 +77,11 @@ class VideoInfo {
     this.imageUrls = const [],
     this.musicUrl,
     this.musicTitle,
+    this.livePhotoUrls = const [],
   });
 
-  /// 是否为图文作品（有图片列表）
-  bool get isImagePost => imageUrls.isNotEmpty;
+  /// 是否为图文作品（无视频但有图片）
+  bool get isImagePost => qualityUrls.isEmpty && imageUrls.isNotEmpty;
 
   /// 分辨率标签，如 "1920×1080"、"3840×2160 (4K)"，无数据时返回 null
   String? get resolutionLabel {

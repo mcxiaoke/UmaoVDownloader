@@ -1,6 +1,7 @@
 import 'douyin_parser.dart';
 import 'settings_service.dart';
 import 'webview_parser.dart';
+import 'xiaohongshu_parser.dart';
 
 typedef ParserLog = void Function(String message);
 
@@ -40,16 +41,8 @@ class ParserFacade {
     log?.call('解析策略: ${strategy.value}');
     log?.call('并行对比: ${compareParsers ? "开启" : "关闭"}');
 
-    // 小红书目前仅支持 WebView 解析
-    if (platform == ParserPlatform.xiaohongshu) {
-      log?.call('小红书仅支持 WebView 解析');
-      final webview = await _tryParseByWebView(input, log: log);
-      if (webview != null) return _normalize(webview);
-      throw Exception('小红书 WebView 解析失败');
-    }
-
     if (compareParsers && strategy == ParserStrategy.auto) {
-      return _parseWithCompare(input, strategy: strategy, log: log);
+      return _parseWithCompare(input, platform: platform, strategy: strategy, log: log);
     }
 
     if (strategy == ParserStrategy.auto) {
@@ -57,7 +50,7 @@ class ParserFacade {
       final webview = await _tryParseByWebView(input, log: log);
       if (webview != null) return _normalize(webview);
       log?.call('WebView 解析未命中，回退 Dart 解析');
-      return _normalize(await _parseByDart(input));
+      return _normalize(await _parseByDart(input, platform));
     }
 
     if (strategy == ParserStrategy.jsOnly) {
@@ -66,11 +59,13 @@ class ParserFacade {
       throw Exception('JS解析器未命中');
     }
 
-    return _normalize(await _parseByDart(input));
+    // dart_only 或其他策略：使用 Dart 解析器
+    return _normalize(await _parseByDart(input, platform));
   }
 
   Future<VideoInfo> _parseWithCompare(
     String input, {
+    required ParserPlatform platform,
     required ParserStrategy strategy,
     ParserLog? log,
   }) async {
@@ -87,7 +82,7 @@ class ParserFacade {
         .catchError((e) => webError = e)
         .whenComplete(() => webSw.stop());
 
-    final dartFuture = _parseByDart(input)
+    final dartFuture = _parseByDart(input, platform)
         .then((v) => dartInfo = v)
         .catchError((e) => dartError = e)
         .whenComplete(() => dartSw.stop());
@@ -106,12 +101,21 @@ class ParserFacade {
     throw dartError ?? webError ?? Exception('两个解析器均失败');
   }
 
-  Future<VideoInfo> _parseByDart(String input) async {
-    final parser = DouyinParser();
-    try {
-      return await parser.parse(input);
-    } finally {
-      parser.dispose();
+  Future<VideoInfo> _parseByDart(String input, ParserPlatform platform) async {
+    if (platform == ParserPlatform.xiaohongshu) {
+      final parser = XiaohongshuParser();
+      try {
+        return await parser.parse(input);
+      } finally {
+        parser.dispose();
+      }
+    } else {
+      final parser = DouyinParser();
+      try {
+        return await parser.parse(input);
+      } finally {
+        parser.dispose();
+      }
     }
   }
 

@@ -65,12 +65,27 @@ class _HomePageState extends State<HomePage> {
 
     final url = UrlExtractor.extractFirst(input);
     if (url == null) {
-      _log.warn('无效输入，未找到抖音链接');
+      _log.warn('无效输入，未找到链接');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('未找到有效的抖音链接，请粘贴分享文本或链接'),
+            content: Text('未找到有效的链接，请粘贴抖音/小红书分享文本或链接'),
             duration: Duration(seconds: 3),
+          ),
+        );
+      }
+      return;
+    }
+
+    // 校验是否为支持的平台
+    final platform = ParserPlatform.fromUrl(url);
+    if (platform == ParserPlatform.unknown) {
+      _log.warn('不支持的链接: $url');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('仅支持抖音/小红书链接，检测到: ${Uri.parse(url).host}'),
+            duration: const Duration(seconds: 3),
           ),
         );
       }
@@ -104,11 +119,11 @@ class _HomePageState extends State<HomePage> {
         _fileSizeBytes = null;
         _downloadMusic = false;
         // 图文作品没有视频清晰度概念
-        if (!info.isImagePost) {
+        if (!info.isImagePost && info.availableQualities.isNotEmpty) {
           _selectedQuality = info.availableQualities.first;
         }
       });
-      if (!info.isImagePost) {
+      if (!info.isImagePost && info.availableQualities.isNotEmpty) {
         _fetchFileSize(info, info.availableQualities.first);
       }
       _log.info('解析成功：${info.title}');
@@ -117,6 +132,9 @@ class _HomePageState extends State<HomePage> {
       if (info.isImagePost) {
         _log.info('图文作品，共 ${info.imageUrls.length} 张图片');
         _vlog('musicUrl=${info.musicUrl ?? "<none>"}');
+      } else if (info.livePhotoUrls.isNotEmpty) {
+        _log.info('实况图作品，共 ${info.livePhotoUrls.length} 个视频');
+        _vlog('封面=${info.coverUrl ?? "<none>"}');
       } else {
         _log.info('fileId=${info.videoFileId}');
         _vlog('封面=${info.coverUrl ?? "<none>"}');
@@ -194,11 +212,15 @@ class _HomePageState extends State<HomePage> {
       _downloadProgress = 0;
       _lastVerboseProgressBucket = null;
     });
-    _log.info(
-      info.isImagePost
-          ? '开始下载图文（${info.imageUrls.length} 张）：${info.title}'
-          : '开始下载 [${_selectedQuality.ratio}]：${info.title}',
-    );
+    String downloadLabel;
+    if (info.isImagePost) {
+      downloadLabel = '图文（${info.imageUrls.length} 张）';
+    } else if (info.livePhotoUrls.isNotEmpty) {
+      downloadLabel = '实况图（${info.livePhotoUrls.length} 个视频）';
+    } else {
+      downloadLabel = '[${_selectedQuality.ratio}]';
+    }
+    _log.info('开始下载 $downloadLabel：${info.title}');
 
     try {
       final downloader = (Platform.isAndroid || Platform.isIOS)
@@ -214,16 +236,17 @@ class _HomePageState extends State<HomePage> {
         downloadMusic: _downloadMusic,
         onProgress: (received, total) {
           if (!mounted) return;
-          if (info.isImagePost) {
-            // received = 当前张数， total = 总张数
+          if (info.isImagePost || info.livePhotoUrls.isNotEmpty) {
+            // 图文或实况图：received = 当前张数/个数， total = 总数
             if (total != null && total > 0) {
               final p = received / total;
               setState(() => _downloadProgress = p);
               final bucket = (p * 10).floor();
               if (_verbose && _lastVerboseProgressBucket != bucket) {
                 _lastVerboseProgressBucket = bucket;
+                final type = info.isImagePost ? '图文' : '实况图';
                 _vlog(
-                  '图文下载进度 ${(p * 100).toStringAsFixed(0)}% ($received/$total)',
+                  '$type下载进度 ${(p * 100).toStringAsFixed(0)}% ($received/$total)',
                 );
               }
             }
@@ -482,7 +505,7 @@ class _HomePageState extends State<HomePage> {
     final inputField = TextField(
       controller: _inputCtrl,
       decoration: const InputDecoration(
-        hintText: '粘贴抖音分享文本或链接…',
+        hintText: '粘贴抖音/小红书分享文本或链接…',
         border: OutlineInputBorder(),
         isDense: true,
         contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
@@ -583,7 +606,14 @@ class _HomePageState extends State<HomePage> {
                             semanticsLabel:
                                 '已下载 ${((_downloadProgress ?? 0) * info.imageUrls.length).round()} / ${info.imageUrls.length} 张',
                           )
-                        : LinearProgressIndicator(value: _downloadProgress),
+                        : info.livePhotoUrls.isNotEmpty
+                            // 实况图：展示视频个数 X/N
+                            ? LinearProgressIndicator(
+                                value: _downloadProgress,
+                                semanticsLabel:
+                                    '已下载 ${((_downloadProgress ?? 0) * info.livePhotoUrls.length).round()} / ${info.livePhotoUrls.length} 个',
+                              )
+                            : LinearProgressIndicator(value: _downloadProgress),
                   ),
               ],
             ),
@@ -639,6 +669,22 @@ class _HomePageState extends State<HomePage> {
             ),
             const Text('含背景音乐', style: TextStyle(fontSize: 13)),
           ],
+          const Spacer(),
+          doneLabel,
+          const SizedBox(width: 8),
+          downloadBtn,
+        ],
+      );
+    }
+
+    // 实况图作品
+    if (info.livePhotoUrls.isNotEmpty) {
+      return Row(
+        children: [
+          Text(
+            '实况图作品  ${info.livePhotoUrls.length} 个视频',
+            style: const TextStyle(fontSize: 13),
+          ),
           const Spacer(),
           doneLabel,
           const SizedBox(width: 8),
@@ -725,6 +771,34 @@ class _HomePageState extends State<HomePage> {
               ],
             ),
           ],
+          const SizedBox(height: 8),
+          downloadBtn,
+        ],
+      );
+    }
+
+    // 实况图作品（窄屏）
+    if (info.livePhotoUrls.isNotEmpty) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Text(
+                '实况图作品  ${info.livePhotoUrls.length} 个视频',
+                style: const TextStyle(fontSize: 13),
+              ),
+              if (_downloadProgress == 1.0) ...const [
+                Spacer(),
+                Icon(Icons.check_circle, color: Colors.green, size: 18),
+                SizedBox(width: 4),
+                Text(
+                  '下载完成',
+                  style: TextStyle(color: Colors.green, fontSize: 13),
+                ),
+              ],
+            ],
+          ),
           const SizedBox(height: 8),
           downloadBtn,
         ],
@@ -1055,6 +1129,9 @@ class _QualityDropdown extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 没有清晰度时不显示下拉框
+    if (qualities.isEmpty) return const SizedBox.shrink();
+
     return DropdownButton<VideoQuality>(
       value: qualities.contains(value) ? value : qualities.first,
       isDense: true,

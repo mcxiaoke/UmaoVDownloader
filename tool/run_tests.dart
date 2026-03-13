@@ -1,27 +1,40 @@
-/// 批量测试脚本 — 读取 test/urls.txt，逐条解析并打印摘要
+/// 批量测试脚本 — 读取 test/urls.txt 或 test/xhs.txt，逐条解析并打印摘要
 ///
 /// 用法：
-///   dart run tool/run_tests.dart
+///   dart run tool/run_tests.dart [urls.txt|xhs.txt] [--debug]
 ///
 /// 功能：
-///   • 对每条 URL 调用 DouyinParser 解析
-///   • 将分享页 HTML 保存到 test/cache/<shortId>.html，供手动分析
+///   • 对每条 URL 调用对应 Parser 解析
+///   • 将分享页 HTML 保存到 test/cache/<platform>/<id>.html，供手动分析
 ///   • 控制台输出对齐摘要表格，含 PASS / FAIL 标记
 library;
 
-import 'dart:io';
+import 'dart:io' as io;
 
+import 'package:path/path.dart' as path;
 import 'package:http/http.dart' as http;
 import 'package:umao_vdownloader/services/douyin_parser.dart';
+import 'package:umao_vdownloader/services/xiaohongshu_parser.dart';
+
+// ── 平台类型 ──────────────────────────────────────────────────────────────────
+enum Platform { douyin, xiaohongshu }
+
+extension PlatformExt on Platform {
+  String get displayName => switch (this) {
+    Platform.douyin => '抖音',
+    Platform.xiaohongshu => '小红书',
+  };
+}
 
 // ── HTML 拦截 Client ──────────────────────────────────────────────────────────
-/// 包装 http.Client，将每次 GET 响应 body 写入 [cacheDir]/<host+path>.html
+/// 包装 http.Client，将每次 GET 响应 body 写入 [cacheDir]/<platform>/<id>.html
 class _CachingClient extends http.BaseClient {
-  _CachingClient(this._inner, this._cacheDir, this._shortId);
+  _CachingClient(this._inner, this._cacheDir, this._platform, this._id);
 
   final http.Client _inner;
-  final Directory _cacheDir;
-  final String _shortId;
+  final io.Directory _cacheDir;
+  final Platform _platform;
+  final String _id;
 
   // 最近一次 GET 请求的保存路径（供外部读取日志用）
   String? lastSavedPath;
@@ -34,10 +47,17 @@ class _CachingClient extends http.BaseClient {
   Future<http.Response> get(Uri url, {Map<String, String>? headers}) async {
     final resp = await _inner.get(url, headers: headers);
     if (resp.statusCode == 200) {
-      // 用 shortId + URL path 作文件名，方便对照 urls.txt
-      final seg = url.pathSegments.where((s) => s.isNotEmpty).join('_');
-      final name = '${_shortId}_$seg.html';
-      final file = File('${_cacheDir.path}${Platform.pathSeparator}$name');
+      // 创建平台子目录
+      final platformDir = io.Directory(
+        path.join(_cacheDir.path, _platform.name),
+      );
+      if (!platformDir.existsSync()) {
+        platformDir.createSync(recursive: true);
+      }
+
+      // 用 id 作文件名
+      final name = '${_id}.html';
+      final file = io.File(path.join(platformDir.path, name));
       await file.writeAsString(resp.body);
       lastSavedPath = file.path;
     }
@@ -46,43 +66,78 @@ class _CachingClient extends http.BaseClient {
 }
 
 // ── 解析一条 URL ─────────────────────────────────────────────────────────────
-Future<_Result> _testOne(String url, Directory cacheDir) async {
-  final shortId =
-      RegExp(r'v\.douyin\.com/([A-Za-z0-9_-]+)').firstMatch(url)?.group(1) ??
-      RegExp(r'/(?:video|note|slides)/(\d+)').firstMatch(url)?.group(1) ??
-      'unknown';
+Future<_Result> _testOne(
+  String url,
+  io.Directory cacheDir,
+  Platform platform, {
+  bool debug = false,
+}) async {
+  String id;
+  if (platform == Platform.douyin) {
+    id = RegExp(r'v\.douyin\.com/([A-Za-z0-9_-]+)').firstMatch(url)?.group(1) ??
+        RegExp(r'/(?:video|note|slides)/(\d+)').firstMatch(url)?.group(1) ??
+        'unknown';
+  } else {
+    // xhslink.com/o/xxx 或 xiaohongshu.com/explore/xxx
+    id = RegExp(r'xhslink\.com/o/([A-Za-z0-9_-]+)').firstMatch(url)?.group(1) ??
+        RegExp(r'/explore/(\w+)').firstMatch(url)?.group(1) ??
+        'unknown';
+  }
+
   final inner = http.Client();
-  final caching = _CachingClient(inner, cacheDir, shortId);
-  final parser = DouyinParser(httpClient: caching);
+  final caching = _CachingClient(inner, cacheDir, platform, id);
 
   try {
-    final info = await parser.parse(url);
-    return _Result(
-      shortId: shortId,
-      ok: true,
-      title: info.title,
-      isImage: info.imageUrls.isNotEmpty,
-      imageCount: info.imageUrls.length,
-      quality: info.availableQualities.map((q) => q.ratio).join('/'),
-      htmlPath: caching.lastSavedPath,
-    );
+    if (platform == Platform.douyin) {
+      final parser = DouyinParser(httpClient: caching);
+      final info = await parser.parse(url);
+      return _Result(
+        id: id,
+        ok: true,
+        title: info.title,
+        isImage: info.imageUrls.isNotEmpty,
+        imageCount: info.imageUrls.length,
+        quality: info.availableQualities.map((q) => q.ratio).join('/'),
+        htmlPath: caching.lastSavedPath,
+        platform: platform,
+      );
+    } else {
+      final parser = XiaohongshuParser(client: caching);
+      final info = await parser.parse(url, debug: debug);
+      return _Result(
+        id: id,
+        ok: true,
+        title: info.title,
+        isImage: info.imageUrls.isNotEmpty && info.qualityUrls.isEmpty,
+        imageCount: info.imageUrls.length,
+        quality: info.availableQualities.map((q) => q.ratio).join('/'),
+        htmlPath: caching.lastSavedPath,
+        platform: platform,
+      );
+    }
   } catch (e) {
     return _Result(
-      shortId: shortId,
+      id: id,
       ok: false,
       error: e.toString(),
       htmlPath: caching.lastSavedPath,
+      platform: platform,
     );
   } finally {
-    parser.dispose();
+    if (platform == Platform.douyin) {
+      (inner as http.Client).close();
+    } else {
+      inner.close();
+    }
   }
 }
 
 // ── 数据类 ───────────────────────────────────────────────────────────────────
 class _Result {
   _Result({
-    required this.shortId,
+    required this.id,
     required this.ok,
+    required this.platform,
     this.title,
     this.isImage = false,
     this.imageCount = 0,
@@ -91,8 +146,9 @@ class _Result {
     this.htmlPath,
   });
 
-  final String shortId;
+  final String id;
   final bool ok;
+  final Platform platform;
   final String? title;
   final bool isImage;
   final int imageCount;
@@ -102,12 +158,29 @@ class _Result {
 }
 
 // ── 主入口 ───────────────────────────────────────────────────────────────────
-Future<void> main() async {
-  final urlsFile = File('test/urls.txt');
-  if (!urlsFile.existsSync()) {
-    print('找不到 test/urls.txt');
-    exit(1);
+Future<void> main(List<String> args) async {
+  // 解析参数
+  String urlsFileName = 'urls.txt';
+  bool debug = false;
+
+  for (final arg in args) {
+    if (arg == '--debug') {
+      debug = true;
+    } else if (arg.endsWith('.txt')) {
+      urlsFileName = arg;
+    }
   }
+
+  final urlsFile = io.File(path.join('test', urlsFileName));
+  if (!urlsFile.existsSync()) {
+    print('找不到 ${urlsFile.path}');
+    io.exit(1);
+  }
+
+  // 根据文件名判断平台
+  final platform = urlsFileName.contains('xhs')
+      ? Platform.xiaohongshu
+      : Platform.douyin;
 
   // 解析 urls.txt，跳过空行和纯注释行
   final entries = <({String url, String label})>[];
@@ -134,14 +207,16 @@ Future<void> main() async {
   }
 
   if (entries.isEmpty) {
-    print('test/urls.txt 中没有有效 URL');
-    exit(1);
+    print('${urlsFile.path} 中没有有效 URL');
+    io.exit(1);
   }
 
   // 确保 cache 目录存在
-  final cacheDir = Directory('test${Platform.pathSeparator}cache');
+  final cacheDir = io.Directory(path.join('test', 'cache'));
   await cacheDir.create(recursive: true);
 
+  print('平台: ${platform.displayName}');
+  print('文件: ${urlsFile.path}');
   print('共 ${entries.length} 条 URL，开始测试…\n');
 
   const delayMs = 6000;
@@ -151,9 +226,9 @@ Future<void> main() async {
     if (i > 0) {
       await Future<void>.delayed(const Duration(milliseconds: delayMs));
     }
-    stdout.write('  测试 ${e.label.padRight(20)} ${e.url} … ');
-    final r = await _testOne(e.url, cacheDir);
-    stdout.writeln(r.ok ? 'OK' : 'FAIL');
+    io.stdout.write('  测试 ${e.label.padRight(20)} ${e.url} … ');
+    final r = await _testOne(e.url, cacheDir, platform, debug: debug);
+    io.stdout.writeln(r.ok ? 'OK' : 'FAIL');
     results.add((e.label, r));
   }
 
@@ -172,11 +247,11 @@ Future<void> main() async {
           ? '${r.title!.substring(0, 27)}…'
           : (r.title ?? '');
       print(
-        '${label.padRight(22)}  ${r.shortId.padRight(16)}  ${status.padRight(7)} $detail  $titleShort',
+        '${label.padRight(22)}  ${r.id.padRight(16)}  ${status.padRight(7)} $detail  $titleShort',
       );
     } else {
       print(
-        '${label.padRight(22)}  ${r.shortId.padRight(16)}  ${status.padRight(7)} ${r.error ?? ""}',
+        '${label.padRight(22)}  ${r.id.padRight(16)}  ${status.padRight(7)} ${r.error ?? ""}',
       );
     }
     if (r.htmlPath != null) {
@@ -187,5 +262,5 @@ Future<void> main() async {
   print('─' * 80);
   print('结果：$passed / ${results.length} 通过\n');
 
-  if (passed < results.length) exit(1);
+  if (passed < results.length) io.exit(1);
 }

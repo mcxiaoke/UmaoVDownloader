@@ -84,6 +84,17 @@ abstract class BaseDownloader implements VideoDownloader {
       );
     }
 
+    // ── 实况图：批量下载视频（类似图片，逐个顺序下载）──────────────
+    if (info.livePhotoUrls.isNotEmpty) {
+      return await _downloadLivePhotos(
+        info,
+        dir,
+        baseName,
+        onProgress,
+        onLog,
+      );
+    }
+
     // ── 视频作品 ─────────────────────────────────────────────
     final resolvedQuality = quality ?? VideoQuality.p1080;
     final qualityLabel = resolvedQuality.ratio;
@@ -216,7 +227,7 @@ abstract class BaseDownloader implements VideoDownloader {
         }
       }
       throw Exception(
-        '下载失败，已尝试 ${cdnUrls.length} 个 CDN 节点 × ${downloadUserAgents.length} 个 UA',
+        '下载失败，已尝试 ${cdnUrls.length} 个 CDN 节点 × ${downloadUserAgents.length} 个 UA，URL: $awemeUrl',
       );
     } catch (_) {
       // 异常时清理未完成的 .part 文件
@@ -363,6 +374,7 @@ abstract class BaseDownloader implements VideoDownloader {
         if (!saved) {
           if (await partFile.exists()) await partFile.delete();
           onLog?.call('图片 ${i + 1} 下载失败，跳过');
+          onLog?.call('  失败 URL: $url');
           continue;
         }
 
@@ -381,6 +393,92 @@ abstract class BaseDownloader implements VideoDownloader {
       await _downloadAudio(info.musicUrl!, dir, '${baseName}_bgm', onLog);
     }
     onLog?.call('图片下载完成，共 $total 张');
+    return firstPath;
+  }
+
+  /// 实况图：按序下载每个视频，保存为 {baseName}_001.mp4 / _002.mp4 …
+  /// 返回第一个视频的完整路径（方便 UI 显示结果）
+  Future<String> _downloadLivePhotos(
+    VideoInfo info,
+    String dir,
+    String baseName,
+    void Function(int received, int? total)? onProgress,
+    void Function(String message)? onLog,
+  ) async {
+    final total = info.livePhotoUrls.length;
+    onLog?.call('实况图作品，共 $total 个视频，开始下载…');
+
+    String firstPath = '';
+    final client = http.Client();
+    try {
+      for (int i = 0; i < total; i++) {
+        final url = info.livePhotoUrls[i];
+        final idx = _p3(i + 1);
+        final basePath = '$dir${Platform.pathSeparator}${baseName}_$idx.mp4';
+        final String videoPath;
+        if (File(basePath).existsSync()) {
+          final now = DateTime.now();
+          final stamp =
+              '${now.year}${_p2(now.month)}${_p2(now.day)}'
+              '_${_p2(now.hour)}${_p2(now.minute)}${_p2(now.second)}';
+          videoPath =
+              '$dir${Platform.pathSeparator}${baseName}_${idx}_$stamp.mp4';
+        } else {
+          videoPath = basePath;
+        }
+
+        onLog?.call('下载实况视频 ${i + 1}/$total…');
+
+        final partFile = File('$videoPath.part');
+        await partFile.parent.create(recursive: true);
+
+        bool saved = false;
+        for (final ua in downloadUserAgents) {
+          final req = http.Request('GET', Uri.parse(url));
+          req.headers[HttpHeaders.userAgentHeader] = ua;
+          final streamed = await client.send(req);
+          if (streamed.statusCode >= 300) {
+            await streamed.stream.drain<void>();
+            continue;
+          }
+          final sink = partFile.openWrite();
+          try {
+            await for (final chunk in streamed.stream.timeout(
+              const Duration(seconds: 30),
+            )) {
+              sink.add(chunk);
+            }
+            saved = true;
+          } on TimeoutException {
+            // 超时：换 UA 重试
+          } catch (_) {
+            // 其他流错误：换 UA
+          } finally {
+            await sink.close();
+          }
+          if (saved) break;
+          // 此 UA 下载失败，清理残留并换下一个 UA
+          if (await partFile.exists()) await partFile.delete();
+        }
+
+        if (!saved) {
+          if (await partFile.exists()) await partFile.delete();
+          onLog?.call('实况视频 ${i + 1} 下载失败，跳过');
+          onLog?.call('  失败 URL: $url');
+          continue;
+        }
+
+        await partFile.rename(videoPath);
+        await afterDownload(videoPath);
+        onProgress?.call(i + 1, total);
+        if (i == 0) firstPath = videoPath;
+      }
+    } finally {
+      client.close();
+    }
+
+    if (firstPath.isEmpty) throw Exception('所有实况视频下载失败');
+    onLog?.call('实况视频下载完成，共 $total 个');
     return firstPath;
   }
 

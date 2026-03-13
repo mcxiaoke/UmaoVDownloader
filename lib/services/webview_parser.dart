@@ -415,6 +415,34 @@ class WebViewParser {
     final width = int.tryParse(data['width']?.toString() ?? '');
     final height = int.tryParse(data['height']?.toString() ?? '');
 
+    // 实况图类型
+    if (type == 'livephoto') {
+      final livePhotoUrls = (data['livePhotoUrls'] is List)
+          ? (data['livePhotoUrls'] as List)
+                .map((e) => e.toString())
+                .where((e) => e.isNotEmpty)
+                .toList()
+          : const <String>[];
+      
+      // 用第一个实况图 URL 作为默认视频地址
+      final qualityUrls = <VideoQuality, String>{};
+      if (livePhotoUrls.isNotEmpty) {
+        qualityUrls[VideoQuality.p720] = livePhotoUrls.first;
+      }
+
+      return VideoInfo(
+        videoId: id,
+        title: title,
+        videoFileId: id,
+        qualityUrls: qualityUrls,
+        coverUrl: data['coverUrl']?.toString(),
+        shareId: data['shareId']?.toString(),
+        width: width,
+        height: height,
+        livePhotoUrls: livePhotoUrls,
+      );
+    }
+
     if (type == 'image') {
       final imageUrls = (data['imageUrls'] is List)
           ? (data['imageUrls'] as List)
@@ -435,6 +463,7 @@ class WebViewParser {
         imageUrls: imageUrls,
         musicUrl: (musicUrl != null && musicUrl.isNotEmpty) ? musicUrl : null,
         musicTitle: data['musicTitle']?.toString(),
+        livePhotoUrls: const [],
       );
     }
 
@@ -474,6 +503,7 @@ class WebViewParser {
       shareId: data['shareId']?.toString(),
       width: width,
       height: height,
+      livePhotoUrls: const [],
     );
   }
 

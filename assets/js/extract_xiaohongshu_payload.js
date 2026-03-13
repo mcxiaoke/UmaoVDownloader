@@ -178,6 +178,7 @@
 
   /**
    * 提取图片 URL 列表（无水印高清图）
+   * 使用 sns-webpic.xhscdn.com 域名支持受保护的图片（作者禁止直接保存）
    */
   function extractImageUrls(note) {
     const imageList = get(note, "imageList", []);
@@ -192,7 +193,9 @@
           if (best.url) {
             const result = extractFileIdFromUrl(best.url);
             if (result) {
-              return `https://sns-img-hw.xhscdn.com/${result.prefix}${result.fileId}?imageView2/2/w/0/format/jpg`;
+              // 使用 sns-webpic 域名构建高清无水印 URL（支持受保护图片）
+              // 格式: https://sns-webpic.xhscdn.com/notes_pre_post/{fileId}?imageView2/2/w/0/format/jpg/v3&c=v1
+              return `https://sns-webpic.xhscdn.com/notes_pre_post/${result.fileId}?imageView2/2/w/0/format/jpg/v3&c=v1`;
             }
             return best.url;
           }
@@ -201,7 +204,7 @@
         // 备用：traceId
         const traceId = img.traceId || get(img, "infoList.0.imageScene.traceId");
         if (traceId) {
-          return `https://sns-img-hw.xhscdn.com/${traceId}?imageView2/2/w/0/format/jpg`;
+          return `https://sns-webpic.xhscdn.com/notes_pre_post/${traceId}?imageView2/2/w/0/format/jpg/v3&c=v1`;
         }
 
         // 最后备用
@@ -265,6 +268,43 @@
   }
 
   /**
+   * 提取实况图视频 URL 列表
+   * 实况图 (livePhoto) 每张图都带有一个短视频（带声音）
+   */
+  function extractLivePhotoUrls(note) {
+    const imageList = get(note, "imageList", []);
+    if (!Array.isArray(imageList)) return [];
+
+    const urls = [];
+    for (const img of imageList) {
+      // 检查是否为实况图
+      if (img.livePhoto !== true) continue;
+
+      // 提取视频流
+      const stream = img.stream;
+      if (!stream || typeof stream !== "object") continue;
+
+      // 优先 h264，其次 h265/av1
+      const formats = ["h264", "h265", "hevc", "av1"];
+      let videoUrl = null;
+      for (const fmt of formats) {
+        const streams = stream[fmt];
+        if (Array.isArray(streams) && streams.length > 0) {
+          const first = streams[0];
+          if (first) {
+            videoUrl = first.masterUrl || first.url;
+            if (videoUrl) break;
+          }
+        }
+      }
+      if (videoUrl) {
+        urls.push(videoUrl);
+      }
+    }
+    return urls;
+  }
+
+  /**
    * 构建基础结果对象
    */
   function buildResult(note) {
@@ -276,7 +316,17 @@
     // 判断类型
     const videoInfo = extractVideoInfo(note);
     const imageUrls = extractImageUrls(note);
-    const type = videoInfo ? "video" : imageUrls.length > 0 ? "image" : "unknown";
+    const livePhotoUrls = extractLivePhotoUrls(note);
+
+    // 优先级：普通视频 > 实况图 > 纯图片
+    let type = "unknown";
+    if (videoInfo) {
+      type = "video";
+    } else if (livePhotoUrls.length > 0) {
+      type = "livephoto";
+    } else if (imageUrls.length > 0) {
+      type = "image";
+    }
 
     const result = {
       id: String(id),
@@ -294,6 +344,13 @@
       result.videoUrl = videoInfo.videoUrl;
       result.width = videoInfo.width;
       result.height = videoInfo.height;
+    } else if (type === "livephoto") {
+      // 实况图：返回视频 URL 列表
+      result.livePhotoUrls = livePhotoUrls;
+      result.livePhotoCount = livePhotoUrls.length;
+      // 用第一个视频 URL 作为默认视频地址
+      result.videoUrl = livePhotoUrls[0];
+      result.qualityUrls = { "720p": livePhotoUrls[0] };
     } else if (type === "image") {
       result.imageUrls = imageUrls;
       result.imageCount = imageUrls.length;
