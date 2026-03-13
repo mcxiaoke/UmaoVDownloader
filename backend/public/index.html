@@ -9,7 +9,7 @@
   <body>
     <header>
       <h1>Umao VDownloader</h1>
-      <p>粘贴抖音分享链接，一键解析下载（无水印）</p>
+      <p>粘贴抖音/小红书分享链接，一键解析下载（无水印）</p>
     </header>
 
     <div class="card">
@@ -17,7 +17,7 @@
         <input
           id="urlInput"
           type="text"
-          placeholder="https://v.douyin.com/xxxxxx/"
+          placeholder="抖音: https://v.douyin.com/xxxxxx/  小红书: https://www.xiaohongshu.com/explore/xxxxx"
           autofocus
         />
         <button id="parseBtn">解析</button>
@@ -65,8 +65,11 @@
           })
           .join("");
 
+        const coverProxyUrl = info.coverUrl
+          ? `download?url=${encodeURIComponent(info.coverUrl)}&name=cover.jpg`
+          : null;
         result.innerHTML = `
-        ${info.coverUrl ? `<img class="video-cover" src="${info.coverUrl}" loading="lazy" />` : ""}
+        ${coverProxyUrl ? `<img class="video-cover" src="${coverProxyUrl}" loading="lazy" />` : ""}
         <div class="info-title">${escHtml(info.title)}</div>
         <div class="info-meta">
           ${info.width && info.height ? `${info.width}×${info.height}` : ""}
@@ -85,7 +88,7 @@
           .map(
             (url, i) => `
         <div class="image-item">
-          <img src="${url}" loading="lazy" />
+          <img src="${`download?url=${encodeURIComponent(url)}&name=img_${i}.webp`}" loading="lazy" />
           <button class="img-dl-btn" data-url="${url}" data-idx="${i}">${isMobile ? "↓ JPG" : "↓ WebP"}</button>
         </div>
       `,
@@ -158,12 +161,21 @@
           .replace(/"/g, "&quot;");
       }
 
-      // 从任意文本中提取第一个抖音链接（支持分享文案夹带 URL）
-      function extractDouyinUrl(text) {
-        const m = text.match(
+      // 从任意文本中提取第一个支持的链接（支持分享文案夹带 URL）
+      function extractUrl(text) {
+        // 抖音链接
+        const douyinMatch = text.match(
           /https?:\/\/(?:[a-zA-Z0-9-]+\.)*(?:douyin|iesdouyin)\.com\/\S+/,
         );
-        return m ? m[0].replace(/[，。、\s]+$/, "") : null;
+        if (douyinMatch) return douyinMatch[0].replace(/[，。、\s]+$/, "");
+
+        // 小红书链接（包含短链接 xhslink.com）
+        const xhsMatch = text.match(
+          /https?:\/\/(?:www\.)?(?:xiaohongshu\.com|xhslink\.com)\/\S+/,
+        );
+        if (xhsMatch) return xhsMatch[0].replace(/[，。、\s]+$/, "");
+
+        return null;
       }
 
       async function doParse() {
@@ -172,10 +184,10 @@
           setStatus("请输入链接", true);
           return;
         }
-        const url = extractDouyinUrl(raw);
+        const url = extractUrl(raw);
         if (!url) {
           setStatus(
-            "未识别到抖音链接，支持 v.douyin.com, www.douyin.com, 包含 iesdouyin.com 等",
+            "未识别到支持的链接，支持抖音(v.douyin.com)和小红书(xiaohongshu.com)",
             true,
           );
           return;

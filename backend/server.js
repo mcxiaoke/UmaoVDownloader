@@ -36,6 +36,7 @@ app.use(express.json());
 
 // CDN 域名白名单（防止 SSRF）
 const ALLOWED_DOMAINS = [
+  // 抖音
   "aweme.snssdk.com",
   "v3-cold.douyinvod.com",
   "v3-dy.douyinvod.com",
@@ -43,6 +44,9 @@ const ALLOWED_DOMAINS = [
   "v9-dy.douyinvod.com",
   "douyinpic.com",
   "douyinstatic.com",
+  // 小红书
+  "xhscdn.com",
+  "xiaohongshu.com",
 ];
 
 const UA_PROXY =

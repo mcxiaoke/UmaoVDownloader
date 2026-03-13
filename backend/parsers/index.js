@@ -3,9 +3,10 @@
  */
 
 import * as douyin from "./douyin.js";
+import * as xiaohongshu from "./xiaohongshu.js";
 
-// 注册所有解析器
-const parsers = [douyin];
+// 注册所有解析器（按优先级排序）
+const parsers = [douyin, xiaohongshu];
 
 /**
  * 自动识别平台并解析
