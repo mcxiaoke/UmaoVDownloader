@@ -135,11 +135,69 @@
       `${PLAY_BASE}?video_id=${uri}&ratio=${ratio}&line=0`;
   }
 
+  function extractFromHtml() {
+    const html = document.documentElement.innerHTML;
+    const marker = "window._ROUTER_DATA = ";
+    const start = html.indexOf(marker);
+    if (start < 0) return null;
+
+    const jsonStart = start + marker.length;
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    let end = -1;
+
+    for (let i = jsonStart; i < html.length; i++) {
+      const ch = html[i];
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (ch === '"') {
+        inString = !inString;
+        continue;
+      }
+      if (inString) continue;
+      if (ch === "{") {
+        depth++;
+      } else if (ch === "}") {
+        depth--;
+        if (depth === 0) {
+          end = i;
+          break;
+        }
+      }
+    }
+
+    if (end <= jsonStart) return null;
+
+    try {
+      const raw = html.substring(jsonStart, end + 1);
+      return JSON.parse(raw);
+    } catch (e) {
+      return null;
+    }
+  }
+
   function runExtract() {
     const inputUrl = location.href;
     const shareId = extractShareId(inputUrl);
 
-    const loaderData = getLoaderData();
+    // 尝试从 window._ROUTER_DATA 获取
+    let loaderData = getLoaderData();
+
+    // 如果失败，尝试从 HTML 中解析
+    if (!loaderData) {
+      const fromHtml = extractFromHtml();
+      if (fromHtml && fromHtml.loaderData) {
+        loaderData = fromHtml.loaderData;
+      }
+    }
+
     if (!loaderData) return jsonFail("no_router_data");
 
     const item = findAwemeItem(loaderData);
