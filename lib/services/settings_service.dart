@@ -5,6 +5,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 const _kDownloadDir = 'download_dir';
+const _kVerboseLog = 'verbose_log';
 
 /// Android 上可供用户快速切换的预设目录
 class AndroidQuickDir {
@@ -16,8 +17,10 @@ class AndroidQuickDir {
 /// 持久化设置服务，目前只保存下载目录。
 class SettingsService extends ChangeNotifier {
   String _downloadDir = '';
+  bool _verboseLog = false;
 
   String get downloadDir => _downloadDir;
+  bool get verboseLog => _verboseLog;
 
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -27,6 +30,7 @@ class SettingsService extends ChangeNotifier {
     } else {
       _downloadDir = await _defaultDirAsync();
     }
+    _verboseLog = prefs.getBool(_kVerboseLog) ?? false;
     notifyListeners();
   }
 
@@ -34,6 +38,13 @@ class SettingsService extends ChangeNotifier {
     _downloadDir = path;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_kDownloadDir, path);
+    notifyListeners();
+  }
+
+  Future<void> setVerboseLog(bool enabled) async {
+    _verboseLog = enabled;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kVerboseLog, enabled);
     notifyListeners();
   }
 

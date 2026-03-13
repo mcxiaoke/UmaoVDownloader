@@ -502,10 +502,21 @@ class DouyinParser {
         final playUrl = music['play_url'];
         if (playUrl is Map) {
           final list = playUrl['url_list'];
-          if (list is List && list.isNotEmpty)
-            musicUrl = list.first?.toString();
+          if (list is List && list.isNotEmpty) {
+            musicUrl = _decodeJsonString(list.first.toString());
+          }
         }
       }
+
+      // 某些图文数据中没有 music.play_url，会把 mp3 放在 video.play_addr.uri
+      if (musicUrl == null || musicUrl!.isEmpty) {
+        final playAddr = video is Map ? video['play_addr'] : null;
+        final uri = playAddr is Map ? playAddr['uri']?.toString() : null;
+        if (uri != null && uri.contains('.mp3')) {
+          musicUrl = _decodeJsonString(uri);
+        }
+      }
+      if (musicUrl != null && musicUrl!.isEmpty) musicUrl = null;
 
       return VideoInfo(
         videoId: id,

@@ -42,15 +42,24 @@ class _HomePageState extends State<HomePage> {
   bool _downloading = false;
   double? _downloadProgress; // null = 不显示，0.0–1.0
   bool _downloadMusic = false; // 图文：是否同时下载背景音乐
+  int? _lastVerboseProgressBucket;
 
   LogService get _log => widget.log;
   SettingsService get _settings => widget.settings;
+
+  bool get _verbose => _settings.verboseLog;
+
+  void _vlog(String msg) {
+    if (_verbose) _log.info('[VERBOSE] $msg');
+  }
 
   // ─── 解析 ────────────────────────────────────────────────────
 
   Future<void> _parse() async {
     final input = _inputCtrl.text.trim();
     if (input.isEmpty) return;
+
+    _vlog('原始输入长度=${input.length}');
 
     final url = UrlExtractor.extractFirst(input);
     if (url == null) {
@@ -72,11 +81,15 @@ class _HomePageState extends State<HomePage> {
       _downloadProgress = null;
     });
     _log.info('开始解析：$url');
+    _vlog('当前平台: ${Platform.operatingSystem}');
+    final sw = Stopwatch()..start();
 
     try {
       final parser = DouyinParser();
+      _vlog('DouyinParser 已创建');
       final info = await parser.parse(url);
       parser.dispose();
+      _vlog('DouyinParser 已释放');
 
       setState(() {
         _videoInfo = info;
@@ -91,11 +104,15 @@ class _HomePageState extends State<HomePage> {
         _fetchFileSize(info, info.availableQualities.first);
       }
       _log.info('解析成功：${info.title}');
+      _vlog('解析耗时: ${sw.elapsedMilliseconds} ms');
       _log.info('videoId=${info.videoId}');
       if (info.isImagePost) {
         _log.info('图文作品，共 ${info.imageUrls.length} 张图片');
+        _vlog('musicUrl=${info.musicUrl ?? "<none>"}');
       } else {
         _log.info('fileId=${info.videoFileId}');
+        _vlog('封面=${info.coverUrl ?? "<none>"}');
+        _vlog('分辨率=${info.resolutionLabel ?? "<unknown>"}');
         _log.info(
           '可用清晰度：${info.availableQualities.map((q) => q.ratio).join(' / ')}',
         );
@@ -103,9 +120,11 @@ class _HomePageState extends State<HomePage> {
           _log.info('  ${q.ratio}: ${info.qualityUrls[q]}');
         }
       }
-    } catch (e) {
+    } catch (e, st) {
       _log.error('解析失败：$e');
+      _vlog('解析异常堆栈: $st');
     } finally {
+      sw.stop();
       setState(() => _parsing = false);
     }
   }
@@ -120,6 +139,7 @@ class _HomePageState extends State<HomePage> {
     });
     try {
       final downloadUrl = info.urlFor(quality);
+      _vlog('开始预取文件大小，quality=${quality.ratio}');
       // 跟随一次 302 重定向后发 HEAD 请求
       final ioClient = HttpClient();
       String resolvedUrl = downloadUrl;
@@ -133,6 +153,7 @@ class _HomePageState extends State<HomePage> {
           resolvedUrl =
               resp.headers.value(HttpHeaders.locationHeader) ?? downloadUrl;
         }
+        _vlog('探测响应码=${resp.statusCode}, resolvedUrl=$resolvedUrl');
       } finally {
         ioClient.close();
       }
@@ -142,9 +163,13 @@ class _HomePageState extends State<HomePage> {
       );
       final cl = headResp.headers['content-length'];
       final size = cl != null ? int.tryParse(cl) : null;
+      _vlog(
+        'HEAD 响应码=${headResp.statusCode}, content-length=${cl ?? "<none>"}',
+      );
       if (mounted) setState(() => _fileSizeBytes = size);
-    } catch (_) {
+    } catch (e) {
       // 获取失败不影响使用，保持 null
+      _vlog('预取文件大小失败: $e');
     } finally {
       if (mounted) setState(() => _fetchingSize = false);
     }
@@ -159,6 +184,7 @@ class _HomePageState extends State<HomePage> {
     setState(() {
       _downloading = true;
       _downloadProgress = 0;
+      _lastVerboseProgressBucket = null;
     });
     _log.info(
       info.isImagePost
@@ -170,6 +196,9 @@ class _HomePageState extends State<HomePage> {
       final downloader = (Platform.isAndroid || Platform.isIOS)
           ? MobileDownloader()
           : DesktopDownloader();
+      _vlog(
+        '下载器=${downloader.runtimeType}, 目录=${_settings.downloadDir}, downloadMusic=$_downloadMusic',
+      );
       final path = await downloader.downloadVideo(
         info,
         quality: info.isImagePost ? null : _selectedQuality,
@@ -180,12 +209,26 @@ class _HomePageState extends State<HomePage> {
           if (info.isImagePost) {
             // received = 当前张数， total = 总张数
             if (total != null && total > 0) {
-              setState(() => _downloadProgress = received / total);
+              final p = received / total;
+              setState(() => _downloadProgress = p);
+              final bucket = (p * 10).floor();
+              if (_verbose && _lastVerboseProgressBucket != bucket) {
+                _lastVerboseProgressBucket = bucket;
+                _vlog(
+                  '图文下载进度 ${(p * 100).toStringAsFixed(0)}% ($received/$total)',
+                );
+              }
             }
           } else {
             final t = total ?? _fileSizeBytes;
             if (t != null && t > 0) {
-              setState(() => _downloadProgress = received / t);
+              final p = received / t;
+              setState(() => _downloadProgress = p);
+              final bucket = (p * 10).floor();
+              if (_verbose && _lastVerboseProgressBucket != bucket) {
+                _lastVerboseProgressBucket = bucket;
+                _vlog('视频下载进度 ${(p * 100).toStringAsFixed(0)}% ($received/$t)');
+              }
             }
           }
         },
@@ -663,33 +706,67 @@ class _HomePageState extends State<HomePage> {
   // ── 日志面板 ──────────────────────────────────────────────────
 
   Widget _buildLogPanel() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        // 标题栏
-        Row(
-          children: [
-            const Icon(Icons.terminal, size: 15, color: Colors.grey),
-            const SizedBox(width: 4),
-            const Text(
-              '日志',
-              style: TextStyle(fontSize: 12, color: Colors.grey),
-            ),
-            const Spacer(),
-            if (_log.logFilePath != null)
+    return ListenableBuilder(
+      listenable: _settings,
+      builder: (context, _) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // 标题栏
+          Row(
+            children: [
+              const Icon(Icons.terminal, size: 15, color: Colors.grey),
+              const SizedBox(width: 4),
+              const Text(
+                '日志',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              const SizedBox(width: 8),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    '详细',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                  const SizedBox(width: 2),
+                  Switch.adaptive(
+                    value: _settings.verboseLog,
+                    onChanged: (v) async {
+                      await _settings.setVerboseLog(v);
+                      _log.info(v ? '已开启详细日志输出' : '已关闭详细日志输出');
+                    },
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                ],
+              ),
+              const Spacer(),
+              if (_log.logFilePath != null)
+                TextButton.icon(
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: _log.logFilePath!));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('日志路径已复制'),
+                        duration: Duration(seconds: 2),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.copy, size: 15),
+                  label: Text(
+                    '复制日志路径',
+                    style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+                  ),
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                ),
               TextButton.icon(
-                onPressed: () {
-                  Clipboard.setData(ClipboardData(text: _log.logFilePath!));
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('日志路径已复制'),
-                      duration: Duration(seconds: 2),
-                    ),
-                  );
-                },
-                icon: const Icon(Icons.copy, size: 15),
+                onPressed: () => setState(() => _log.entries.clear()),
+                icon: const Icon(Icons.delete_outline, size: 15),
                 label: Text(
-                  '复制日志路径',
+                  '清空',
                   style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
                 ),
                 style: TextButton.styleFrom(
@@ -698,70 +775,58 @@ class _HomePageState extends State<HomePage> {
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 ),
               ),
-            TextButton.icon(
-              onPressed: () => setState(() => _log.entries.clear()),
-              icon: const Icon(Icons.delete_outline, size: 15),
-              label: Text(
-                '清空',
-                style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
-              ),
-              style: TextButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                minimumSize: Size.zero,
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              ),
-            ),
-          ],
-        ),
-        const Divider(height: 4),
-        Expanded(
-          child: ListenableBuilder(
-            listenable: _log,
-            builder: (context, _) {
-              // 自动滚动到底部
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (_logScrollCtrl.hasClients) {
-                  _logScrollCtrl.animateTo(
-                    _logScrollCtrl.position.maxScrollExtent,
-                    duration: const Duration(milliseconds: 150),
-                    curve: Curves.easeOut,
-                  );
-                }
-              });
-
-              return Container(
-                decoration: BoxDecoration(
-                  color: const Color(0xFF1E1E1E),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                padding: const EdgeInsets.all(8),
-                child: SelectionArea(
-                  child: ListView.builder(
-                    controller: _logScrollCtrl,
-                    itemCount: _log.entries.length,
-                    itemBuilder: (_, i) {
-                      final e = _log.entries[i];
-                      return Text(
-                        e.toString(),
-                        style: TextStyle(
-                          fontFamily: 'monospace',
-                          fontSize: 11,
-                          height: 1.5,
-                          color: switch (e.level) {
-                            LogLevel.error => const Color(0xFFFF6B6B),
-                            LogLevel.warn => const Color(0xFFFFD93D),
-                            LogLevel.info => const Color(0xFFB0BEC5),
-                          },
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              );
-            },
+            ],
           ),
-        ),
-      ],
+          const Divider(height: 4),
+          Expanded(
+            child: ListenableBuilder(
+              listenable: _log,
+              builder: (context, _) {
+                // 自动滚动到底部
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (_logScrollCtrl.hasClients) {
+                    _logScrollCtrl.animateTo(
+                      _logScrollCtrl.position.maxScrollExtent,
+                      duration: const Duration(milliseconds: 150),
+                      curve: Curves.easeOut,
+                    );
+                  }
+                });
+
+                return Container(
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1E1E1E),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  padding: const EdgeInsets.all(8),
+                  child: SelectionArea(
+                    child: ListView.builder(
+                      controller: _logScrollCtrl,
+                      itemCount: _log.entries.length,
+                      itemBuilder: (_, i) {
+                        final e = _log.entries[i];
+                        return Text(
+                          e.toString(),
+                          style: TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 11,
+                            height: 1.5,
+                            color: switch (e.level) {
+                              LogLevel.error => const Color(0xFFFF6B6B),
+                              LogLevel.warn => const Color(0xFFFFD93D),
+                              LogLevel.info => const Color(0xFFB0BEC5),
+                            },
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
     );
   }
 
