@@ -2,15 +2,15 @@
  * douyin.js — 抖音解析器
  */
 
-import { existsSync, mkdirSync, writeFileSync } from "fs"
-import { join } from "path"
+import fs from "fs-extra";
+import { join } from "path";
 import {
   DEFAULT_HEADERS,
   extractUrl,
   extractWindowData,
   fetchWithRetry,
   MOBILE_UA,
-} from "./common.js"
+} from "./common.js";
 
 // aweme/v1/play/ 无水印播放接口
 const PLAY_BASE = "https://aweme.snssdk.com/aweme/v1/play/";
@@ -124,12 +124,16 @@ export async function parse(url, debug = false) {
     // 只返回最高画质视频
     const qualities = extractQualities(item);
     const bestQuality = qualities[0];
-    info.videoUrl = bestQuality ? buildPlayUrl(bestQuality.videoFileId, bestQuality.ratio) : null;
+    info.videoUrl = bestQuality
+      ? buildPlayUrl(bestQuality.videoFileId, bestQuality.ratio)
+      : null;
     info.quality = bestQuality?.ratio ?? null;
     info.videoSize = bestQuality?.size ?? null;
     info.width = bestQuality?.width ?? info.width;
     info.height = bestQuality?.height ?? info.height;
-    log(`  type: video, quality: ${info.quality || "none"}, size: ${info.videoSize || "unknown"}`);
+    log(
+      `  type: video, quality: ${info.quality || "none"}, size: ${info.videoSize || "unknown"}`,
+    );
     log(`  videoUrl: ${info.videoUrl || "none"}`);
   }
 
@@ -177,7 +181,7 @@ function buildPlayUrl(videoFileId, ratio = "1080p", line = 0) {
 function extractQualities(item) {
   const video = item.video;
   const bitRates = video?.bit_rate;
-  
+
   if (Array.isArray(bitRates) && bitRates.length > 0) {
     return bitRates
       .map((b) => ({
@@ -223,14 +227,33 @@ function extractImageUrls(item) {
     .filter(Boolean);
 }
 
+/**
+ * 判断字符串是否为合法的 URL
+ * @param {string} str - 待验证的字符串
+ * @returns {boolean} 是否为合法 URL
+ */
+function isValidURL(str) {
+  // 先做空值/非字符串过滤
+  if (typeof str !== "string" || str.trim() === "") {
+    return false;
+  }
+  try {
+    new URL(str);
+    return true;
+  } catch (err) {
+    // 捕获构造失败的异常，返回 false
+    return false;
+  }
+}
+
 function extractMusicUrl(item) {
   // 优先使用 music.play_url（如有）
   const mUrl = item.music?.play_url?.url_list?.[0];
-  if (mUrl) return mUrl;
+  if (isValidURL(mUrl)) return mUrl;
 
   // 其次使用 video.play_addr.uri（不管是否mp3后缀）
   const playUri = item.video?.play_addr?.uri;
-  if (typeof playUri === "string" && playUri.length > 0) {
+  if (isValidURL(playUri)) {
     return playUri;
   }
 
@@ -270,10 +293,12 @@ function extractRouterDataJson(html) {
   try {
     const data = JSON.parse(jsonStr);
     // 保存原始 JSON 到 temp 目录供调试
+    log("  JSON 解析成功，保存调试数据...");
     saveDebugJson(data, "router_data");
     return data;
   } catch (e) {
     // JSON 解析失败，返回 null 让调用方使用备用方案
+    log(`  JSON 解析失败: ${e.message}`);
     return null;
   }
 }
@@ -281,16 +306,14 @@ function extractRouterDataJson(html) {
 /**
  * 保存调试 JSON 到 backend/temp 目录
  */
-function saveDebugJson(data, prefix) {
+async function saveDebugJson(data, prefix) {
   try {
     const tempDir = join(process.cwd(), "temp");
-    if (!existsSync(tempDir)) {
-      mkdirSync(tempDir, { recursive: true });
-    }
+    await fs.ensureDir(tempDir);
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     const idPrefix = currentShortId ? `${currentShortId}_` : "";
-    const filePath = join(tempDir, `${idPrefix}${prefix}_${timestamp}.json`);
-    writeFileSync(filePath, JSON.stringify(data, null, 2));
+    const filePath = join(tempDir, `dy_${idPrefix}${prefix}_${timestamp}.json`);
+    await fs.writeFile(filePath, JSON.stringify(data, null, 2));
     log(`  调试 JSON 已保存: ${filePath}`);
   } catch (e) {
     // 保存失败不影响主流程

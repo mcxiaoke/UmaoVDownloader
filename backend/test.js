@@ -7,7 +7,7 @@
  *   node test.js ./my-links.txt     # 测试任意路径的txt文件
  */
 
-import { readFileSync } from "fs";
+import fs from "fs-extra";
 import { dirname, resolve, basename, extname } from "path";
 import { fileURLToPath } from "url";
 import { parse } from "./parser.js";
@@ -39,8 +39,10 @@ if (!arg) {
   groupName = arg;
 }
 
+// 主逻辑（async IIFE）
+(async () => {
 // 解析测试文件（跳过空行和纯注释行，提取 url 和 label）
-const entries = readFileSync(urlsFile, "utf8")
+const entries = (await fs.readFile(urlsFile, "utf8"))
   .split("\n")
   .map((line) => line.trim())
   .filter((line) => line && !line.startsWith("#"))
@@ -156,3 +158,4 @@ const color = passed === results.length ? "\x1b[32m" : "\x1b[31m";
 console.log(`\n${color}结果：${passed} / ${results.length} 通过\x1b[0m`);
 
 if (passed < results.length) process.exit(1);
+})();

@@ -9,7 +9,7 @@ import {
   fetchWithRetry,
   extractUrl,
 } from "./common.js";
-import { writeFileSync, mkdirSync, existsSync } from "fs";
+import fs from "fs-extra";
 import { join } from "path";
 
 const XHS_UA =
@@ -204,16 +204,14 @@ function extractInitialStateJson(html) {
 /**
  * 保存调试 JSON 到 backend/temp 目录
  */
-function saveDebugJson(data, prefix) {
+async function saveDebugJson(data, prefix) {
   try {
     const tempDir = join(process.cwd(), 'temp');
-    if (!existsSync(tempDir)) {
-      mkdirSync(tempDir, { recursive: true });
-    }
+    await fs.ensureDir(tempDir);
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const idPrefix = currentShortId ? `${currentShortId}_` : '';
-    const filePath = join(tempDir, `${idPrefix}${prefix}_${timestamp}.json`);
-    writeFileSync(filePath, JSON.stringify(data, null, 2));
+    const filePath = join(tempDir, `xhs_${idPrefix}${prefix}_${timestamp}.json`);
+    await fs.writeFile(filePath, JSON.stringify(data, null, 2));
     log(`  调试 JSON 已保存: ${filePath}`);
   } catch (e) {
     // 保存失败不影响主流程
