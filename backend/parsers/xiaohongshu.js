@@ -98,7 +98,7 @@ export async function parse(url, debug = false) {
   log(`  imageCount: ${result.imageCount || 0}`);
   if (result.qualities) {
     log(`  qualities: ${result.qualities.join(", ")}`);
-    log(`  最佳视频: ${result.videoUrl?.substring(0, 80)}...`);
+    log(`  最佳视频: ${result.videoUrl}`);
     // 打印所有候选 URL
     if (result.allCandidates?.length > 0) {
       log("  所有候选流 (按大小排序):");
@@ -333,11 +333,10 @@ async function buildResult(note) {
     result.imageList = imageList;
     result.imageCount = imageList.length;
   } else if (type === "video" && videoInfo) {
-    result.qualities = videoInfo.qualities;
-    result.qualityUrls = videoInfo.qualityUrls;
+    // 只返回最高画质视频
     result.videoUrl = videoInfo.videoUrl;
-    result.formatInfo = videoInfo.formatInfo;
-    result.allCandidates = videoInfo.allCandidates;
+    result.quality = videoInfo.qualities[0] ?? null;
+    result.videoSize = videoInfo.size ?? null;
   }
 
   return result;
@@ -388,7 +387,7 @@ function extractImageUrls(note) {
         if (videoStream?.masterUrl) {
           result.videoUrl = videoStream.masterUrl;
           result.isLivePhoto = true;
-          log(`  图片 ${idx + 1}: 检测到 Live Photo, 视频 URL: ${videoStream.masterUrl.substring(0, 60)}...`);
+          log(`  图片 ${idx + 1}: 检测到 Live Photo, 视频 URL: ${videoStream.masterUrl}`);
         }
       }
 
@@ -396,7 +395,7 @@ function extractImageUrls(note) {
       if (img.infoList?.length > 0) {
         log(`  图片 ${idx + 1}: infoList 有 ${img.infoList.length} 项`);
         img.infoList.forEach((item, i) => {
-          log(`    [${i}] imageScene: ${item.imageScene}, url: ${item.url?.substring(0, 80)}...`);
+          log(`    [${i}] imageScene: ${item.imageScene}, url: ${item.url}`);
         });
         
         // 找大图：WB_DFT > H5_DTL > 其他含 DFT 的
@@ -456,7 +455,7 @@ function extractImageUrls(note) {
       // 正确格式: https://sns-img-hw.xhscdn.com/notes_pre_post/{fileId}?imageView2/2/w/0/format/jpg
       if (result.fullOrig) {
         result.fullNoWater = buildNoWatermarkUrl(result.fullOrig);
-        log(`  图片 ${idx + 1}: 无水印 URL: ${result.fullNoWater?.substring(0, 80)}...`);
+        log(`  图片 ${idx + 1}: 无水印 URL: ${result.fullNoWater}`);
       }
 
       // 决定使用哪个作为 full: 优先使用无水印图
@@ -640,7 +639,7 @@ async function extractVideoInfo(note) {
     for (const variant of cdnVariants) {
       const size = await verifyUrlAndGetSize(variant.url);
       if (size > 0) {
-        log && log(`    找到可用CDN: ${variant.url.substring(0, 60)}... (${(size / 1024 / 1024).toFixed(2)}MB)`);
+        log && log(`    找到可用CDN: ${variant.url} (${(size / 1024 / 1024).toFixed(2)}MB)`);
         bestUrl = variant.url;
         bestSize = size;
         break;
@@ -658,7 +657,7 @@ async function extractVideoInfo(note) {
     for (const c of sorted.slice(0, 5)) {
       const sizeMB = c.size ? (c.size / 1024 / 1024).toFixed(2) + "MB" : "unknown";
       log(`    ${c.codec}: ${c.width}x${c.height}, ${c.bitrate}bps, ${sizeMB}`);
-      log(`      ${c.url.substring(0, 80)}...`);
+      log(`      ${c.url}`);
     }
   }
 
@@ -666,8 +665,7 @@ async function extractVideoInfo(note) {
     qualities,
     qualityUrls,
     videoUrl: bestUrl,
-    formatInfo,
-    allCandidates: candidateUrls,
+    size: bestSize,
   };
 }
 

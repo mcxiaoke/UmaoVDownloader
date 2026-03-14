@@ -148,6 +148,11 @@ header p {
 .btn-dl.primary:hover {
   background: #1565c0;
 }
+.btn-dl.full-width {
+  display: block;
+  width: 100%;
+  text-align: center;
+}
 
 /* 图文结果 */
 .image-grid {

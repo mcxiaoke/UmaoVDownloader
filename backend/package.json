@@ -6,7 +6,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js",
+    "dev": "nodemon server.js -- --debug",
     "test": "node test.js"
   },
   "engines": {
@@ -15,5 +15,19 @@
   "dependencies": {
     "archiver": "^7.0.1",
     "express": "^5.1.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0"
+  },
+  "nodemonConfig": {
+    "watch": [
+      "*.js",
+      "parsers/*.js"
+    ],
+    "ext": "js,json",
+    "ignore": [
+      "node_modules/",
+      "downloads/"
+    ]
   }
 }

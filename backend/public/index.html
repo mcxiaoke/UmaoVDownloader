@@ -49,49 +49,31 @@
       }
 
       function renderVideo(info) {
-        const bestQuality = info.qualities?.[0] ?? "";
         const ext = ".mp4";
         const safeName = info.title
           .replace(/[\\/:"*?<>|]/g, "_")
           .substring(0, 60);
 
-        // 检查是否有详细的格式信息（小红书有，抖音没有）
-        const hasFormatInfo = info.formatInfo && Object.keys(info.formatInfo).length > 0;
+        // 构建下载按钮文字：画质 · 分辨率 · 文件大小
+        const quality = info.quality ?? "";
+        const width = info.width ?? "?";
+        const height = info.height ?? "?";
+        const sizeMB = info.videoSize ? (info.videoSize / 1024 / 1024).toFixed(1) : null;
+        
+        let btnText = "↓ 下载视频";
+        if (quality) btnText += ` · ${quality}`;
+        if (width !== "?" && height !== "?") btnText += ` · ${width}×${height}`;
+        if (sizeMB) btnText += ` · ${sizeMB}MB`;
 
-        let qualityBtns;
-        if (hasFormatInfo) {
-          // 为每个质量选项生成一行下载按钮，显示文件大小、比特率和分辨率
-          qualityBtns = (info.qualities ?? [bestQuality])
-            .map((q, i) => {
-              const url = info.qualityUrls?.[q] ?? info.videoUrl;
-              const fmt = info.formatInfo?.[q] ?? {};
-              const sizeMB = fmt.size ? (fmt.size / 1024 / 1024).toFixed(1) : "?";
-              const bitrate = fmt.bitrate ? Math.round(fmt.bitrate / 1000) : "?";
-              const width = fmt.width ?? "?";
-              const height = fmt.height ?? "?";
-              const isPrimary = i === 0;
-              return `<a class="btn-dl ${isPrimary ? "primary" : ""}"
-                     href="${dlUrl(url, `${safeName}_${q}${ext}`)}"
-                     download>↓ ${q} · ${sizeMB}MB · ${bitrate}kbps · ${width}×${height}</a>`;
-            })
-            .join("");
-        } else {
-          // 抖音等没有详细信息的平台，只显示简单下载按钮
-          const url = info.videoUrl ?? info.qualityUrls?.[bestQuality];
-          qualityBtns = `<a class="btn-dl primary" href="${dlUrl(url, `${safeName}${ext}`)}" download>↓ 下载视频</a>`;
-        }
+        const qualityBtn = `<a class="btn-dl primary full-width" href="${dlUrl(info.videoUrl, `${safeName}${ext}`)}" download>${btnText}</a>`;
 
         const coverProxyUrl = info.coverUrl
           ? `download?url=${encodeURIComponent(info.coverUrl)}&name=cover.jpg`
           : null;
         result.innerHTML = `
-        ${coverProxyUrl ? `<img class="video-cover" src="${coverProxyUrl}" loading="lazy" />` : ""}
-        <div class="info-title">${escHtml(info.title)}</div>
-        <div class="info-meta">
-          ${info.width && info.height ? `${info.width}×${info.height}` : ""}
-          ${info.shareId ? ` · ${info.shareId}` : ""}
-        </div>
-        <div class="quality-btns video-quality-list">${qualityBtns}</div>
+        <div class="info-title">${escHtml(info.title || info.shareId || "")}</div>
+        ${coverProxyUrl ? `<img class="video-cover" src="${coverProxyUrl}" loading="lazy" style="margin-top:0.6rem;" />` : ""}
+        <div class="quality-btns video-quality-list" style="margin-top:0.9rem;">${qualityBtn}</div>
       `;
       }
 
@@ -257,7 +239,7 @@
           }
 
           setStatus(
-            `解析完成 · ${info.type === "image" ? "图文 " + info.imageCount + " 张" : "视频 " + (info.qualities?.join("/") ?? "")}`,
+            `解析完成 · ${info.type === "image" ? "图文 " + info.imageCount + " 张" : "视频 " + (info.quality ?? "")}`,
           );
           if (info.type === "image") renderImages(info);
           else renderVideo(info);

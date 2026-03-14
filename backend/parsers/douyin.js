@@ -2,13 +2,15 @@
  * douyin.js — 抖音解析器
  */
 
+import { existsSync, mkdirSync, writeFileSync } from "fs"
+import { join } from "path"
 import {
-  MOBILE_UA,
   DEFAULT_HEADERS,
-  fetchWithRetry,
-  extractWindowData,
   extractUrl,
-} from "./common.js";
+  extractWindowData,
+  fetchWithRetry,
+  MOBILE_UA,
+} from "./common.js"
 
 // aweme/v1/play/ 无水印播放接口
 const PLAY_BASE = "https://aweme.snssdk.com/aweme/v1/play/";
@@ -17,6 +19,7 @@ const PLAY_BASE = "https://aweme.snssdk.com/aweme/v1/play/";
 const QUALITY_RATIOS = ["2160p", "1080p", "720p", "480p", "360p"];
 
 let log = () => {};
+let currentShortId = ""; // 当前解析的短ID，用于调试文件名
 
 /**
  * 判断是否支持该 URL
@@ -32,8 +35,10 @@ export function canParse(url) {
  */
 export async function parse(url, debug = false) {
   log = debug ? (...args) => console.log("  [DY]", ...args) : () => {};
+  currentShortId = extractShortId(url); // 设置当前短ID
 
   log(`开始解析: ${url}`);
+  log(`短ID: ${currentShortId}`);
 
   const extracted = extractUrl(url);
   log(`提取URL: ${extracted}`);
@@ -63,7 +68,14 @@ export async function parse(url, debug = false) {
   }
 
   log("→ 提取 _ROUTER_DATA...");
-  const routerData = extractWindowData(html, "_ROUTER_DATA");
+  let routerData = extractRouterDataJson(html);
+
+  // JSON解析失败，回退到手动提取
+  if (!routerData) {
+    log("  JSON解析失败，回退到手动提取...");
+    //routerData = extractWindowData(html, "_ROUTER_DATA");
+  }
+
   if (!routerData) {
     throw new Error("未找到 _ROUTER_DATA");
   }
@@ -76,8 +88,13 @@ export async function parse(url, debug = false) {
   }
   log(`  ✓ title: ${(item.desc || "").substring(0, 50)}`);
 
+  // 保存提取的item数据供调试
+  saveDebugJson(item, "item_data");
+
   const isImagePost = Array.isArray(item.images) && item.images.length > 0;
-  log(`  ✓ 内容类型: ${isImagePost ? "图文 " + item.images.length + " 张" : "视频"}`);
+  log(
+    `  ✓ 内容类型: ${isImagePost ? "图文 " + item.images.length + " 张" : "视频"}`,
+  );
 
   const info = {
     type: isImagePost ? "image" : "video",
@@ -104,13 +121,15 @@ export async function parse(url, debug = false) {
       log(`  musicUrl: ${info.musicUrl}`);
     }
   } else {
+    // 只返回最高画质视频
     const qualities = extractQualities(item);
-    info.qualities = qualities.map((q) => q.ratio);
-    info.qualityUrls = Object.fromEntries(
-      qualities.map((q) => [q.ratio, buildPlayUrl(q.videoFileId, q.ratio)]),
-    );
-    info.videoUrl = info.qualityUrls[qualities[0]?.ratio] ?? null;
-    log(`  type: video, qualities: ${info.qualities.join(", ") || "none"}`);
+    const bestQuality = qualities[0];
+    info.videoUrl = bestQuality ? buildPlayUrl(bestQuality.videoFileId, bestQuality.ratio) : null;
+    info.quality = bestQuality?.ratio ?? null;
+    info.videoSize = bestQuality?.size ?? null;
+    info.width = bestQuality?.width ?? info.width;
+    info.height = bestQuality?.height ?? info.height;
+    log(`  type: video, quality: ${info.quality || "none"}, size: ${info.videoSize || "unknown"}`);
     log(`  videoUrl: ${info.videoUrl || "none"}`);
   }
 
@@ -156,12 +175,17 @@ function buildPlayUrl(videoFileId, ratio = "1080p", line = 0) {
 }
 
 function extractQualities(item) {
-  const bitRates = item.video?.bit_rate;
+  const video = item.video;
+  const bitRates = video?.bit_rate;
+  
   if (Array.isArray(bitRates) && bitRates.length > 0) {
     return bitRates
       .map((b) => ({
         ratio: b.gear_name?.replace("gear_", "") ?? b.quality_type ?? "",
         videoFileId: b.play_addr?.uri,
+        size: b.data_size ?? 0,
+        width: b.play_addr?.width ?? video?.width ?? 0,
+        height: b.play_addr?.height ?? video?.height ?? 0,
       }))
       .filter((q) => QUALITY_RATIOS.includes(q.ratio) && q.videoFileId)
       .sort(
@@ -170,13 +194,14 @@ function extractQualities(item) {
       );
   }
 
-  const uri = item.video?.play_addr?.uri;
+  const uri = video?.play_addr?.uri;
   if (!uri) return [];
 
-  const h = item.video?.height ?? 0;
+  const h = video?.height ?? 0;
+  const w = video?.width ?? 0;
   const ratio =
     h >= 2160 ? "2160p" : h >= 1080 ? "1080p" : h >= 720 ? "720p" : "480p";
-  return [{ ratio, videoFileId: uri }];
+  return [{ ratio, videoFileId: uri, size: 0, width: w, height: h }];
 }
 
 function extractImageUrls(item) {
@@ -199,12 +224,76 @@ function extractImageUrls(item) {
 }
 
 function extractMusicUrl(item) {
+  // 优先使用 music.play_url（如有）
   const mUrl = item.music?.play_url?.url_list?.[0];
   if (mUrl) return mUrl;
 
+  // 其次使用 video.play_addr.uri（不管是否mp3后缀）
   const playUri = item.video?.play_addr?.uri;
-  if (typeof playUri === "string" && playUri.includes(".mp3")) {
+  if (typeof playUri === "string" && playUri.length > 0) {
     return playUri;
   }
+
   return null;
+}
+
+// ── 辅助函数 ─────────────────────────────────────────────────────────────────
+
+/**
+ * 从URL中提取短ID (如 v.douyin.com/xxxxx 中的 xxxxx)
+ */
+function extractShortId(url) {
+  const match = url.match(/v\.douyin\.com\/([A-Za-z0-9_-]+)/);
+  if (match) return match[1];
+  // 备用：从路径中提取
+  const pathMatch = url.match(/\/(?:video|note|slides)\/(\d+)/);
+  if (pathMatch) return pathMatch[1];
+  return "";
+}
+
+/**
+ * 使用 JSON 解析提取 _ROUTER_DATA
+ * 优先方法，失败返回 null 让调用方使用备用方案
+ */
+function extractRouterDataJson(html) {
+  // 匹配 window._ROUTER_DATA = {...} 或 window._ROUTER_DATA={...}
+  const match = html.match(
+    /window\._ROUTER_DATA\s*=\s*(\{[\s\S]*?\})(?:;|\s*<\/script>)/,
+  );
+  if (!match) return null;
+
+  let jsonStr = match[1];
+
+  // 将 JavaScript undefined 替换为 null
+  jsonStr = jsonStr.replace(/:\s*undefined\s*([,}\]])/g, ":null$1");
+
+  try {
+    const data = JSON.parse(jsonStr);
+    // 保存原始 JSON 到 temp 目录供调试
+    saveDebugJson(data, "router_data");
+    return data;
+  } catch (e) {
+    // JSON 解析失败，返回 null 让调用方使用备用方案
+    return null;
+  }
+}
+
+/**
+ * 保存调试 JSON 到 backend/temp 目录
+ */
+function saveDebugJson(data, prefix) {
+  try {
+    const tempDir = join(process.cwd(), "temp");
+    if (!existsSync(tempDir)) {
+      mkdirSync(tempDir, { recursive: true });
+    }
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const idPrefix = currentShortId ? `${currentShortId}_` : "";
+    const filePath = join(tempDir, `${idPrefix}${prefix}_${timestamp}.json`);
+    writeFileSync(filePath, JSON.stringify(data, null, 2));
+    log(`  调试 JSON 已保存: ${filePath}`);
+  } catch (e) {
+    // 保存失败不影响主流程
+    log(`  保存调试 JSON 失败: ${e.message}`);
+  }
 }
