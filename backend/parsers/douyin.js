@@ -255,7 +255,19 @@ function detectMediaType(item) {
 // ── 内部函数 ─────────────────────────────────────────────────────────────────
 
 async function resolveAndFetch(url) {
-  const shareId = url.match(/v\.douyin\.com\/([A-Za-z0-9_-]+)/)?.[1] ?? null;
+  // 提取 shareId（短链接 ID）
+  let shareId = null;
+  try {
+    const urlObj = new URL(url);
+    const pathParts = urlObj.pathname.split("/").filter(Boolean);
+    if (urlObj.hostname === "v.douyin.com" && pathParts[0]) {
+      shareId = pathParts[0];
+    }
+  } catch {
+    // 回退到正则
+    shareId = url.match(/v\.douyin\.com\/([A-Za-z0-9_-]+)/)?.[1] ?? null;
+  }
+
   const resp = await fetchWithRetry(url, {
     redirect: "follow",
     headers: DEFAULT_HEADERS,
@@ -272,8 +284,21 @@ async function fetchSharePage(fullUrl) {
 }
 
 function extractVideoId(url) {
-  const m = url.match(/\/(?:video|note|slides)\/(\d+)/);
-  return m ? m[1] : null;
+  try {
+    const urlObj = new URL(url);
+    const pathParts = urlObj.pathname.split("/").filter(Boolean);
+
+    // /video/xxxxx 或 /note/xxxxx 或 /slides/xxxxx
+    const idIndex = pathParts.findIndex(p => ["video", "note", "slides"].includes(p));
+    if (idIndex !== -1 && pathParts[idIndex + 1]) {
+      return pathParts[idIndex + 1];
+    }
+  } catch {
+    // 如果 URL 解析失败，回退到正则
+    const m = url.match(/\/(?:video|note|slides)\/(\d+)/);
+    if (m) return m[1];
+  }
+  return null;
 }
 
 function extractItem(routerData) {
@@ -416,11 +441,27 @@ function extractMusicUrl(item) {
  * 从URL中提取短ID (如 v.douyin.com/xxxxx 中的 xxxxx)
  */
 function extractShortId(url) {
-  const match = url.match(/v\.douyin\.com\/([A-Za-z0-9_-]+)/);
-  if (match) return match[1];
-  // 备用：从路径中提取
-  const pathMatch = url.match(/\/(?:video|note|slides)\/(\d+)/);
-  if (pathMatch) return pathMatch[1];
+  try {
+    const urlObj = new URL(url);
+    const pathParts = urlObj.pathname.split("/").filter(Boolean);
+
+    // v.douyin.com/xxxxx
+    if (urlObj.hostname === "v.douyin.com" && pathParts[0]) {
+      return pathParts[0];
+    }
+
+    // /video/xxxxx 或 /note/xxxxx 或 /slides/xxxxx
+    const idIndex = pathParts.findIndex(p => ["video", "note", "slides"].includes(p));
+    if (idIndex !== -1 && pathParts[idIndex + 1]) {
+      return pathParts[idIndex + 1];
+    }
+  } catch {
+    // 如果 URL 解析失败，回退到正则
+    const match = url.match(/v\.douyin\.com\/([A-Za-z0-9_-]+)/);
+    if (match) return match[1];
+    const pathMatch = url.match(/\/(?:video|note|slides)\/(\d+)/);
+    if (pathMatch) return pathMatch[1];
+  }
   return "";
 }
 

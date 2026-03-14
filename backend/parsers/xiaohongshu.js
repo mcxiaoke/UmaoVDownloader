@@ -58,29 +58,101 @@ export function canParse(url) {
 }
 
 /**
- * 从URL中提取短ID
- * 小红书短链接格式：xhslink.com/o/短ID
+ * 从URL中提取短ID（作品ID/noteId）
+ * 支持格式：
+ * - xhslink.com/o/短ID
+ * - xiaohongshu.com/explore/笔记ID
+ * - xiaohongshu.com/discovery/item/笔记ID
+ * - xiaohongshu.com/user/profile/作者ID/笔记ID
  * @param {string} url - 小红书链接
- * @returns {string} 提取的短ID，失败返回空字符串
+ * @returns {string} 提取的笔记ID，失败返回空字符串
  */
 function extractShortId(url) {
-  const match = url.match(/xhslink\.com\/o\/([A-Za-z0-9_-]+)/);
-  if (match) return match[1];
-  // 备用：从路径中提取
-  const pathMatch = url.match(/\/item\/([A-Za-z0-9]+)/);
-  if (pathMatch) return pathMatch[1];
+  try {
+    const urlObj = new URL(url);
+    const pathParts = urlObj.pathname.split("/").filter(Boolean);
+
+    // xhslink.com/o/短ID
+    if (urlObj.hostname === "xhslink.com" && pathParts[0] === "o") {
+      return pathParts[1] || "";
+    }
+
+    // xiaohongshu.com/explore/笔记ID
+    if (urlObj.hostname.includes("xiaohongshu.com") && pathParts[0] === "explore") {
+      return pathParts[1] || "";
+    }
+
+    // xiaohongshu.com/discovery/item/笔记ID
+    if (urlObj.hostname.includes("xiaohongshu.com") && pathParts[0] === "discovery" && pathParts[1] === "item") {
+      return pathParts[2] || "";
+    }
+
+    // xiaohongshu.com/user/profile/作者ID/笔记ID
+    if (urlObj.hostname.includes("xiaohongshu.com") && pathParts[0] === "user" && pathParts[1] === "profile") {
+      // pathParts[2] 是作者ID，pathParts[3] 是笔记ID
+      return pathParts[3] || "";
+    }
+  } catch {
+    // 如果 URL 解析失败，回退到正则
+    const match = url.match(/xhslink\.com\/o\/([A-Za-z0-9_-]+)/);
+    if (match) return match[1];
+    const exploreMatch = url.match(/\/explore\/([a-z0-9]+)/);
+    if (exploreMatch) return exploreMatch[1];
+    const discoveryMatch = url.match(/\/discovery\/item\/([a-z0-9]+)/);
+    if (discoveryMatch) return discoveryMatch[1];
+    const userMatch = url.match(/\/user\/profile\/[a-z0-9]+\/([a-z0-9]+)/);
+    if (userMatch) return userMatch[1];
+  }
   return "";
 }
 
 /**
- * 从URL中提取 shareId（短链接ID）
+ * 从URL中提取 shareId（短链接ID或笔记ID）
  * 用于统一返回结构中的 shareId 字段
+ * 支持格式：
+ * - xhslink.com/o/短ID
+ * - xiaohongshu.com/explore/笔记ID
+ * - xiaohongshu.com/discovery/item/笔记ID
+ * - xiaohongshu.com/user/profile/作者ID/笔记ID
  * @param {string} url - 小红书链接
  * @returns {string|null} 提取的shareId，失败返回null
  */
 function extractShareIdFromUrl(url) {
-  const match = url.match(/xhslink\.com\/o\/([A-Za-z0-9_-]+)/);
-  return match ? match[1] : null;
+  try {
+    const urlObj = new URL(url);
+    const pathParts = urlObj.pathname.split("/").filter(Boolean);
+
+    // xhslink.com/o/短ID
+    if (urlObj.hostname === "xhslink.com" && pathParts[0] === "o") {
+      return pathParts[1] || null;
+    }
+
+    // xiaohongshu.com/explore/笔记ID
+    if (urlObj.hostname.includes("xiaohongshu.com") && pathParts[0] === "explore") {
+      return pathParts[1] || null;
+    }
+
+    // xiaohongshu.com/discovery/item/笔记ID
+    if (urlObj.hostname.includes("xiaohongshu.com") && pathParts[0] === "discovery" && pathParts[1] === "item") {
+      return pathParts[2] || null;
+    }
+
+    // xiaohongshu.com/user/profile/作者ID/笔记ID
+    if (urlObj.hostname.includes("xiaohongshu.com") && pathParts[0] === "user" && pathParts[1] === "profile") {
+      return pathParts[3] || null;
+    }
+  } catch {
+    // 如果 URL 解析失败，回退到正则
+    const shortMatch = url.match(/xhslink\.com\/o\/([A-Za-z0-9_-]+)/);
+    if (shortMatch) return shortMatch[1];
+    const exploreMatch = url.match(/\/explore\/([a-z0-9]+)/);
+    if (exploreMatch) return exploreMatch[1];
+    const discoveryMatch = url.match(/\/discovery\/item\/([a-z0-9]+)/);
+    if (discoveryMatch) return discoveryMatch[1];
+    const userMatch = url.match(/\/user\/profile\/[a-z0-9]+\/([a-z0-9]+)/);
+    if (userMatch) return userMatch[1];
+  }
+  return null;
 }
 
 /**

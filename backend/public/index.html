@@ -8,7 +8,7 @@
   </head>
   <body>
     <header>
-      <h1>Umao VDownloader</h1>
+      <h1 onclick="location.reload()" style="cursor:pointer" title="点击刷新页面">Umao VDownloader</h1>
       <p>粘贴抖音/小红书分享链接，一键解析下载（无水印）</p>
     </header>
 
@@ -205,15 +205,23 @@
 
       // 从任意文本中提取第一个支持的链接（支持分享文案夹带 URL）
       function extractUrl(text) {
-        // 抖音链接
+        // 抖音链接：支持 v.douyin.com/xxxxx、www.douyin.com/video/xxxxx、iesdouyin.com/share/xxxxx 等
         const douyinMatch = text.match(
-          /https?:\/\/(?:[a-zA-Z0-9-]+\.)*(?:douyin|iesdouyin)\.com\/\S+/,
+          /https?:\/\/(?:v\.|www\.)?douyin\.com\/[A-Za-z0-9_-]+(?:\/[^\s，,。]*)?/,
+        ) || text.match(
+          /https?:\/\/[^\s]*iesdouyin\.com\/[^\s，,。]+/,
         );
         if (douyinMatch) return douyinMatch[0].replace(/[，。、\s]+$/, "");
 
-        // 小红书链接（包含短链接 xhslink.com）
+        // 小红书链接：支持多种格式
+        // - xhslink.com/o/xxxxx (短链接)
+        // - www.xiaohongshu.com/explore/xxxxx
+        // - www.xiaohongshu.com/discovery/item/xxxxx
+        // - www.xiaohongshu.com/user/profile/作者ID/笔记ID
         const xhsMatch = text.match(
-          /https?:\/\/(?:www\.)?(?:xiaohongshu\.com|xhslink\.com)\/\S+/,
+          /https?:\/\/(?:www\.)?xhslink\.com\/[^\s，,。]+/,
+        ) || text.match(
+          /https?:\/\/[^\s]*xiaohongshu\.com\/(?:explore|discovery|user)\/[^\s，,。]+/,
         );
         if (xhsMatch) return xhsMatch[0].replace(/[，。、\s]+$/, "");
 

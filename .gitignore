@@ -154,6 +154,7 @@ coverage.xml
 test/
 temp/
 tmp/
+sources/
 
 
 key.properties
