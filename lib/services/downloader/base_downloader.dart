@@ -53,7 +53,6 @@ abstract class BaseDownloader implements VideoDownloader {
   @override
   Future<String> downloadVideo(
     VideoInfo info, {
-    VideoQuality? quality,
     String? directory,
     String? filename,
     bool downloadMusic = false,
@@ -96,11 +95,8 @@ abstract class BaseDownloader implements VideoDownloader {
     }
 
     // ── 视频作品 ─────────────────────────────────────────────
-    final resolvedQuality = quality ?? VideoQuality.p1080;
-    final qualityLabel = resolvedQuality.ratio;
     // 默认不加时间后缀；文件名冲突时才追加时间戳
-    final basePath =
-        '$dir${Platform.pathSeparator}${baseName}_$qualityLabel.mp4';
+    final basePath = '$dir${Platform.pathSeparator}${baseName}_video.mp4';
     final String filePath;
     if (File(basePath).existsSync()) {
       final now = DateTime.now();
@@ -108,7 +104,7 @@ abstract class BaseDownloader implements VideoDownloader {
           '${now.year}${_p2(now.month)}${_p2(now.day)}'
           '_${_p2(now.hour)}${_p2(now.minute)}${_p2(now.second)}';
       filePath =
-          '$dir${Platform.pathSeparator}${baseName}_${qualityLabel}_$stamp.mp4';
+          '$dir${Platform.pathSeparator}${baseName}_video_$stamp.mp4';
     } else {
       filePath = basePath;
     }
@@ -118,7 +114,7 @@ abstract class BaseDownloader implements VideoDownloader {
     await partFile.parent.create(recursive: true);
 
     // 预解析 aweme 重定向，获取 line=0 和 line=1 两个直连 CDN 节点
-    final awemeUrl = info.urlFor(resolvedQuality);
+    final awemeUrl = info.videoUrl;
     onLog?.call('正在解析 CDN 节点…');
     final cdnUrls = await _resolveCdnUrls(awemeUrl, onLog);
     onLog?.call('获得 ${cdnUrls.length} 个 CDN 节点，开始下载');

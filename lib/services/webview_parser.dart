@@ -407,7 +407,6 @@ class WebViewParser {
   }
 
   VideoInfo _mapToVideoInfo(Map<String, dynamic> data) {
-    final platform = data['platform']?.toString() ?? 'douyin';
     final type = data['type']?.toString() ?? 'video';
     final id = data['id']?.toString() ?? '';
     final title = data['title']?.toString() ?? '作品_$id';
@@ -432,23 +431,23 @@ class WebViewParser {
                 .toList()
           : const <String>[];
 
-      // 用第一个实况图 URL 作为默认视频地址
-      final qualityUrls = <VideoQuality, String>{};
-      if (livePhotoUrls.isNotEmpty) {
-        qualityUrls[VideoQuality.p720] = livePhotoUrls.first;
-      }
+      // 使用第一个实况图 URL 作为视频 URL
+      final videoUrl = livePhotoUrls.isNotEmpty ? livePhotoUrls.first : '';
+      final musicUrl = data['musicUrl']?.toString();
 
       return VideoInfo(
         videoId: id,
         title: title,
         videoFileId: id,
-        qualityUrls: qualityUrls,
+        videoUrl: videoUrl,
         coverUrl: data['coverUrl']?.toString(),
         shareId: data['shareId']?.toString(),
         width: width,
         height: height,
         imageUrls: imageUrls,
         livePhotoUrls: livePhotoUrls,
+        musicUrl: (musicUrl != null && musicUrl.isNotEmpty) ? musicUrl : null,
+        musicTitle: data['musicTitle']?.toString(),
       );
     }
 
@@ -464,7 +463,7 @@ class WebViewParser {
         videoId: id,
         title: title,
         videoFileId: '',
-        qualityUrls: const {},
+        videoUrl: '',
         coverUrl: data['coverUrl']?.toString(),
         shareId: data['shareId']?.toString(),
         width: width,
@@ -476,38 +475,15 @@ class WebViewParser {
       );
     }
 
-    final qualityUrls = <VideoQuality, String>{};
-    final q = data['qualityUrls'];
-    if (q is Map) {
-      for (final e in q.entries) {
-        // 小红书格式: "HD" -> url, 抖音格式: "720p" -> url
-        var qualityKey = e.key.toString();
-        // 小红书清晰度映射
-        if (platform == 'xiaohongshu') {
-          if (qualityKey == '原画') qualityKey = '1080p';
-          else if (qualityKey.contains('HD')) qualityKey = '720p';
-        }
-        final quality = VideoQuality.fromRatio(qualityKey);
-        final u = e.value?.toString();
-        if (quality != null && u != null && u.isNotEmpty) {
-          qualityUrls[quality] = u;
-        }
-      }
-    }
+    // 获取视频 URL
+    String videoUrl = data['videoUrl']?.toString() ?? '';
 
-    // 小红书可能有单独的 videoUrl 字段
-    final videoUrl = data['videoUrl']?.toString();
-    if (videoUrl != null && videoUrl.isNotEmpty && qualityUrls.isEmpty) {
-      // 小红书只有一个视频 URL，使用 720p 作为默认
-      qualityUrls[VideoQuality.p720] = videoUrl;
-    }
-
-    final fileId = _pickBestVideoFileId(qualityUrls);
+    final fileId = _pickBestVideoFileId(videoUrl);
     return VideoInfo(
       videoId: id,
       title: title,
       videoFileId: fileId,
-      qualityUrls: qualityUrls,
+      videoUrl: videoUrl,
       coverUrl: data['coverUrl']?.toString(),
       shareId: data['shareId']?.toString(),
       width: width,
@@ -516,19 +492,9 @@ class WebViewParser {
     );
   }
 
-  String _pickBestVideoFileId(Map<VideoQuality, String> qualityUrls) {
-    for (final q in [
-      VideoQuality.p2160,
-      VideoQuality.p1080,
-      VideoQuality.p720,
-      VideoQuality.p480,
-      VideoQuality.p360,
-    ]) {
-      final u = qualityUrls[q];
-      if (u == null) continue;
-      final id = Uri.tryParse(u)?.queryParameters['video_id'];
-      if (id != null && id.isNotEmpty) return id;
-    }
-    return '';
+  String _pickBestVideoFileId(String videoUrl) {
+    if (videoUrl.isEmpty) return '';
+    final id = Uri.tryParse(videoUrl)?.queryParameters['video_id'];
+    return id ?? '';
   }
 }

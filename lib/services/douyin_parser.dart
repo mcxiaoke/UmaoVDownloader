@@ -33,9 +33,8 @@ class VideoInfo {
   /// video_id 参数（用于构造 play URL，如 v0200fg10000xxxxxx）
   final String videoFileId;
 
-  /// 各清晰度对应的播放 URL（无水印）
-  /// key = VideoQuality，value = aweme/v1/play/... URL（跟随重定向后为 CDN 地址）
-  final Map<VideoQuality, String> qualityUrls;
+  /// 视频播放 URL（无水印，已自动选择最高质量）
+  final String videoUrl;
 
   final String? coverUrl;
 
@@ -72,7 +71,7 @@ class VideoInfo {
     required this.videoId,
     required this.title,
     required this.videoFileId,
-    required this.qualityUrls,
+    required this.videoUrl,
     this.coverUrl,
     this.shareId,
     this.width,
@@ -86,7 +85,7 @@ class VideoInfo {
   });
 
   /// 是否为图文作品（无视频但有图片）
-  bool get isImagePost => qualityUrls.isEmpty && imageUrls.isNotEmpty;
+  bool get isImagePost => videoUrl.isEmpty && imageUrls.isNotEmpty;
 
   /// 分辨率标签，如 "1920×1080"、"3840×2160 (4K)"，无数据时返回 null
   String? get resolutionLabel {
@@ -97,28 +96,9 @@ class VideoInfo {
     return base;
   }
 
-  /// 当前最佳可用地址（优先最高清晰度）
-  String get videoUrl =>
-      qualityUrls[VideoQuality.p2160] ??
-      qualityUrls[VideoQuality.p1080] ??
-      qualityUrls[VideoQuality.p720] ??
-      qualityUrls[VideoQuality.p480] ??
-      qualityUrls[VideoQuality.p360] ??
-      qualityUrls.values.first;
-
-  /// 获取指定清晰度地址，不存在则返回最佳地址
-  String urlFor(VideoQuality quality) => qualityUrls[quality] ?? videoUrl;
-
-  /// 已解析出的清晰度列表（从高到低）
-  List<VideoQuality> get availableQualities {
-    const ordered = VideoQuality.values; // 360p..1080p，枚举顺序从低到高
-    return ordered.reversed.where((q) => qualityUrls.containsKey(q)).toList();
-  }
-
   @override
   String toString() =>
-      'VideoInfo(id: $videoId, title: $title, '
-      'qualities: ${availableQualities.map((q) => q.ratio).join(", ")})';
+      'VideoInfo(id: $videoId, title: $title, resolution: $resolutionLabel)';
 }
 
 class DouyinParseException implements Exception {
@@ -302,17 +282,57 @@ class DouyinParser {
     final imageList = _extractImageUrls(html);
 
     if (imageList.isNotEmpty) {
-      // 图文作品：提取背景音乐直链（<audio src="...mp3">）及其标题
-      final musicUrl = _audioTagRe.firstMatch(html)?.group(1);
-      final rawMusicTitle = _musicTitleRe.firstMatch(html)?.group(1);
-      final musicTitle = rawMusicTitle != null
-          ? _decodeJsonString(rawMusicTitle)
-          : null;
+      // 图文作品：从 _ROUTER_DATA 提取背景音乐（同 backend 逻辑）
+      // 注意：抖音图文作品有两种存储音乐的方式：
+      // 1. music.play_url.url_list - 正常的 MP3 直链
+      // 2. video.play_addr.uri - 图文作品的音频实际存储在这里，是一个完整的 HTTP URL（没有 .mp3 后缀）
+      // 普通视频的 video.play_addr.uri 是 ID 字符串（如 v0200fg10000c...），会被 startsWith('http') 过滤掉
+      String? musicUrl;
+      String? musicTitle;
+      final item = _extractItemFromRouterData(html);
+      if (item != null) {
+        // 1. 优先从 music.play_url 提取
+        final music = item['music'];
+        if (music is Map) {
+          musicTitle = music['title']?.toString();
+          final playUrl = music['play_url'];
+          if (playUrl is Map) {
+            final list = playUrl['url_list'];
+            if (list is List && list.isNotEmpty) {
+              final url = _decodeJsonString(list.first.toString());
+              if (url.startsWith('http')) {
+                musicUrl = url;
+              }
+            }
+          }
+        }
+        // 2. 降级：某些图文数据中没有 music.play_url，音频放在 video.play_addr.uri
+        // 图文作品的 uri 是完整 URL (以 http 开头)，普通视频的是 ID 字符串
+        if (musicUrl == null || musicUrl.isEmpty) {
+          final video = item['video'];
+          final playAddr = video is Map ? video['play_addr'] : null;
+          final uri = playAddr is Map ? playAddr['uri']?.toString() : null;
+          if (uri != null && uri.startsWith('http')) {
+            // URL 不需要 JSON decode，直接使用
+            musicUrl = uri;
+          }
+        }
+      }
+
+      // 3. 如果 _ROUTER_DATA 中没有，尝试从 HTML 的 <audio> 标签提取（后备）
+      if (musicUrl == null) {
+        musicUrl = _audioTagRe.firstMatch(html)?.group(1);
+        final rawMusicTitle = _musicTitleRe.firstMatch(html)?.group(1);
+        if (rawMusicTitle != null) {
+          musicTitle ??= _decodeJsonString(rawMusicTitle);
+        }
+      }
+
       return VideoInfo(
         videoId: videoId,
         title: title,
         videoFileId: '',
-        qualityUrls: const {},
+        videoUrl: '',
         coverUrl: coverUrl,
         shareId: shareId,
         imageUrls: imageList.map((i) => i['full']!).toList(),
@@ -322,59 +342,56 @@ class DouyinParser {
       );
     }
 
-    // ── 视频作品 ────────────────────────────────────────────────
-    // 从 play_addr 的 URL 里提取 video_id 和 ratio 参数
-    final rawPlayUrl = _playAddrRe.firstMatch(html)?.group(1);
-    if (rawPlayUrl == null) {
-      throw DouyinParseException('分享页中未找到视频地址，页面结构可能已变更');
-    }
-    final playUrl = _decodeJsonString(rawPlayUrl);
-    final parsedPlayUri = Uri.parse(playUrl);
-    final videoFileId = parsedPlayUri.queryParameters['video_id'];
-    if (videoFileId == null || videoFileId.isEmpty) {
-      throw DouyinParseException('无法从播放地址提取 video_id: $playUrl');
-    }
-
-    // CDN 实际存在两条独立码流：720p（较小体积）和 1080p（标准质量）
-    final qualityUrls = <VideoQuality, String>{
-      VideoQuality.p720: '$_playBase?video_id=$videoFileId&ratio=720p&line=0',
-      VideoQuality.p1080: '$_playBase?video_id=$videoFileId&ratio=1080p&line=0',
-    };
-
-    // 提取视频尺寸：在 play_addr 位置之后搜索，避免匹配到头像等小图
-    int? videoWidth, videoHeight;
-    final playAddrIdx = html.indexOf('play_addr');
-    if (playAddrIdx >= 0) {
-      final sub = html.substring(playAddrIdx);
-      final hm = RegExp(r'"height"\s*:\s*(\d+)').firstMatch(sub);
-      final wm = RegExp(r'"width"\s*:\s*(\d+)').firstMatch(sub);
-      final h = hm != null ? int.tryParse(hm.group(1)!) : null;
-      final w = wm != null ? int.tryParse(wm.group(1)!) : null;
-      if ((h ?? 0) >= 120 && (w ?? 0) >= 120) {
-        videoHeight = h;
-        videoWidth = w;
+      // ── 视频作品 ────────────────────────────────────────────────
+      // 从 play_addr 的 URL 里提取 video_id 和 ratio 参数
+      final rawPlayUrl = _playAddrRe.firstMatch(html)?.group(1);
+      if (rawPlayUrl == null) {
+        throw DouyinParseException('分享页中未找到视频地址，页面结构可能已变更');
       }
-    }
+      final playUrl = _decodeJsonString(rawPlayUrl);
+      final parsedPlayUri = Uri.parse(playUrl);
+      final videoFileId = parsedPlayUri.queryParameters['video_id'];
+      if (videoFileId == null || videoFileId.isEmpty) {
+        throw DouyinParseException('无法从播放地址提取 video_id: $playUrl');
+      }
 
-    // 提取码率（单位 bps → kbps）
-    int? bitrateKbps;
-    final brMatch = _bitrateArrRe.firstMatch(html);
-    if (brMatch != null) {
-      final bps = int.tryParse(brMatch.group(1)!);
-      if (bps != null && bps > 0) bitrateKbps = bps ~/ 1000;
-    }
+      // 默认使用 1080p 作为最高质量
+      final videoUrl = '$_playBase?video_id=$videoFileId&ratio=1080p&line=0';
 
-    return VideoInfo(
-      videoId: videoId,
-      title: title,
-      videoFileId: videoFileId,
-      qualityUrls: qualityUrls,
-      coverUrl: coverUrl,
-      shareId: shareId,
-      width: videoWidth,
-      height: videoHeight,
-      bitrateKbps: bitrateKbps,
-    );
+      // 提取视频尺寸：在 play_addr 位置之后搜索，避免匹配到头像等小图
+      int? videoWidth, videoHeight;
+      final playAddrIdx = html.indexOf('play_addr');
+      if (playAddrIdx >= 0) {
+        final sub = html.substring(playAddrIdx);
+        final hm = RegExp(r'"height"\s*:\s*(\d+)').firstMatch(sub);
+        final wm = RegExp(r'"width"\s*:\s*(\d+)').firstMatch(sub);
+        final h = hm != null ? int.tryParse(hm.group(1)!) : null;
+        final w = wm != null ? int.tryParse(wm.group(1)!) : null;
+        if ((h ?? 0) >= 120 && (w ?? 0) >= 120) {
+          videoHeight = h;
+          videoWidth = w;
+        }
+      }
+
+      // 提取码率（单位 bps → kbps）
+      int? bitrateKbps;
+      final brMatch = _bitrateArrRe.firstMatch(html);
+      if (brMatch != null) {
+        final bps = int.tryParse(brMatch.group(1)!);
+        if (bps != null && bps > 0) bitrateKbps = bps ~/ 1000;
+      }
+
+      return VideoInfo(
+        videoId: videoId,
+        title: title,
+        videoFileId: videoFileId,
+        videoUrl: videoUrl,
+        coverUrl: coverUrl,
+        shareId: shareId,
+        width: videoWidth,
+        height: videoHeight,
+        bitrateKbps: bitrateKbps,
+      );
   }
 
   bool _looksLikeWafChallenge(String html) {
@@ -481,166 +498,151 @@ class DouyinParser {
       }
     }
 
-    final images = item['images'];
-    if (images is List && images.isNotEmpty) {
-      final imageUrls = <String>[];
-      final imageThumbUrls = <String>[];
-      for (final img in images) {
-        if (img is! Map) continue;
-        final urlList = img['url_list'];
-        if (urlList is! List || urlList.isEmpty) continue;
+      final images = item['images'];
+      if (images is List && images.isNotEmpty) {
+        final imageUrls = <String>[];
+        final imageThumbUrls = <String>[];
+        for (final img in images) {
+          if (img is! Map) continue;
+          final urlList = img['url_list'];
+          if (urlList is! List || urlList.isEmpty) continue;
 
-        // 找大图：优先 lqen-new（无水印）> aweme-images
-        String? fullUrl;
-        for (final u in urlList) {
-          final s = u.toString();
-          if (s.contains('tplv-dy-lqen-new') && !s.contains('-water')) {
-            fullUrl = s;
-            break;
-          }
-        }
-        fullUrl ??= urlList
-            .map((e) => e.toString())
-            .firstWhere(
-              (u) => u.contains('tplv-dy-aweme-images'),
-              orElse: () => urlList.first.toString(),
-            );
-
-        // 找缩略图：优先 shrink:480 > shrink:960 > 其他小图
-        String? thumbUrl;
-        for (final u in urlList) {
-          final s = u.toString();
-          if (s.contains('tplv-dy-shrink:480')) {
-            thumbUrl = s;
-            break;
-          }
-        }
-        if (thumbUrl == null) {
+          // 找大图：优先 lqen-new（无水印）> aweme-images
+          String? fullUrl;
           for (final u in urlList) {
             final s = u.toString();
-            if (s.contains('tplv-dy-shrink:960')) {
+            if (s.contains('tplv-dy-lqen-new') && !s.contains('-water')) {
+              fullUrl = s;
+              break;
+            }
+          }
+          fullUrl ??= urlList
+              .map((e) => e.toString())
+              .firstWhere(
+                (u) => u.contains('tplv-dy-aweme-images'),
+                orElse: () => urlList.first.toString(),
+              );
+
+          // 找缩略图：优先 shrink:480 > shrink:960 > 其他小图
+          String? thumbUrl;
+          for (final u in urlList) {
+            final s = u.toString();
+            if (s.contains('tplv-dy-shrink:480')) {
               thumbUrl = s;
               break;
             }
           }
-        }
-        // 如果没有找到缩略图，使用大图
-        thumbUrl ??= fullUrl;
+          if (thumbUrl == null) {
+            for (final u in urlList) {
+              final s = u.toString();
+              if (s.contains('tplv-dy-shrink:960')) {
+                thumbUrl = s;
+                break;
+              }
+            }
+          }
+          // 如果没有找到缩略图，使用大图
+          thumbUrl ??= fullUrl;
 
-        imageUrls.add(fullUrl);
-        imageThumbUrls.add(thumbUrl);
+          imageUrls.add(fullUrl);
+          imageThumbUrls.add(thumbUrl);
+        }
+
+        // 提取背景音乐（同 backend 逻辑）
+        // 注意：抖音图文作品有两种存储音乐的方式：
+        // 1. music.play_url.url_list - 正常的 MP3 直链
+        // 2. video.play_addr.uri - 图文作品的音频实际存储在这里，是一个完整的 HTTP URL（没有 .mp3 后缀）
+        // 不能用 contains('.mp3') 来判断，因为第二种情况的 URL 没有 .mp3 后缀，但实际 Content-Type 是 audio/mp4
+        // 普通视频的 video.play_addr.uri 是 ID 字符串（如 v0200fg10000c...），会被 startsWith('http') 过滤掉
+        String? musicUrl;
+        String? musicTitle;
+        final music = item['music'];
+        if (music is Map) {
+          musicTitle = music['title']?.toString();
+          final playUrl = music['play_url'];
+          if (playUrl is Map) {
+            final list = playUrl['url_list'];
+            if (list is List && list.isNotEmpty) {
+              final url = _decodeJsonString(list.first.toString());
+              if (url.startsWith('http')) {
+                musicUrl = url;
+              }
+            }
+          }
+        }
+
+        // 降级：某些图文数据中没有 music.play_url，音频放在 video.play_addr.uri
+        // 图文作品的 uri 是完整 URL (以 http 开头)，普通视频的是 ID 字符串
+        if (musicUrl == null || musicUrl.isEmpty) {
+          final playAddr = video is Map ? video['play_addr'] : null;
+          final uri = playAddr is Map ? playAddr['uri']?.toString() : null;
+          if (uri != null && uri.startsWith('http')) {
+            // URL 不需要 JSON decode，直接使用
+            musicUrl = uri;
+          }
+        }
+
+        return VideoInfo(
+          videoId: id,
+          title: title,
+          videoFileId: '',
+          videoUrl: '',
+          coverUrl: coverUrl,
+          shareId: shareId,
+          width: width,
+          height: height,
+          bitrateKbps: bitrateKbps,
+          imageUrls: imageUrls,
+          imageThumbUrls: imageThumbUrls,
+          musicUrl: musicUrl,
+          musicTitle: musicTitle,
+        );
       }
 
-      String? musicUrl;
-      String? musicTitle;
-      final music = item['music'];
-      if (music is Map) {
-        musicTitle = music['title']?.toString();
-        final playUrl = music['play_url'];
-        if (playUrl is Map) {
-          final list = playUrl['url_list'];
-          if (list is List && list.isNotEmpty) {
-            musicUrl = _decodeJsonString(list.first.toString());
+      String? bestVideoUrl;
+      String? bestVideoFileId;
+
+      if (video is Map) {
+        final bitRates = video['bit_rate'];
+        if (bitRates is List && bitRates.isNotEmpty) {
+          // 优先选择最高质量（假设列表已按质量排序，取第一个）
+          final best = bitRates.first;
+          if (best is Map) {
+            final playAddr = best['play_addr'];
+            final uri = playAddr is Map ? playAddr['uri']?.toString() : null;
+            if (uri != null && uri.isNotEmpty) {
+              bestVideoFileId = uri;
+              bestVideoUrl = '$_playBase?video_id=$uri&ratio=1080p&line=0';
+            }
+          }
+        }
+
+        // 备用：使用 play_addr.uri
+        if (bestVideoUrl == null) {
+          final playAddr = video['play_addr'];
+          final uri = playAddr is Map ? playAddr['uri']?.toString() : null;
+          if (uri != null && uri.isNotEmpty) {
+            bestVideoFileId = uri;
+            bestVideoUrl = '$_playBase?video_id=$uri&ratio=1080p&line=0';
           }
         }
       }
 
-      // 某些图文数据中没有 music.play_url，会把 mp3 放在 video.play_addr.uri
-      if (musicUrl == null || musicUrl.isEmpty) {
-        final playAddr = video is Map ? video['play_addr'] : null;
-        final uri = playAddr is Map ? playAddr['uri']?.toString() : null;
-        if (uri != null && uri.contains('.mp3')) {
-          musicUrl = _decodeJsonString(uri);
-        }
+      if (bestVideoUrl == null) {
+        throw DouyinParseException('分享页中未找到视频地址，页面结构可能已变更');
       }
-      if (musicUrl != null && musicUrl.isEmpty) musicUrl = null;
 
       return VideoInfo(
         videoId: id,
         title: title,
-        videoFileId: '',
-        qualityUrls: const {},
+        videoFileId: bestVideoFileId ?? '',
+        videoUrl: bestVideoUrl,
         coverUrl: coverUrl,
         shareId: shareId,
         width: width,
         height: height,
         bitrateKbps: bitrateKbps,
-        imageUrls: imageUrls,
-        imageThumbUrls: imageThumbUrls,
-        musicUrl: musicUrl,
-        musicTitle: musicTitle,
       );
-    }
-
-    final qualityUrls = <VideoQuality, String>{};
-    String? bestVideoFileId;
-
-    if (video is Map) {
-      final bitRates = video['bit_rate'];
-      if (bitRates is List) {
-        for (final br in bitRates) {
-          if (br is! Map) continue;
-          final ratio =
-              br['gear_name']?.toString().replaceFirst('gear_', '') ?? '';
-          final quality = VideoQuality.fromRatio(ratio);
-          final playAddr = br['play_addr'];
-          final uri = playAddr is Map ? playAddr['uri']?.toString() : null;
-          if (quality == null || uri == null || uri.isEmpty) continue;
-          qualityUrls[quality] =
-              '$_playBase?video_id=$uri&ratio=${quality.ratio}&line=0';
-        }
-      }
-
-      if (qualityUrls.isEmpty) {
-        final playAddr = video['play_addr'];
-        final uri = playAddr is Map ? playAddr['uri']?.toString() : null;
-        if (uri != null && uri.isNotEmpty) {
-          final h = int.tryParse(video['height']?.toString() ?? '');
-          final guessed = h != null && h >= 1080
-              ? VideoQuality.p1080
-              : VideoQuality.p720;
-          qualityUrls[guessed] =
-              '$_playBase?video_id=$uri&ratio=${guessed.ratio}&line=0';
-        }
-      }
-    }
-
-    if (qualityUrls.isEmpty) {
-      throw DouyinParseException('分享页中未找到视频地址，页面结构可能已变更');
-    }
-
-    for (final q in [
-      VideoQuality.p2160,
-      VideoQuality.p1080,
-      VideoQuality.p720,
-      VideoQuality.p480,
-      VideoQuality.p360,
-    ]) {
-      final url = qualityUrls[q];
-      if (url != null) {
-        final videoId = Uri.parse(url).queryParameters['video_id'];
-        if (videoId != null && videoId.isNotEmpty) {
-          bestVideoFileId = videoId;
-          break;
-        }
-      }
-    }
-
-    if (bestVideoFileId == null) {
-      throw DouyinParseException('无法从播放地址提取 video_id');
-    }
-
-    return VideoInfo(
-      videoId: id,
-      title: title,
-      videoFileId: bestVideoFileId,
-      qualityUrls: qualityUrls,
-      coverUrl: coverUrl,
-      shareId: shareId,
-      width: width,
-      height: height,
-      bitrateKbps: bitrateKbps,
-    );
   }
 
   /// 从 HTML 中提取图文作品的图片 URL 列表。

@@ -65,7 +65,7 @@ Map<String, dynamic> _toJson(VideoInfo info) {
     'shareId': info.shareId,
     'title': info.title,
     if (!info.isImagePost) ...{
-      'qualities': info.availableQualities.map((q) => q.ratio).toList(),
+      'videoUrl': info.videoUrl,
       'coverUrl': info.coverUrl,
       if (info.width != null) 'width': info.width,
       if (info.height != null) 'height': info.height,
@@ -98,9 +98,7 @@ void _printInfo(VideoInfo info) {
     if (info.musicTitle != null) stdout.writeln('背景音乐: ${info.musicTitle}');
   } else {
     stdout.writeln('类型    : 视频作品');
-    stdout.writeln(
-      '清晰度  : ${info.availableQualities.map((q) => q.ratio).join(' / ')}',
-    );
+    stdout.writeln('视频URL : ${info.videoUrl.substring(0, info.videoUrl.length > 60 ? 60 : info.videoUrl.length)}...');
     if (info.resolutionLabel != null)
       stdout.writeln('分辨率  : ${info.resolutionLabel}');
     if (info.bitrateKbps != null)
@@ -215,8 +213,7 @@ Future<void> main(List<String> args) async {
     if (info.isImagePost) {
       stdout.writeln('开始下载图文（${info.imageUrls.length} 张）…');
     } else {
-      final best = info.availableQualities.first;
-      stdout.writeln('开始下载视频（${best.ratio}）… → $outputDir');
+      stdout.writeln('开始下载视频… → $outputDir');
     }
 
     final savedPath = await downloader.downloadVideo(

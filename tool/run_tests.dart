@@ -128,7 +128,7 @@ Future<_Result> _testOne(
         title: info.title,
         isImage: info.imageUrls.isNotEmpty,
         imageCount: info.imageUrls.length,
-        quality: info.availableQualities.map((q) => q.ratio).join('/'),
+        quality: info.videoUrl.isNotEmpty ? 'video' : '',
         htmlPath: caching.lastSavedPath,
         platform: platform,
       );
@@ -139,9 +139,9 @@ Future<_Result> _testOne(
         id: id,
         ok: true,
         title: info.title,
-        isImage: info.imageUrls.isNotEmpty && info.qualityUrls.isEmpty,
+        isImage: info.imageUrls.isNotEmpty && info.videoUrl.isEmpty,
         imageCount: info.imageUrls.length,
-        quality: info.availableQualities.map((q) => q.ratio).join('/'),
+        quality: info.videoUrl.isNotEmpty ? 'video' : '',
         htmlPath: caching.lastSavedPath,
         platform: platform,
       );

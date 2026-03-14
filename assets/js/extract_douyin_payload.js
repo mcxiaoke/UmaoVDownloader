@@ -196,47 +196,50 @@
   }
 
   /**
-   * 提取视频清晰度列表
+   * 提取视频 URL（最高质量）
    */
-  function extractVideoQualities(item) {
+  function extractVideoUrl(item) {
     const bitRates = get(item, "video.bit_rate", []);
-    const qualities = {};
 
-    // 从 bit_rate 数组提取多清晰度
-    for (const br of bitRates) {
-      const ratio = get(br, "gear_name", "").replace("gear_", "");
+    // 从 bit_rate 数组提取最高质量（第一个通常是最高质量）
+    if (bitRates.length > 0) {
+      const br = bitRates[0];
       const uri = get(br, "play_addr.uri");
-      if (ratio && uri) {
-        qualities[ratio] =
-          `${CONSTANTS.PLAY_BASE}?video_id=${uri}&ratio=${ratio}&line=0`;
+      const ratio = get(br, "gear_name", "").replace("gear_", "") || "1080p";
+      if (uri) {
+        return `${CONSTANTS.PLAY_BASE}?video_id=${uri}&ratio=${ratio}&line=0`;
       }
     }
 
-    if (Object.keys(qualities).length > 0) return qualities;
-
-    // 降级：从 play_addr 猜测清晰度
+    // 降级：从 play_addr 构建 URL
     const uri = get(item, "video.play_addr.uri");
     const height = get(item, "video.height", 0);
-    if (!uri) return qualities;
+    if (!uri) return null;
 
     const ratio = height >= 1080 ? "1080p" : "720p";
-    qualities[ratio] =
-      `${CONSTANTS.PLAY_BASE}?video_id=${uri}&ratio=${ratio}&line=0`;
-
-    return qualities;
+    return `${CONSTANTS.PLAY_BASE}?video_id=${uri}&ratio=${ratio}&line=0`;
   }
 
   /**
    * 提取背景音乐 URL
+   * 
+   * 注意：抖音图文作品有两种存储音乐的方式：
+   * 1. music.play_url.url_list - 正常的 MP3 直链
+   * 2. video.play_addr.uri - 图文作品的音频实际存储在这里，是一个完整的 HTTP URL（没有 .mp3 后缀）
+   * 
+   * 不能用 .includes(".mp3") 来判断，因为第二种情况的 URL 没有 .mp3 后缀，
+   * 但实际 Content-Type 是 audio/mp4。用 startsWith("http") 可以覆盖这两种情况。
+   * 
+   * 普通视频的 video.play_addr.uri 是 ID 字符串（如 v0200fg10000c...），会被过滤掉。
    */
   function extractMusicUrl(item) {
     // 优先从 music.play_url 获取
     const musicUrl = getArrayItem(item, "music.play_url.url_list");
     if (musicUrl) return decodeJsonEscapedString(musicUrl);
 
-    // 降级：检查 video.play_addr.uri 是否为 mp3
+    // 降级：检查 video.play_addr.uri 是否为合法 URL（图文作品的音频）
     const playUri = get(item, "video.play_addr.uri");
-    if (typeof playUri === "string" && playUri.includes(".mp3")) {
+    if (typeof playUri === "string" && playUri.startsWith("http")) {
       return decodeJsonEscapedString(playUri);
     }
 
@@ -262,7 +265,7 @@
       imageUrls,
       musicTitle: get(item, "music.title"),
       musicUrl: null,
-      qualityUrls: {},
+      videoUrl: null,
     };
   }
 
@@ -287,7 +290,7 @@
     if (result.type === "image") {
       result.musicUrl = extractMusicUrl(item);
     } else {
-      result.qualityUrls = extractVideoQualities(item);
+      result.videoUrl = extractVideoUrl(item);
     }
 
     return JSON.stringify(result);

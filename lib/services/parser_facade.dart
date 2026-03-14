@@ -136,15 +136,17 @@ class ParserFacade {
       videoId: info.videoId,
       title: info.title,
       videoFileId: info.videoFileId,
-      qualityUrls: info.qualityUrls,
+      videoUrl: info.videoUrl,
       coverUrl: info.coverUrl,
       shareId: info.shareId,
       width: info.width,
       height: info.height,
       bitrateKbps: info.bitrateKbps,
       imageUrls: imageUrls,
+      imageThumbUrls: info.imageThumbUrls,
       musicUrl: musicUrl,
       musicTitle: info.musicTitle,
+      livePhotoUrls: info.livePhotoUrls,
     );
   }
 }

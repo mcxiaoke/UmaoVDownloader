@@ -72,7 +72,7 @@ Future<void> main(List<String> args) async {
   print('标题     : ${info.title}');
   print('fileId   : ${info.videoFileId}');
   print('封面地址 : ${info.coverUrl ?? "无"}');
-  print('可用清晰度: ${info.availableQualities.map((q) => q.ratio).join(", ")}');
+  print('视频URL  : ${info.videoUrl.substring(0, info.videoUrl.length > 60 ? 60 : info.videoUrl.length)}...');
   if (info.imageUrls.isNotEmpty) {
     print('图片数量 : ${info.imageUrls.length} 张');
     for (var i = 0; i < info.imageUrls.length; i++) {
@@ -95,41 +95,14 @@ Future<void> main(List<String> args) async {
     return;
   }
 
-  // ── 5. 选择清晰度 ─────────────────────────────────────────────
-  final qualities = info.availableQualities;
-  VideoQuality selectedQuality;
-  if (qualities.length == 1) {
-    selectedQuality = qualities.first;
-    print('清晰度: ${selectedQuality.ratio}');
-  } else {
-    print('\n可用清晰度:');
-    for (var i = 0; i < qualities.length; i++) {
-      final q = qualities[i];
-      final marker = i == 0 ? ' (默认最高)' : '';
-      print('  ${i + 1}. ${q.ratio}$marker');
-    }
-    stdout.write('请选择 [1-${qualities.length}，回车默认最高]: ');
-    final choice = stdin.readLineSync()?.trim() ?? '';
-    final idx = int.tryParse(choice);
-    if (idx == null || idx < 1 || idx > qualities.length) {
-      selectedQuality = qualities.first;
-    } else {
-      selectedQuality = qualities[idx - 1];
-    }
-    print('已选择: ${selectedQuality.ratio}');
-  }
-
-  // ── 6. 执行下载 ───────────────────────────────────────────────
+  // ── 5. 执行下载 ───────────────────────────────────────────────
   final downloader = DesktopDownloader();
   final defaultDir = await downloader.getDefaultDirectory();
   print('保存目录: $defaultDir');
   print('正在下载...');
 
   try {
-    final savePath = await downloader.downloadVideo(
-      info,
-      quality: selectedQuality,
-    );
+    final savePath = await downloader.downloadVideo(info);
     print('下载完成: $savePath');
   } catch (e) {
     stderr.writeln('下载失败: $e');

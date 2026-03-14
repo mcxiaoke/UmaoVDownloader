@@ -36,7 +36,6 @@ class _HomePageState extends State<HomePage> {
   // 解析状态
   bool _parsing = false;
   VideoInfo? _videoInfo;
-  VideoQuality _selectedQuality = VideoQuality.p1080;
 
   // 文件大小预获取
   int? _fileSizeBytes; // null = 未知/加载中
@@ -128,9 +127,9 @@ class _HomePageState extends State<HomePage> {
         _fileSizeBytes = null;
         _downloadMusic = false;
       });
-      // 视频作品：获取所有清晰度文件大小并选择最佳质量
-      if (!info.isImagePost && info.availableQualities.isNotEmpty) {
-        _fetchAllFileSizesAndSelectBest(info);
+      // 视频作品：获取文件大小
+      if (!info.isImagePost && info.videoUrl.isNotEmpty) {
+        _fetchFileSize(info);
       }
       _log.info('解析成功：${info.title}');
       _vlog('解析耗时: ${sw.elapsedMilliseconds} ms');
@@ -145,12 +144,7 @@ class _HomePageState extends State<HomePage> {
         _log.info('fileId=${info.videoFileId}');
         _vlog('封面=${info.coverUrl ?? "<none>"}');
         _vlog('分辨率=${info.resolutionLabel ?? "<unknown>"}');
-        _log.info(
-          '可用清晰度：${info.availableQualities.map((q) => q.ratio).join(' / ')}',
-        );
-        for (final q in info.availableQualities) {
-          _log.info('  ${q.ratio}: ${info.qualityUrls[q]}');
-        }
+        _vlog('videoUrl=${info.videoUrl}');
       }
     } catch (e, st) {
       _log.error('解析失败：$e');
@@ -163,96 +157,28 @@ class _HomePageState extends State<HomePage> {
 
   // ─── 文件大小预获取 ────────────────────────────────────────────
 
-  /// 获取所有可用清晰度的文件大小，并选择最佳质量（最高分辨率，相同分辨率选文件size大的）
-  Future<void> _fetchAllFileSizesAndSelectBest(VideoInfo info) async {
+  /// 获取视频文件大小
+  Future<void> _fetchFileSize(VideoInfo info) async {
     if (_fetchingSize) return;
     setState(() {
       _fileSizeBytes = null;
       _fetchingSize = true;
     });
 
-    final qualitySizes = <VideoQuality, int>{};
-    final qualities = info.availableQualities;
-
     try {
-      _vlog('开始预取所有清晰度文件大小，共 ${qualities.length} 个');
+      _vlog('开始获取视频文件大小');
 
-      // 并行获取所有清晰度的文件大小
-      final futures = <Future<void>>[];
-      for (final quality in qualities) {
-        futures.add(_fetchSingleFileSize(info, quality, qualitySizes));
-      }
-      await Future.wait(futures);
-
-      // 选择最佳质量：最高分辨率，相同分辨率选文件size大的
-      VideoQuality? bestQuality;
-      int? bestSize;
-
-      for (final quality in qualities) {
-        final size = qualitySizes[quality];
-        if (size == null) continue;
-
-        if (bestQuality == null) {
-          bestQuality = quality;
-          bestSize = size;
-        } else {
-          // 比较分辨率（清晰度枚举值越大，分辨率越高）
-          final qualityIndex = VideoQuality.values.indexOf(quality);
-          final bestIndex = VideoQuality.values.indexOf(bestQuality);
-
-          if (qualityIndex > bestIndex) {
-            // 更高分辨率，优先选择
-            bestQuality = quality;
-            bestSize = size;
-          } else if (qualityIndex == bestIndex && size > bestSize!) {
-            // 相同分辨率，选文件size大的
-            bestQuality = quality;
-            bestSize = size;
-          }
-        }
-      }
-
-      if (mounted) {
-        setState(() {
-          _selectedQuality = bestQuality ?? qualities.first;
-          _fileSizeBytes = bestSize;
-          _fetchingSize = false;
-        });
-      }
-
-      _vlog(
-        '选择最佳清晰度: ${_selectedQuality.ratio}, 大小: ${_formatFileSize(bestSize)}',
-      );
-    } catch (e) {
-      _vlog('预取文件大小失败: $e');
-      // 失败时使用默认最高清晰度
-      if (mounted) {
-        setState(() {
-          _selectedQuality = qualities.first;
-          _fetchingSize = false;
-        });
-      }
-    }
-  }
-
-  Future<void> _fetchSingleFileSize(
-    VideoInfo info,
-    VideoQuality quality,
-    Map<VideoQuality, int> qualitySizes,
-  ) async {
-    try {
-      final downloadUrl = info.urlFor(quality);
       final ioClient = HttpClient();
-      String resolvedUrl = downloadUrl;
+      String resolvedUrl = info.videoUrl;
       try {
-        final req = await ioClient.getUrl(Uri.parse(downloadUrl));
+        final req = await ioClient.getUrl(Uri.parse(info.videoUrl));
         req.headers.set(HttpHeaders.userAgentHeader, kUaEdge);
         req.followRedirects = false;
         final resp = await req.close();
         await resp.drain<void>();
         if (resp.statusCode >= 300 && resp.statusCode < 400) {
           resolvedUrl =
-              resp.headers.value(HttpHeaders.locationHeader) ?? downloadUrl;
+              resp.headers.value(HttpHeaders.locationHeader) ?? info.videoUrl;
         }
       } finally {
         ioClient.close();
@@ -263,12 +189,22 @@ class _HomePageState extends State<HomePage> {
       );
       final cl = headResp.headers['content-length'];
       final size = cl != null ? int.tryParse(cl) : null;
-      if (size != null) {
-        qualitySizes[quality] = size;
+
+      if (mounted) {
+        setState(() {
+          _fileSizeBytes = size;
+          _fetchingSize = false;
+        });
       }
+
+      _vlog('视频文件大小: ${_formatFileSize(size)}');
     } catch (e) {
-      // 单个清晰度获取失败不影响其他
-      _vlog('获取 ${quality.ratio} 文件大小失败: $e');
+      _vlog('获取文件大小失败: $e');
+      if (mounted) {
+        setState(() {
+          _fetchingSize = false;
+        });
+      }
     }
   }
 
@@ -419,7 +355,7 @@ class _HomePageState extends State<HomePage> {
     } else if (info.livePhotoUrls.isNotEmpty) {
       downloadLabel = '实况图（${info.livePhotoUrls.length} 个视频）';
     } else {
-      downloadLabel = '[${_selectedQuality.ratio}]';
+      downloadLabel = '视频';
     }
     _log.info('开始下载 $downloadLabel：${info.title}');
 
@@ -432,7 +368,6 @@ class _HomePageState extends State<HomePage> {
       );
       final path = await downloader.downloadVideo(
         info,
-        quality: info.isImagePost ? null : _selectedQuality,
         directory: _settings.downloadDir,
         downloadMusic: _downloadMusic,
         onProgress: (received, total) {
@@ -794,7 +729,6 @@ class _HomePageState extends State<HomePage> {
     }
 
     final info = _videoInfo!;
-    final qualities = info.availableQualities;
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -830,11 +764,11 @@ class _HomePageState extends State<HomePage> {
                     info.coverUrl != null)
                   _buildVideoCover(info.coverUrl!),
                 const SizedBox(height: 12),
-                // 操作区：图文展示张数标签；视频展示清晰度下拉
+                // 操作区
                 if (narrow)
-                  _buildActionsNarrow(info, qualities)
+                  _buildActionsNarrow(info)
                 else
-                  _buildActionsWide(info, qualities),
+                  _buildActionsWide(info),
                 // 进度条
                 if (_downloading ||
                     (_downloadProgress != null && _downloadProgress! < 1.0))
@@ -1047,7 +981,7 @@ class _HomePageState extends State<HomePage> {
                                     ),
                                     const SizedBox(width: 2),
                                     Text(
-                                      isLivePhoto ? 'livephoto' : '图片',
+                                      isLivePhoto ? 'mp4' : '图片',
                                       style: const TextStyle(fontSize: 10),
                                     ),
                                   ],
@@ -1137,7 +1071,7 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildActionsWide(VideoInfo info, List<VideoQuality> qualities) {
+  Widget _buildActionsWide(VideoInfo info) {
     // 下载按钮公用部分
     final downloadBtn = FilledButton.icon(
       onPressed: _downloading ? null : _download,
@@ -1283,7 +1217,7 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildActionsNarrow(VideoInfo info, List<VideoQuality> qualities) {
+  Widget _buildActionsNarrow(VideoInfo info) {
     final downloadBtn = FilledButton.icon(
       onPressed: _downloading ? null : _download,
       icon: _downloading
