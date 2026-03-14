@@ -101,12 +101,123 @@ class VideoInfo {
       'VideoInfo(id: $videoId, title: $title, resolution: $resolutionLabel)';
 }
 
+/// 抖音作品类型枚举
+enum DouyinMediaType {
+  video, // 视频
+  image, // 图文/图集
+  unknown, // 未知
+}
+
 class DouyinParseException implements Exception {
   final String message;
   const DouyinParseException(this.message);
 
   @override
   String toString() => 'DouyinParseException: $message';
+}
+
+/// aweme_type 类型判断工具
+class AwemeTypeHelper {
+  /// 视频类型 aweme_type 值列表
+  /// 参考: [0, 4, 51, 55, 58, 61, 109, 201]
+  static const videoTypes = {0, 4, 51, 55, 58, 61, 109, 201};
+
+  /// 图文类型 aweme_type 值列表
+  /// 参考: [2, 68, 150]
+  static const imageTypes = {2, 68, 150};
+
+  /// 根据 aweme_type 判断是否为视频
+  static bool isVideo(dynamic awemeType) {
+    if (awemeType == null) return false;
+    final type = awemeType is int ? awemeType : int.tryParse(awemeType.toString());
+    if (type == null) return false;
+    return videoTypes.contains(type);
+  }
+
+  /// 根据 aweme_type 判断是否为图文
+  static bool isImage(dynamic awemeType) {
+    if (awemeType == null) return false;
+    final type = awemeType is int ? awemeType : int.tryParse(awemeType.toString());
+    if (type == null) return false;
+    return imageTypes.contains(type);
+  }
+
+  /// 是否为已知的类型（视频或图文）
+  static bool isKnownType(dynamic awemeType) {
+    return isVideo(awemeType) || isImage(awemeType);
+  }
+
+  /// 智能检测作品类型
+  ///
+  /// 优先使用 aweme_type 判断，未知类型时综合以下特征：
+  /// - images 字段是否存在且非空
+  /// - video.play_addr.uri 格式（URL 开头 vs 视频 ID）
+  /// - video.duration（图文为 0 或很小，视频有实际时长）
+  ///
+  /// 返回 [DouyinMediaType.video] 或 [DouyinMediaType.image]
+  static DouyinMediaType detectType(Map<String, dynamic> item, {void Function(String)? onLog}) {
+    void log(String msg) => onLog?.call('[TypeDetector] $msg');
+
+    // 1. 优先使用 aweme_type 判断
+    final awemeTypeRaw = item['aweme_type'];
+    final awemeType = awemeTypeRaw is int
+        ? awemeTypeRaw
+        : int.tryParse(awemeTypeRaw?.toString() ?? '');
+
+    if (awemeType != null) {
+      if (isVideo(awemeType)) {
+        log('aweme_type=$awemeType 判定为视频');
+        return DouyinMediaType.video;
+      }
+      if (isImage(awemeType)) {
+        log('aweme_type=$awemeType 判定为图文');
+        return DouyinMediaType.image;
+      }
+      log('未知 aweme_type=$awemeType，进入兜底判断');
+    } else {
+      log('无 aweme_type，进入兜底判断');
+    }
+
+    // 2. 兜底：综合特征判断
+    final video = item['video'];
+    final images = item['images'];
+
+    // 特征 1：images 字段存在且非空 → 图文
+    if (images is List && images.isNotEmpty) {
+      log('images 字段存在且非空，判定为图文');
+      return DouyinMediaType.image;
+    }
+
+    // 特征 2：video.play_addr.uri 以 http 开头 → 图文（实况图/音频）
+    if (video is Map) {
+      final playAddr = video['play_addr'];
+      if (playAddr is Map) {
+        final uri = playAddr['uri']?.toString();
+        if (uri != null && uri.startsWith('http')) {
+          log('video.play_addr.uri 为 URL 格式，判定为图文');
+          return DouyinMediaType.image;
+        }
+      }
+    }
+
+    // 特征 3：video.duration 为 0 或 null，且 images 为空 → 可能是图文
+    if (video is Map) {
+      final duration = video['duration'];
+      final durationMs = duration is int ? duration : int.tryParse(duration?.toString() ?? '');
+      if ((durationMs == null || durationMs == 0) && (images == null || (images is List && images.isEmpty))) {
+        // 再检查是否有其他视频特征
+        final bitRate = video['bit_rate'];
+        if (bitRate == null || (bitRate is List && bitRate.isEmpty)) {
+          log('duration=0 且无码率信息，判定为图文');
+          return DouyinMediaType.image;
+        }
+      }
+    }
+
+    // 默认判定为视频
+    log('无图文特征，默认判定为视频');
+    return DouyinMediaType.video;
+  }
 }
 
 /// 抖音视频解析器
@@ -129,8 +240,15 @@ class DouyinParser {
   /// [httpClient] 可传入 mock client 方便单元测试
   final http.Client _httpClient;
 
-  DouyinParser({http.Client? httpClient})
+  /// 日志回调函数，用于输出解析日志
+  final void Function(String)? onLog;
+
+  DouyinParser({http.Client? httpClient, this.onLog})
       : _httpClient = httpClient ?? http.Client();
+
+  void _log(String msg) {
+    onLog?.call('[DouyinParser] $msg');
+  }
 
   /// 主入口：传入任意抖音链接，返回视频信息
   Future<VideoInfo> parse(String url) async {
@@ -220,7 +338,7 @@ class DouyinParser {
     }
 
     if (_looksLikeWafChallenge(html)) {
-      stderr.writeln('[DouyinParser] 命中风控挑战页: $shareUrl');
+      _log('命中风控挑战页: $shareUrl');
       throw const DouyinParseException('触发风控挑战页，请更换网络后重试');
     }
 
@@ -316,38 +434,29 @@ class DouyinParser {
         ? item['desc'].toString()
         : '作品_$id';
 
-    final video = item['video'];
-    String? coverUrl;
-    int? width;
-    int? height;
-    int? bitrateKbps;
+    // 使用统一的类型检测函数
+    final mediaType = AwemeTypeHelper.detectType(item, onLog: onLog);
 
-    if (video is Map) {
-      final cover = video['cover'];
-      if (cover is Map) {
-        final urlList = cover['url_list'];
-        if (urlList is List && urlList.isNotEmpty) {
-          coverUrl = urlList.first?.toString();
-        }
-      }
-      width = int.tryParse(video['width']?.toString() ?? '');
-      height = int.tryParse(video['height']?.toString() ?? '');
+    // 根据检测到的类型直接处理
+    return switch (mediaType) {
+      DouyinMediaType.image => _buildImagePost(item, id, title, shareId),
+      DouyinMediaType.video => _buildVideoPost(item, id, title, shareId),
+      DouyinMediaType.unknown => _buildVideoPost(item, id, title, shareId),
+    };
+  }
 
-      final bitRates = video['bit_rate'];
-      if (bitRates is List && bitRates.isNotEmpty && bitRates.first is Map) {
-        final bps = int.tryParse(
-          (bitRates.first as Map)['bit_rate']?.toString() ?? '',
-        );
-        if (bps != null && bps > 0) bitrateKbps = bps ~/ 1000;
-      }
-    }
-
-    // 判断是否为图文作品
+  /// 构建图文作品
+  VideoInfo _buildImagePost(
+    Map<String, dynamic> item,
+    String id,
+    String title,
+    String? shareId,
+  ) {
     final images = item['images'];
-    if (images is List && images.isNotEmpty) {
-      final imageUrls = <String>[];
-      final imageThumbUrls = <String>[];
+    final imageUrls = <String>[];
+    final imageThumbUrls = <String>[];
 
+    if (images is List) {
       for (final img in images) {
         if (img is! Map) continue;
         final urlList = img['url_list'];
@@ -392,61 +501,97 @@ class DouyinParser {
         imageUrls.add(fullUrl);
         imageThumbUrls.add(thumbUrl);
       }
+    }
 
-      // 提取背景音乐
-      String? musicUrl;
-      String? musicTitle;
-      final music = item['music'];
-      if (music is Map) {
-        musicTitle = music['title']?.toString();
-        final playUrl = music['play_url'];
-        if (playUrl is Map) {
-          final list = playUrl['url_list'];
-          if (list is List && list.isNotEmpty) {
-            final url = list.first.toString();
-            if (url.startsWith('http')) {
-              musicUrl = url;
-            }
+    // 提取背景音乐
+    String? musicUrl;
+    String? musicTitle;
+    final music = item['music'];
+    final video = item['video'];
+
+    if (music is Map) {
+      musicTitle = music['title']?.toString();
+      final playUrl = music['play_url'];
+      if (playUrl is Map) {
+        final list = playUrl['url_list'];
+        if (list is List && list.isNotEmpty) {
+          final url = list.first.toString();
+          if (url.startsWith('http')) {
+            musicUrl = url;
           }
         }
       }
-
-      // 降级：某些图文数据中音频放在 video.play_addr.uri
-      if (musicUrl == null || musicUrl.isEmpty) {
-        final playAddr = video is Map ? video['play_addr'] : null;
-        final uri = playAddr is Map ? playAddr['uri']?.toString() : null;
-        if (uri != null && uri.startsWith('http')) {
-          musicUrl = uri;
-        }
-      }
-
-      return VideoInfo(
-        videoId: id,
-        title: title,
-        videoFileId: '',
-        videoUrl: '',
-        coverUrl: coverUrl,
-        shareId: shareId,
-        width: width,
-        height: height,
-        bitrateKbps: bitrateKbps,
-        imageUrls: imageUrls,
-        imageThumbUrls: imageThumbUrls,
-        musicUrl: musicUrl,
-        musicTitle: musicTitle,
-      );
     }
 
-    // 视频作品处理
+    // 降级：某些图文数据中音频放在 video.play_addr.uri
+    if (musicUrl == null || musicUrl.isEmpty) {
+      final playAddr = video is Map ? video['play_addr'] : null;
+      final uri = playAddr is Map ? playAddr['uri']?.toString() : null;
+      if (uri != null && uri.startsWith('http')) {
+        musicUrl = uri;
+      }
+    }
+
+    // 提取封面
+    String? coverUrl;
+    if (video is Map) {
+      final cover = video['cover'];
+      if (cover is Map) {
+        final urlList = cover['url_list'];
+        if (urlList is List && urlList.isNotEmpty) {
+          coverUrl = urlList.first?.toString();
+        }
+      }
+    }
+
+    return VideoInfo(
+      videoId: id,
+      title: title,
+      videoFileId: '',
+      videoUrl: '',
+      coverUrl: coverUrl,
+      shareId: shareId,
+      imageUrls: imageUrls,
+      imageThumbUrls: imageThumbUrls,
+      musicUrl: musicUrl,
+      musicTitle: musicTitle,
+    );
+  }
+
+  /// 构建视频作品
+  VideoInfo _buildVideoPost(
+    Map<String, dynamic> item,
+    String id,
+    String title,
+    String? shareId,
+  ) {
+    final video = item['video'];
+    String? coverUrl;
+    int? width;
+    int? height;
+    int? bitrateKbps;
     String? bestVideoUrl;
     String? bestVideoFileId;
 
     if (video is Map) {
+      final cover = video['cover'];
+      if (cover is Map) {
+        final urlList = cover['url_list'];
+        if (urlList is List && urlList.isNotEmpty) {
+          coverUrl = urlList.first?.toString();
+        }
+      }
+      width = int.tryParse(video['width']?.toString() ?? '');
+      height = int.tryParse(video['height']?.toString() ?? '');
+
       final bitRates = video['bit_rate'];
       if (bitRates is List && bitRates.isNotEmpty) {
         // 优先选择最高质量（假设列表已按质量排序，取第一个）
         final best = bitRates.first;
         if (best is Map) {
+          final bps = int.tryParse(best['bit_rate']?.toString() ?? '');
+          if (bps != null && bps > 0) bitrateKbps = bps ~/ 1000;
+
           final playAddr = best['play_addr'];
           final uri = playAddr is Map ? playAddr['uri']?.toString() : null;
           if (uri != null && uri.isNotEmpty) {

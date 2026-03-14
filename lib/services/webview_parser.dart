@@ -414,82 +414,56 @@ class WebViewParser {
     final width = int.tryParse(data['width']?.toString() ?? '');
     final height = int.tryParse(data['height']?.toString() ?? '');
 
-    // 实况图类型
-    if (type == 'livephoto') {
-      final livePhotoUrls = (data['livePhotoUrls'] is List)
-          ? (data['livePhotoUrls'] as List)
-                .map((e) => e.toString())
-                .where((e) => e.isNotEmpty)
-                .toList()
-          : const <String>[];
+    // 提取通用字段
+    final imageUrls = (data['imageUrls'] is List)
+        ? (data['imageUrls'] as List)
+              .map((e) => e.toString())
+              .where((e) => e.isNotEmpty)
+              .toList()
+        : const <String>[];
 
-      // 提取图片 URL 列表（用于缩略图显示）
-      final imageUrls = (data['imageUrls'] is List)
-          ? (data['imageUrls'] as List)
-                .map((e) => e.toString())
-                .where((e) => e.isNotEmpty)
-                .toList()
-          : const <String>[];
+    final musicUrl = data['musicUrl']?.toString();
 
-      // 使用第一个实况图 URL 作为视频 URL
-      final videoUrl = livePhotoUrls.isNotEmpty ? livePhotoUrls.first : '';
-      final musicUrl = data['musicUrl']?.toString();
-
-      return VideoInfo(
-        videoId: id,
-        title: title,
-        videoFileId: id,
-        videoUrl: videoUrl,
-        coverUrl: data['coverUrl']?.toString(),
-        shareId: data['shareId']?.toString(),
-        width: width,
-        height: height,
-        imageUrls: imageUrls,
-        livePhotoUrls: livePhotoUrls,
-        musicUrl: (musicUrl != null && musicUrl.isNotEmpty) ? musicUrl : null,
-        musicTitle: data['musicTitle']?.toString(),
-      );
-    }
-
-    if (type == 'image') {
-      final imageUrls = (data['imageUrls'] is List)
-          ? (data['imageUrls'] as List)
-                .map((e) => e.toString())
-                .where((e) => e.isNotEmpty)
-                .toList()
-          : const <String>[];
-      final musicUrl = data['musicUrl']?.toString();
-      return VideoInfo(
-        videoId: id,
-        title: title,
-        videoFileId: '',
-        videoUrl: '',
-        coverUrl: data['coverUrl']?.toString(),
-        shareId: data['shareId']?.toString(),
-        width: width,
-        height: height,
-        imageUrls: imageUrls,
-        musicUrl: (musicUrl != null && musicUrl.isNotEmpty) ? musicUrl : null,
-        musicTitle: data['musicTitle']?.toString(),
-        livePhotoUrls: const [],
-      );
-    }
-
-    // 获取视频 URL
-    String videoUrl = data['videoUrl']?.toString() ?? '';
-
-    final fileId = _pickBestVideoFileId(videoUrl);
-    return VideoInfo(
-      videoId: id,
-      title: title,
-      videoFileId: fileId,
-      videoUrl: videoUrl,
-      coverUrl: data['coverUrl']?.toString(),
-      shareId: data['shareId']?.toString(),
-      width: width,
-      height: height,
-      livePhotoUrls: const [],
-    );
+    // 根据类型构建结果
+    return switch (type) {
+      'image' => VideoInfo(
+          videoId: id,
+          title: title,
+          videoFileId: '',
+          videoUrl: '',
+          coverUrl: data['coverUrl']?.toString(),
+          shareId: data['shareId']?.toString(),
+          width: width,
+          height: height,
+          imageUrls: imageUrls,
+          musicUrl: (musicUrl != null && musicUrl.isNotEmpty) ? musicUrl : null,
+          musicTitle: data['musicTitle']?.toString(),
+          livePhotoUrls: const [],
+        ),
+      'video' => VideoInfo(
+          videoId: id,
+          title: title,
+          videoFileId: _pickBestVideoFileId(data['videoUrl']?.toString() ?? ''),
+          videoUrl: data['videoUrl']?.toString() ?? '',
+          coverUrl: data['coverUrl']?.toString(),
+          shareId: data['shareId']?.toString(),
+          width: width,
+          height: height,
+          livePhotoUrls: const [],
+        ),
+      _ => VideoInfo(
+          // 默认按视频处理
+          videoId: id,
+          title: title,
+          videoFileId: _pickBestVideoFileId(data['videoUrl']?.toString() ?? ''),
+          videoUrl: data['videoUrl']?.toString() ?? '',
+          coverUrl: data['coverUrl']?.toString(),
+          shareId: data['shareId']?.toString(),
+          width: width,
+          height: height,
+          livePhotoUrls: const [],
+        ),
+    };
   }
 
   String _pickBestVideoFileId(String videoUrl) {

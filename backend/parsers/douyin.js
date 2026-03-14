@@ -33,6 +33,14 @@ const PLAY_BASE = "https://aweme.snssdk.com/aweme/v1/play/";
 // 支持的画质等级，按优先级排序（从高到低）
 const QUALITY_RATIOS = ["2160p", "1080p", "720p", "480p", "360p"];
 
+// 类型映射：aweme_type -> 媒体类型
+const MEDIA_TYPES = {
+  // 视频类型
+  video: [0, 4, 51, 55, 58, 61, 109, 201],
+  // 图文类型
+  image: [2, 68, 150],
+};
+
 // 条件日志函数
 let log = () => {};
 
@@ -114,13 +122,13 @@ export async function parse(url, debug = false) {
   // 保存提取的item数据供调试
   saveDebugJson(item, "item_data");
 
-  const isImagePost = Array.isArray(item.images) && item.images.length > 0;
-  log(
-    `  ✓ 内容类型: ${isImagePost ? "图文 " + item.images.length + " 张" : "视频"}`,
-  );
+  // 使用统一的类型检测函数
+  const mediaType = detectMediaType(item);
+  log(`  ✓ 内容类型: ${mediaType}`);
 
+  // 构建基础信息
   const info = {
-    type: isImagePost ? "image" : "video",
+    type: mediaType,
     platform: "douyin",
     id: item.aweme_id ?? awemeId,
     shareId,
@@ -131,7 +139,9 @@ export async function parse(url, debug = false) {
   };
 
   log("→ 构建结果:");
-  if (isImagePost) {
+
+  // 根据类型填充详细内容
+  if (mediaType === "image") {
     info.imageUrls = extractImageUrls(item);
     info.imageCount = info.imageUrls.length;
     info.musicTitle = item.music?.title ?? null;
@@ -161,6 +171,67 @@ export async function parse(url, debug = false) {
   }
 
   return info;
+}
+
+// ── 类型检测 ─────────────────────────────────────────────────────────────────
+
+/**
+ * 智能检测作品类型
+ * 优先使用 aweme_type，未知时综合以下特征：
+ * - images 字段是否存在且非空
+ * - video.play_addr.uri 格式（URL 开头 vs 视频 ID）
+ * - video.duration（图文为 0 或很小，视频有实际时长）
+ * @param {object} item - 作品数据
+ * @returns {"image"|"video"} 媒体类型
+ */
+function detectMediaType(item) {
+  // 1. 优先使用 aweme_type 判断
+  const awemeType = item.aweme_type;
+  if (awemeType != null) {
+    const typeNum = Number(awemeType);
+    if (MEDIA_TYPES.image.includes(typeNum)) {
+      log(`  aweme_type=${typeNum} 判定为图文`);
+      return "image";
+    }
+    if (MEDIA_TYPES.video.includes(typeNum)) {
+      log(`  aweme_type=${typeNum} 判定为视频`);
+      return "video";
+    }
+    log(`  未知 aweme_type=${typeNum}，进入兜底判断`);
+  } else {
+    log(`  无 aweme_type，进入兜底判断`);
+  }
+
+  // 2. 兜底：综合特征判断
+  const images = item.images;
+  const video = item.video;
+
+  // 特征 1：images 字段存在且非空 → 图文
+  if (Array.isArray(images) && images.length > 0) {
+    log(`  images 字段存在且非空，判定为图文`);
+    return "image";
+  }
+
+  // 特征 2：video.play_addr.uri 以 http 开头 → 图文（实况图/音频）
+  const playUri = video?.play_addr?.uri;
+  if (typeof playUri === "string" && playUri.startsWith("http")) {
+    log(`  video.play_addr.uri 为 URL 格式，判定为图文`);
+    return "image";
+  }
+
+  // 特征 3：video.duration 为 0 或不存在，且 images 为空 → 可能是图文
+  const duration = video?.duration;
+  if ((duration == null || duration === 0) && !Array.isArray(images)) {
+    const bitRate = video?.bit_rate;
+    if (!Array.isArray(bitRate) || bitRate.length === 0) {
+      log(`  duration=0 且无码率信息，判定为图文`);
+      return "image";
+    }
+  }
+
+  // 默认判定为视频
+  log(`  无图文特征，默认判定为视频`);
+  return "video";
 }
 
 // ── 内部函数 ─────────────────────────────────────────────────────────────────

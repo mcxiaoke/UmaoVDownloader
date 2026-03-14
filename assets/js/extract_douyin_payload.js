@@ -25,6 +25,13 @@
         },
       ],
     },
+    // 类型映射：aweme_type -> 媒体类型
+    MEDIA_TYPES: {
+      // 视频类型
+      video: [0, 4, 51, 55, 58, 61, 109, 201],
+      // 图文类型
+      image: [2, 68, 150],
+    },
   };
 
   // ── 错误类型 ────────────────────────────────────────────────────────────────
@@ -91,6 +98,56 @@
   function extractShareId(url) {
     const match = url.match(CONSTANTS.URL_PATTERNS.SHARE_ID);
     return match ? match[1] : null;
+  }
+
+  // ── 类型检测 ────────────────────────────────────────────────────────────────
+
+  /**
+   * 智能检测作品类型
+   * 优先使用 aweme_type，未知时综合以下特征：
+   * - images 字段是否存在且非空
+   * - video.play_addr.uri 格式（URL 开头 vs 视频 ID）
+   * - video.duration（图文为 0 或很小，视频有实际时长）
+   */
+  function detectMediaType(item) {
+    // 1. 优先使用 aweme_type 判断
+    const awemeType = get(item, "aweme_type");
+    if (awemeType != null) {
+      const typeNum = Number(awemeType);
+      if (CONSTANTS.MEDIA_TYPES.image.includes(typeNum)) {
+        return "image";
+      }
+      if (CONSTANTS.MEDIA_TYPES.video.includes(typeNum)) {
+        return "video";
+      }
+    }
+
+    // 2. 兜底：综合特征判断
+    const images = get(item, "images");
+    const video = get(item, "video");
+
+    // 特征 1：images 字段存在且非空 → 图文
+    if (Array.isArray(images) && images.length > 0) {
+      return "image";
+    }
+
+    // 特征 2：video.play_addr.uri 以 http 开头 → 图文（实况图/音频）
+    const playUri = get(video, "play_addr.uri");
+    if (typeof playUri === "string" && playUri.startsWith("http")) {
+      return "image";
+    }
+
+    // 特征 3：video.duration 为 0 或不存在，且 images 为空 → 可能是图文
+    const duration = get(video, "duration");
+    if ((duration == null || duration === 0) && !Array.isArray(images)) {
+      const bitRate = get(video, "bit_rate");
+      if (!Array.isArray(bitRate) || bitRate.length === 0) {
+        return "image";
+      }
+    }
+
+    // 默认判定为视频
+    return "video";
   }
 
   // ── 数据提取 ────────────────────────────────────────────────────────────────
@@ -250,7 +307,8 @@
    * 构建基础结果对象
    */
   function buildBaseResult(item, shareId) {
-    const imageUrls = extractImageUrls(item);
+    const mediaType = detectMediaType(item);
+    const imageUrls = mediaType === "image" ? extractImageUrls(item) : [];
     const coverUrl = getArrayItem(item, "video.cover.url_list");
 
     return {
@@ -261,7 +319,7 @@
       width: get(item, "video.width"),
       height: get(item, "video.height"),
       shareId,
-      type: imageUrls.length > 0 ? "image" : "video",
+      type: mediaType,
       imageUrls,
       musicTitle: get(item, "music.title"),
       musicUrl: null,

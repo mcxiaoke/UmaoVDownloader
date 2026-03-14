@@ -57,7 +57,7 @@ class _HomePageState extends State<HomePage> {
   bool get _verbose => _settings.verboseLog;
 
   void _vlog(String msg) {
-    if (_verbose) _log.info('[VERBOSE] $msg');
+    if (_verbose) _log.info(msg);
   }
 
   // ─── 解析 ────────────────────────────────────────────────────

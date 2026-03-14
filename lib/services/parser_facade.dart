@@ -50,7 +50,7 @@ class ParserFacade {
       final webview = await _tryParseByWebView(input, log: log);
       if (webview != null) return _normalize(webview);
       log?.call('WebView 解析未命中，回退 Dart 解析');
-      return _normalize(await _parseByDart(input, platform));
+      return _normalize(await _parseByDart(input, platform, log: log));
     }
 
     if (strategy == ParserStrategy.jsOnly) {
@@ -60,7 +60,7 @@ class ParserFacade {
     }
 
     // dart_only 或其他策略：使用 Dart 解析器
-    return _normalize(await _parseByDart(input, platform));
+    return _normalize(await _parseByDart(input, platform, log: log));
   }
 
   Future<VideoInfo> _parseWithCompare(
@@ -82,7 +82,7 @@ class ParserFacade {
         .catchError((e) => webError = e)
         .whenComplete(() => webSw.stop());
 
-    final dartFuture = _parseByDart(input, platform)
+    final dartFuture = _parseByDart(input, platform, log: log)
         .then((v) => dartInfo = v)
         .catchError((e) => dartError = e)
         .whenComplete(() => dartSw.stop());
@@ -101,7 +101,11 @@ class ParserFacade {
     throw dartError ?? webError ?? Exception('两个解析器均失败');
   }
 
-  Future<VideoInfo> _parseByDart(String input, ParserPlatform platform) async {
+  Future<VideoInfo> _parseByDart(
+    String input,
+    ParserPlatform platform, {
+    ParserLog? log,
+  }) async {
     if (platform == ParserPlatform.xiaohongshu) {
       final parser = XiaohongshuParser();
       try {
@@ -110,7 +114,7 @@ class ParserFacade {
         parser.dispose();
       }
     } else {
-      final parser = DouyinParser();
+      final parser = DouyinParser(onLog: log);
       try {
         return await parser.parse(input);
       } finally {
