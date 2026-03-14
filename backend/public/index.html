@@ -238,11 +238,23 @@
             return;
           }
 
-          setStatus(
-            `解析完成 · ${info.type === "image" ? "图文 " + info.imageCount + " 张" : "视频 " + (info.quality ?? "")}`,
-          );
-          if (info.type === "image") renderImages(info);
-          else renderVideo(info);
+          // 更新状态文本
+          let statusText = "解析完成 · ";
+          if (info.type === "livephoto") {
+            statusText += `实况图 ${info.livePhotoCount || info.imageCount} 张`;
+          } else if (info.type === "image") {
+            statusText += `图文 ${info.imageCount} 张`;
+          } else {
+            statusText += `视频 ${info.quality ?? ""}`;
+          }
+          setStatus(statusText);
+
+          // 渲染：livephoto 和 image 都用 renderImages，video 用 renderVideo
+          if (info.type === "image" || info.type === "livephoto") {
+            renderImages(info);
+          } else {
+            renderVideo(info);
+          }
         } catch (e) {
           setStatus("请求失败：" + e.message, true);
         } finally {

@@ -326,6 +326,51 @@ function extractNoteData(data) {
 }
 
 /**
+ * 智能检测小红书作品类型
+ * 根据数据结构特征判断：video / livephoto / image
+ * 
+ * 判断逻辑：
+ * 1. 有根级别 video.media.stream 且包含有效视频流 → video（普通视频）
+ * 2. 无根级别 video，但 imageList 中有 livePhoto=true 且带视频流 → livephoto（实况图）
+ * 3. 否则 → image（纯图文）
+ * 
+ * @param {object} note - 笔记数据
+ * @returns {"video"|"livephoto"|"image"} 媒体类型
+ */
+function detectMediaType(note) {
+  // 1. 检查是否为普通视频（根级别有 video 字段且包含有效视频流）
+  const rootStream = note.video?.media?.stream;
+  if (rootStream && typeof rootStream === "object") {
+    const hasValidStream = ["h264", "h265", "av1", "origin"].some(
+      codec => Array.isArray(rootStream[codec]) && rootStream[codec].length > 0
+    );
+    if (hasValidStream) {
+      return "video";
+    }
+  }
+
+  // 2. 检查是否为实况图（imageList 中有 livePhoto=true 且带视频流）
+  const imageList = note.imageList || note.images || [];
+  if (Array.isArray(imageList) && imageList.length > 0) {
+    const hasLivePhoto = imageList.some(img => {
+      if (img.livePhoto !== true) return false;
+      const stream = img.stream;
+      if (!stream || typeof stream !== "object") return false;
+      return ["h264", "h265", "av1"].some(
+        codec => Array.isArray(stream[codec]) && stream[codec].length > 0
+      );
+    });
+    
+    if (hasLivePhoto) {
+      return "livephoto";
+    }
+  }
+
+  // 3. 默认为纯图文
+  return "image";
+}
+
+/**
  * 构建统一的结果对象
  */
 async function buildResult(note) {
@@ -339,36 +384,56 @@ async function buildResult(note) {
   // 提取图片列表（返回 {thumb, full} 对象数组）
   const imageList = extractImageUrls(note);
 
-  // 提取视频信息 (async)
-  const videoInfo = await extractVideoInfo(note);
-
-  // 判断类型：有视频优先视频，否则图片
-  const type = videoInfo ? "video" : imageList.length > 0 ? "image" : "unknown";
+  // 使用统一的类型检测
+  const mediaType = detectMediaType(note);
+  log(`  类型检测: ${mediaType}`);
 
   const result = {
-    type,
+    type: mediaType,
     platform: "xiaohongshu",
     id: String(id),
-    shareId: null, // 小红书没有类似抖音的短链 ID
+    shareId: null,
     title: title || desc.substring(0, 50),
     coverUrl,
     width: note.width || null,
     height: note.height || null,
   };
 
-  if (type === "image") {
-    // 兼容旧格式：同时提供 imageUrls（大图URL数组）和 imageList（含thumb/full的对象数组）
+  // 根据类型填充详细内容
+  if (mediaType === "video") {
+    // 普通视频：提取视频流
+    const videoInfo = await extractVideoInfo(note);
+    if (videoInfo) {
+      result.videoUrl = videoInfo.videoUrl;
+      result.quality = videoInfo.qualities[0] ?? null;
+      result.videoSize = videoInfo.size ?? null;
+      result.width = videoInfo.width ?? result.width;
+      result.height = videoInfo.height ?? result.height;
+    }
+  } else if (mediaType === "livephoto") {
+    // 实况图：图片列表 + 实况视频URL列表
     result.imageUrls = imageList.map(i => i.full);
     result.imageThumbs = imageList.map(i => i.thumb);
     result.imageList = imageList;
     result.imageCount = imageList.length;
-    // 检测是否有 Live Photo
-    result.isLivePhoto = imageList.some(i => i.isLivePhoto);
-  } else if (type === "video" && videoInfo) {
-    // 只返回最高画质视频
-    result.videoUrl = videoInfo.videoUrl;
-    result.quality = videoInfo.qualities[0] ?? null;
-    result.videoSize = videoInfo.size ?? null;
+    
+    // 提取实况视频URL列表
+    const livePhotoUrls = imageList
+      .filter(img => img.isLivePhoto && img.videoUrl)
+      .map(img => img.videoUrl);
+    result.livePhotoUrls = livePhotoUrls;
+    result.livePhotoCount = livePhotoUrls.length;
+    
+    // 用第一个实况视频作为默认视频
+    if (livePhotoUrls.length > 0) {
+      result.videoUrl = livePhotoUrls[0];
+    }
+  } else {
+    // 纯图文
+    result.imageUrls = imageList.map(i => i.full);
+    result.imageThumbs = imageList.map(i => i.thumb);
+    result.imageList = imageList;
+    result.imageCount = imageList.length;
   }
 
   return result;
