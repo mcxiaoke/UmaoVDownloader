@@ -27,25 +27,42 @@
 import fs from "fs-extra"; // 文件系统操作
 import { join } from "path"; // 路径处理
 import { extractUrl, fetchWithRetry } from "./common.js";
+import { getCookie, clearCookie, isCookieLikelyInvalid } from "../cookies.js";
 
 // 小红书专用User-Agent，模拟iOS移动端访问
 const XHS_UA =
   "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) " +
   "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1";
 
-// 小红书专用请求头
-const XHS_HEADERS = {
+// 小红书专用请求头（基础头，Cookie 会动态添加）
+const XHS_HEADERS_BASE = {
   "User-Agent": XHS_UA,
   Referer: "https://www.xiaohongshu.com/",
   Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
   "Accept-Language": "zh-CN,zh;q=0.9",
 };
 
+// 当前使用的请求头（包含动态 Cookie）
+let XHS_HEADERS = { ...XHS_HEADERS_BASE };
+
 // 条件日志函数
 let log = () => {};
 
 // 当前解析的短ID，用于调试文件命名
 let currentShortId = "";
+
+/**
+ * 初始化请求头（加载 Cookie）
+ */
+async function initHeaders() {
+  const cookie = await getCookie("xiaohongshu");
+  if (cookie) {
+    XHS_HEADERS = { ...XHS_HEADERS_BASE, Cookie: cookie };
+    log("  ✓ 已加载 Cookie");
+  } else {
+    XHS_HEADERS = { ...XHS_HEADERS_BASE };
+  }
+}
 
 /**
  * 判断是否支持解析该URL
@@ -166,6 +183,9 @@ export async function parse(url, debug = false) {
   log = debug ? (...args) => console.log("  [XHS]", ...args) : () => {};
   currentShortId = extractShortId(url); // 设置当前短ID
 
+  // 初始化请求头（加载 Cookie）
+  await initHeaders();
+
   log(`开始解析: ${url}`);
 
   const extracted = extractUrl(url);
@@ -189,6 +209,19 @@ export async function parse(url, debug = false) {
   if (!data) {
     log("  未找到 __INITIAL_STATE__, 尝试 SSR 数据...");
     data = extractSSRData(html);
+  }
+
+  // 检测 Cookie 是否可能无效/过期，如果是则清除后重试
+  if (!data && isCookieLikelyInvalid('xiaohongshu', html, null)) {
+    log("  ⚠️ Cookie 可能无效或已过期，正在清除并重新尝试...");
+    await clearCookie('xiaohongshu');
+    // 重置请求头（去掉 Cookie）
+    XHS_HEADERS = { ...XHS_HEADERS_BASE };
+    // 重新获取页面
+    const retryResult = await resolveXhsUrl(extracted);
+    html = retryResult.html;
+    // 重新提取数据
+    data = extractInitialState(html) || extractSSRData(html);
   }
 
   if (!data) {

@@ -30,6 +30,7 @@ import { Readable } from "node:stream"; // Node.js流处理
 import { dirname, join } from "path";   // 路径处理工具
 import { fileURLToPath } from "url";    // URL转文件路径
 import { parse } from "./parser.js";   // 视频解析核心模块
+import { loadCookies, saveCookies, normalizeCookieString } from "./cookies.js"; // Cookie 管理模块
 
 // 获取当前文件所在目录的绝对路径
 const __dir = dirname(fileURLToPath(import.meta.url));
@@ -270,6 +271,60 @@ app.post("/zip", async (req, res) => {
   await archive.finalize();
 });
 
+// ── Cookie 管理 API ──────────────────────────────────────────────────────────────────
+// 功能：获取和设置 Cookie，用于下载需要登录态的高清内容
+
+// GET /api/cookies - 获取当前 Cookie 配置（敏感字段脱敏）
+app.get("/api/cookies", async (req, res) => {
+  try {
+    const cookies = await loadCookies();
+    // 脱敏处理：只返回是否存在 Cookie，不返回完整值
+    res.json({
+      douyin: cookies.douyin ? "***已设置***" : "",
+      xiaohongshu: cookies.xiaohongshu ? "***已设置***" : "",
+      updatedAt: cookies.updatedAt,
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/cookies - 设置 Cookie
+// 请求体: { douyin?: string, xiaohongshu?: string }
+// 支持标准 Cookie 字符串或 Netscape HTTP Cookie File 格式
+app.post("/api/cookies", async (req, res) => {
+  const { douyin, xiaohongshu } = req.body ?? {};
+
+  try {
+    const toSave = {};
+    // 自动检测并转换 Cookie 格式（支持 Netscape 格式）
+    if (typeof douyin === "string") {
+      toSave.douyin = normalizeCookieString(douyin.trim());
+    }
+    if (typeof xiaohongshu === "string") {
+      toSave.xiaohongshu = normalizeCookieString(xiaohongshu.trim());
+    }
+
+    await saveCookies(toSave);
+    log("[Cookie] 已更新");
+
+    res.json({ success: true, message: "Cookie 已保存" });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// DELETE /api/cookies - 清除 Cookie
+app.delete("/api/cookies", async (req, res) => {
+  try {
+    await saveCookies({ douyin: "", xiaohongshu: "" });
+    log("[Cookie] 已清除");
+    res.json({ success: true, message: "Cookie 已清除" });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── 服务启动 ──────────────────────────────────────────────────────────────────────
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`umao-vd backend listening on http://0.0.0.0:${PORT}`);
@@ -277,6 +332,9 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log("  GET  /parse?url=<链接>                    # 解析视频/图文");
   console.log("  GET  /download?url=<直链>&name=<文件名>   # 代理下载");
   console.log("  POST /zip  { urls, names, filename }     # 打包下载");
+  console.log("  GET  /api/cookies                        # 获取 Cookie 状态");
+  console.log("  POST /api/cookies                        # 设置 Cookie");
+  console.log("  DELETE /api/cookies                      # 清除 Cookie");
 
   if (DEBUG) {
     console.log("\n[DEBUG 模式已开启] 详细日志已启用");

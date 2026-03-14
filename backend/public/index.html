@@ -10,6 +10,7 @@
     <header>
       <h1 onclick="location.reload()" style="cursor:pointer" title="点击刷新页面">Umao VDownloader</h1>
       <p>粘贴抖音/小红书分享链接，一键解析下载（无水印）</p>
+      <button id="cookieBtn" class="cookie-btn" title="设置 Cookie 以获取高清内容">🍪 Cookie 设置</button>
     </header>
 
     <div class="card">
@@ -27,6 +28,60 @@
     </div>
 
     <footer>仅供个人学习使用，请勿用于侵权行为</footer>
+
+    <!-- Cookie 设置弹窗 -->
+    <div id="cookieModal" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>🍪 Cookie 设置</h3>
+          <button class="modal-close" id="closeCookieModal">&times;</button>
+        </div>
+        <div class="modal-body">
+          <p class="cookie-hint">
+            设置 Cookie 后可获取高清原图和视频。Cookie 仅存储在本地服务器，不会上传到其他位置。
+            <a href="#" id="cookieHelpLink">如何获取 Cookie？</a>
+          </p>
+
+          <div class="cookie-tabs">
+            <button class="cookie-tab active" data-tab="xhs">小红书</button>
+            <button class="cookie-tab" data-tab="douyin">抖音</button>
+          </div>
+
+          <div class="cookie-tab-content active" id="tab-xhs">
+            <textarea id="xhsCookieInput" placeholder="请粘贴小红书的 Cookie 字符串...&#10;支持格式：name=value; name2=value2&#10;或 Netscape HTTP Cookie File 格式（从浏览器扩展导出）"></textarea>
+            <div class="cookie-status" id="xhsCookieStatus"></div>
+          </div>
+
+          <div class="cookie-tab-content" id="tab-douyin">
+            <textarea id="douyinCookieInput" placeholder="请粘贴抖音的 Cookie 字符串...&#10;支持格式：name=value; name2=value2&#10;或 Netscape HTTP Cookie File 格式（从浏览器扩展导出）"></textarea>
+            <div class="cookie-status" id="douyinCookieStatus"></div>
+          </div>
+
+          <div class="cookie-help" id="cookieHelp" style="display:none;">
+            <h4>如何获取 Cookie：</h4>
+            <h5>方法 1：使用浏览器扩展（推荐）</h5>
+            <ol>
+              <li>安装 Cookie 导出扩展（如 "Get cookies.txt" 或 "Cookie-Editor"）</li>
+              <li>在浏览器中打开 <strong>小红书</strong> 或 <strong>抖音</strong> 网站并登录</li>
+              <li>点击扩展图标，选择导出/复制 Cookie</li>
+              <li>直接粘贴到上面的输入框（支持 Netscape 格式自动转换）</li>
+            </ol>
+            <h5>方法 2：手动从开发者工具复制</h5>
+            <ol>
+              <li>在浏览器中打开 <strong>小红书</strong> 或 <strong>抖音</strong> 网站并登录</li>
+              <li>按 <kbd>F12</kbd> 打开开发者工具，切换到 Network（网络）标签</li>
+              <li>刷新页面，点击任意一个请求</li>
+              <li>在右侧找到 Headers（请求头），复制 Cookie 字段的值</li>
+            </ol>
+            <p>提示：支持两种格式：1) <code>name=value; name2=value2</code>  2) Netscape HTTP Cookie File 格式</p>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="clearCookies" class="btn-secondary">清除</button>
+          <button id="saveCookies" class="btn-primary">保存设置</button>
+        </div>
+      </div>
+    </div>
 
     <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
     <script type="module">
@@ -351,6 +406,161 @@
       btn.addEventListener("click", doParse);
       input.addEventListener("keydown", (e) => {
         if (e.key === "Enter") doParse();
+      });
+
+      // ── Cookie 设置功能 ───────────────────────────────────────────────────────────
+      const cookieBtn = document.getElementById("cookieBtn");
+      const cookieModal = document.getElementById("cookieModal");
+      const closeCookieModal = document.getElementById("closeCookieModal");
+      const saveCookiesBtn = document.getElementById("saveCookies");
+      const clearCookiesBtn = document.getElementById("clearCookies");
+      const cookieTabs = document.querySelectorAll(".cookie-tab");
+      const cookieHelpLink = document.getElementById("cookieHelpLink");
+      const cookieHelp = document.getElementById("cookieHelp");
+      const xhsCookieInput = document.getElementById("xhsCookieInput");
+      const douyinCookieInput = document.getElementById("douyinCookieInput");
+      const xhsCookieStatus = document.getElementById("xhsCookieStatus");
+      const douyinCookieStatus = document.getElementById("douyinCookieStatus");
+
+      // 打开弹窗
+      cookieBtn.addEventListener("click", () => {
+        cookieModal.classList.add("show");
+        loadCookieStatus();
+      });
+
+      // 关闭弹窗
+      closeCookieModal.addEventListener("click", () => {
+        cookieModal.classList.remove("show");
+      });
+
+      // 点击遮罩关闭
+      cookieModal.addEventListener("click", (e) => {
+        if (e.target === cookieModal) {
+          cookieModal.classList.remove("show");
+        }
+      });
+
+      // Tab 切换
+      cookieTabs.forEach((tab) => {
+        tab.addEventListener("click", () => {
+          cookieTabs.forEach((t) => t.classList.remove("active"));
+          tab.classList.add("active");
+
+          document.querySelectorAll(".cookie-tab-content").forEach((content) => {
+            content.classList.remove("active");
+          });
+          document.getElementById(`tab-${tab.dataset.tab}`).classList.add("active");
+        });
+      });
+
+      // 显示/隐藏帮助
+      cookieHelpLink.addEventListener("click", (e) => {
+        e.preventDefault();
+        cookieHelp.style.display = cookieHelp.style.display === "none" ? "block" : "none";
+      });
+
+      // 加载 Cookie 状态
+      async function loadCookieStatus() {
+        try {
+          const resp = await fetch("api/cookies");
+          const data = await resp.json();
+
+          xhsCookieInput.value = data.xiaohongshu || "";
+          xhsCookieInput.placeholder = data.xiaohongshu
+            ? "*** Cookie 已设置 ***"
+            : "请粘贴小红书的 Cookie 字符串...";
+
+          douyinCookieInput.value = data.douyin || "";
+          douyinCookieInput.placeholder = data.douyin
+            ? "*** Cookie 已设置 ***"
+            : "请粘贴抖音的 Cookie 字符串...";
+
+          if (data.xiaohongshu) {
+            xhsCookieStatus.textContent = "✓ 已设置 Cookie";
+            xhsCookieStatus.className = "cookie-status success";
+          }
+          if (data.douyin) {
+            douyinCookieStatus.textContent = "✓ 已设置 Cookie";
+            douyinCookieStatus.className = "cookie-status success";
+          }
+        } catch (e) {
+          console.error("加载 Cookie 状态失败:", e);
+        }
+      }
+
+      // 保存 Cookie
+      saveCookiesBtn.addEventListener("click", async () => {
+        const xhsCookie = xhsCookieInput.value.trim();
+        const douyinCookie = douyinCookieInput.value.trim();
+
+        try {
+          saveCookiesBtn.disabled = true;
+          saveCookiesBtn.textContent = "保存中...";
+
+          const resp = await fetch("api/cookies", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              xiaohongshu: xhsCookie,
+              douyin: douyinCookie,
+            }),
+          });
+
+          const data = await resp.json();
+
+          if (resp.ok) {
+            xhsCookieStatus.textContent = xhsCookie ? "✓ 小红书 Cookie 已保存" : "";
+            xhsCookieStatus.className = xhsCookie ? "cookie-status success" : "cookie-status";
+            douyinCookieStatus.textContent = douyinCookie ? "✓ 抖音 Cookie 已保存" : "";
+            douyinCookieStatus.className = douyinCookie ? "cookie-status success" : "cookie-status";
+
+            // 清空输入框（因为服务器返回的是脱敏值）
+            xhsCookieInput.value = "";
+            douyinCookieInput.value = "";
+
+            setTimeout(() => {
+              cookieModal.classList.remove("show");
+            }, 500);
+          } else {
+            throw new Error(data.error || "保存失败");
+          }
+        } catch (e) {
+          xhsCookieStatus.textContent = "✗ 保存失败: " + e.message;
+          xhsCookieStatus.className = "cookie-status error";
+        } finally {
+          saveCookiesBtn.disabled = false;
+          saveCookiesBtn.textContent = "保存设置";
+        }
+      });
+
+      // 清除 Cookie
+      clearCookiesBtn.addEventListener("click", async () => {
+        if (!confirm("确定要清除所有 Cookie 吗？")) return;
+
+        try {
+          clearCookiesBtn.disabled = true;
+          const resp = await fetch("api/cookies", { method: "DELETE" });
+
+          if (resp.ok) {
+            xhsCookieInput.value = "";
+            xhsCookieInput.placeholder = "请粘贴小红书的 Cookie 字符串...";
+            xhsCookieStatus.textContent = "✓ 已清除";
+            xhsCookieStatus.className = "cookie-status";
+
+            douyinCookieInput.value = "";
+            douyinCookieInput.placeholder = "请粘贴抖音的 Cookie 字符串...";
+            douyinCookieStatus.textContent = "✓ 已清除";
+            douyinCookieStatus.className = "cookie-status";
+
+            setTimeout(() => {
+              cookieModal.classList.remove("show");
+            }, 500);
+          }
+        } catch (e) {
+          console.error("清除失败:", e);
+        } finally {
+          clearCookiesBtn.disabled = false;
+        }
       });
     </script>
   </body>

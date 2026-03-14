@@ -26,9 +26,13 @@ import {
   fetchWithRetry,
   MOBILE_UA,
 } from "./common.js";
+import { getCookie, clearCookie, isCookieLikelyInvalid } from "../cookies.js";
 
 // 抖音无水印视频播放接口基础URL
 const PLAY_BASE = "https://aweme.snssdk.com/aweme/v1/play/";
+
+// 当前使用的请求头（包含动态 Cookie）
+let DY_HEADERS = { ...DEFAULT_HEADERS };
 
 // 支持的画质等级，按优先级排序（从高到低）
 const QUALITY_RATIOS = ["2160p", "1080p", "720p", "480p", "360p"];
@@ -46,6 +50,19 @@ let log = () => {};
 
 // 当前解析的短ID，用于调试文件命名
 let currentShortId = "";
+
+/**
+ * 初始化请求头（加载 Cookie）
+ */
+async function initHeaders() {
+  const cookie = await getCookie("douyin");
+  if (cookie) {
+    DY_HEADERS = { ...DEFAULT_HEADERS, Cookie: cookie };
+    log("  ✓ 已加载 Cookie");
+  } else {
+    DY_HEADERS = { ...DEFAULT_HEADERS };
+  }
+}
 
 /**
  * 判断是否支持解析该URL
@@ -67,6 +84,9 @@ export function canParse(url) {
 export async function parse(url, debug = false) {
   log = debug ? (...args) => console.log("  [DY]", ...args) : () => {};
   currentShortId = extractShortId(url); // 设置当前短ID
+
+  // 初始化请求头（加载 Cookie）
+  await initHeaders();
 
   log(`开始解析: ${url}`);
   log(`短ID: ${currentShortId}`);
@@ -105,6 +125,18 @@ export async function parse(url, debug = false) {
   if (!routerData) {
     log("  JSON解析失败，回退到手动提取...");
     //routerData = extractWindowData(html, "_ROUTER_DATA");
+  }
+
+  // 检测 Cookie 是否可能无效/过期，如果是则清除后重试
+  if (!routerData && isCookieLikelyInvalid('douyin', html, null)) {
+    log("  ⚠️ Cookie 可能无效或已过期，正在清除并重新尝试...");
+    await clearCookie('douyin');
+    // 重置请求头（去掉 Cookie）
+    DY_HEADERS = { ...DEFAULT_HEADERS };
+    // 重新获取页面
+    html = await fetchSharePage(finalUrl);
+    // 重新提取数据
+    routerData = extractRouterDataJson(html);
   }
 
   if (!routerData) {
@@ -270,7 +302,7 @@ async function resolveAndFetch(url) {
 
   const resp = await fetchWithRetry(url, {
     redirect: "follow",
-    headers: DEFAULT_HEADERS,
+    headers: DY_HEADERS,
   });
 
   const finalUrl = resp.url;
@@ -279,7 +311,7 @@ async function resolveAndFetch(url) {
 }
 
 async function fetchSharePage(fullUrl) {
-  const resp = await fetchWithRetry(fullUrl, { headers: DEFAULT_HEADERS });
+  const resp = await fetchWithRetry(fullUrl, { headers: DY_HEADERS });
   return resp.text();
 }
 

@@ -239,3 +239,225 @@ footer {
   font-size: 0.78rem;
   color: #aaa;
 }
+
+/* Cookie 设置按钮 */
+.cookie-btn {
+  margin-top: 0.8rem;
+  padding: 0.4rem 0.9rem;
+  background: transparent;
+  border: 1.5px solid #1976d2;
+  color: #1976d2;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.cookie-btn:hover {
+  background: #1976d2;
+  color: #fff;
+}
+
+/* 弹窗样式 */
+.modal {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 1000;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+.modal.show {
+  display: flex;
+}
+.modal-content {
+  background: #fff;
+  border-radius: 12px;
+  width: 100%;
+  max-width: 520px;
+  max-height: 90vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.2rem;
+  border-bottom: 1px solid #e5e7eb;
+}
+.modal-header h3 {
+  font-size: 1.1rem;
+  color: #1a1a2e;
+}
+.modal-close {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  color: #666;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  transition: all 0.15s;
+}
+.modal-close:hover {
+  background: #f3f4f6;
+  color: #1a1a2e;
+}
+.modal-body {
+  padding: 1.2rem;
+  overflow-y: auto;
+}
+.modal-footer {
+  display: flex;
+  gap: 0.6rem;
+  justify-content: flex-end;
+  padding: 1rem 1.2rem;
+  border-top: 1px solid #e5e7eb;
+  background: #f9fafb;
+}
+.btn-primary {
+  padding: 0.55rem 1.2rem;
+  background: #1976d2;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.btn-primary:hover {
+  background: #1565c0;
+}
+.btn-secondary {
+  padding: 0.55rem 1.2rem;
+  background: transparent;
+  color: #666;
+  border: 1.5px solid #d0d7de;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.btn-secondary:hover {
+  background: #f3f4f6;
+  border-color: #9ca3af;
+}
+
+/* Cookie 弹窗专用样式 */
+.cookie-hint {
+  font-size: 0.85rem;
+  color: #666;
+  line-height: 1.6;
+  margin-bottom: 1rem;
+}
+.cookie-hint a {
+  color: #1976d2;
+  text-decoration: none;
+}
+.cookie-hint a:hover {
+  text-decoration: underline;
+}
+
+.cookie-tabs {
+  display: flex;
+  gap: 0.4rem;
+  margin-bottom: 1rem;
+  border-bottom: 2px solid #e5e7eb;
+}
+.cookie-tab {
+  padding: 0.6rem 1.2rem;
+  background: none;
+  border: none;
+  font-size: 0.9rem;
+  color: #666;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  transition: all 0.2s;
+}
+.cookie-tab:hover {
+  color: #1976d2;
+}
+.cookie-tab.active {
+  color: #1976d2;
+  border-bottom-color: #1976d2;
+  font-weight: 500;
+}
+
+.cookie-tab-content {
+  display: none;
+}
+.cookie-tab-content.active {
+  display: block;
+}
+
+.cookie-tab-content textarea {
+  width: 100%;
+  min-height: 100px;
+  padding: 0.8rem;
+  border: 1.5px solid #d0d7de;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-family: monospace;
+  resize: vertical;
+  outline: none;
+}
+.cookie-tab-content textarea:focus {
+  border-color: #1976d2;
+}
+
+.cookie-status {
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+  min-height: 1.2em;
+}
+.cookie-status.success {
+  color: #2e7d32;
+}
+.cookie-status.error {
+  color: #c62828;
+}
+
+.cookie-help {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: #f3f4f6;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  line-height: 1.6;
+}
+.cookie-help h4 {
+  margin-bottom: 0.5rem;
+  color: #1a1a2e;
+}
+.cookie-help ol {
+  margin-left: 1.2rem;
+  margin-bottom: 0.5rem;
+}
+.cookie-help li {
+  margin-bottom: 0.3rem;
+}
+.cookie-help code {
+  background: #e5e7eb;
+  padding: 0.1rem 0.3rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+}
+.cookie-help kbd {
+  background: #fff;
+  border: 1px solid #d0d7de;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  box-shadow: 0 1px 0 rgba(0,0,0,0.1);
+}
