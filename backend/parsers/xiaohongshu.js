@@ -332,6 +332,8 @@ async function buildResult(note) {
     result.imageThumbs = imageList.map(i => i.thumb);
     result.imageList = imageList;
     result.imageCount = imageList.length;
+    // 检测是否有 Live Photo
+    result.isLivePhoto = imageList.some(i => i.isLivePhoto);
   } else if (type === "video" && videoInfo) {
     // 只返回最高画质视频
     result.videoUrl = videoInfo.videoUrl;
