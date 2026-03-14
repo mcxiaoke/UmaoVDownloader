@@ -27,6 +27,7 @@ class DViewerApp extends StatelessWidget {
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF1976D2)),
         useMaterial3: true,
+        fontFamily: 'Microsoft YaHei UI',
         appBarTheme: const AppBarTheme(
           scrolledUnderElevation: 0,
           surfaceTintColor: Colors.transparent,

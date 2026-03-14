@@ -115,6 +115,15 @@ class XiaohongshuParser {
     }
     if (result.imageUrls.isNotEmpty) {
       _log('  imageUrls[0]: ${result.imageUrls[0]}');
+      // 详细日志：打印所有缩略图和下载地址
+      if (_debug) {
+        for (var i = 0; i < result.imageUrls.length; i++) {
+          final thumb = result.imageThumbUrls.length > i ? result.imageThumbUrls[i] : result.imageUrls[i];
+          final full = result.imageUrls[i];
+          _log('  图片 ${i + 1}: thumb: $thumb');
+          _log('  图片 ${i + 1}: full:  $full');
+        }
+      }
     }
 
     return result;
@@ -146,10 +155,47 @@ class XiaohongshuParser {
   }
 
   /// 从 HTML 中提取 __INITIAL_STATE__
-  /// 注意：小红书的数据包含 undefined，需要预处理
+  /// 优先使用 JSON 解析，失败则回退到手动提取
   Map<String, dynamic>? _extractInitialState(String html) {
-    final marker = RegExp(r'window\.__INITIAL_STATE__\s*=\s*')
+    // 方法1: 优先使用 JSON 解析（将 undefined 替换为 null）
+    final jsonResult = _extractInitialStateJson(html);
+    if (jsonResult != null) {
+      _log('  使用 JSON 解析成功');
+      return jsonResult;
+    }
+
+    // 方法2: 回退到手动提取
+    _log('  JSON 解析失败，回退到手动提取');
+    return _extractInitialStateLegacy(html);
+  }
+
+  /// 使用 JSON 解析提取 __INITIAL_STATE__
+  /// 将 JavaScript undefined 替换为 null 使其成为合法 JSON
+  Map<String, dynamic>? _extractInitialStateJson(String html) {
+    final match = RegExp(r'window\.__INITIAL_STATE__\s*=\s*(\{[\s\S]*?\})(?:;|\s*</script>)')
         .firstMatch(html);
+    if (match == null) return null;
+
+    var jsonStr = match.group(1)!;
+
+    // 将 JavaScript undefined 替换为 null
+    // 匹配: : undefined, : undefined} : undefined] 等情况
+    jsonStr = jsonStr.replaceAllMapped(
+      RegExp(r':\s*undefined\s*([,}\]])'),
+      (m) => ':null${m.group(1)}',
+    );
+
+    try {
+      return jsonDecode(jsonStr) as Map<String, dynamic>;
+    } catch (e) {
+      // JSON 解析失败，返回 null 让调用方使用备用方案
+      return null;
+    }
+  }
+
+  /// 备用方案：手动提取 + 处理边界情况
+  Map<String, dynamic>? _extractInitialStateLegacy(String html) {
+    final marker = RegExp(r'window\.__INITIAL_STATE__\s*=\s*').firstMatch(html);
     if (marker == null) return null;
 
     final start = marker.end;
@@ -179,11 +225,11 @@ class XiaohongshuParser {
         if (depth == 0) {
           final jsonStr = html.substring(start, i + 1);
           try {
-            // 小红书数据包含 undefined，需要替换为 null
-            final cleanJson = _cleanUndefined(jsonStr);
+            // 尝试先清理 undefined 再解析
+            final cleanJson = _cleanUndefinedLegacy(jsonStr);
             return jsonDecode(cleanJson) as Map<String, dynamic>;
           } catch (e) {
-            _log('JSON解析失败: $e');
+            _log('备用解析失败: $e');
             return null;
           }
         }
@@ -192,8 +238,8 @@ class XiaohongshuParser {
     return null;
   }
 
-  /// 将 undefined 替换为 null，修复 JSON
-  String _cleanUndefined(String jsonStr) {
+  /// 将 undefined 替换为 null，修复 JSON（备用方案使用）
+  String _cleanUndefinedLegacy(String jsonStr) {
     // 替换独立的 undefined 为 null
     return jsonStr
         .replaceAllMapped(
@@ -264,8 +310,10 @@ class XiaohongshuParser {
     // 封面图
     final coverUrl = _extractCoverUrl(note);
 
-    // 提取图片列表（视频笔记也可能有封面图）
-    final imageUrls = _extractImageUrls(note);
+    // 提取图片列表（返回包含 thumb 和 full 的对象列表）
+    final imageList = _extractImageUrls(note);
+    final imageUrls = imageList.map((i) => i['full']!).toList();
+    final imageThumbUrls = imageList.map((i) => i['thumb']!).toList();
 
     // 判断是否为视频笔记：只要有 video 字段且非空即为视频
     final hasVideoField = note['video'] != null && note['video'] is Map;
@@ -289,6 +337,7 @@ class XiaohongshuParser {
         width: videoInfo?.width ?? note['width'] as int?,
         height: videoInfo?.height ?? note['height'] as int?,
         imageUrls: imageUrls, // 视频笔记也可能有封面图
+        imageThumbUrls: imageThumbUrls,
         livePhotoUrls: videoInfo?.livePhotoUrls ?? const [],
       );
     } else if (imageUrls.isNotEmpty) {
@@ -303,6 +352,7 @@ class XiaohongshuParser {
         width: note['width'] as int?,
         height: note['height'] as int?,
         imageUrls: imageUrls,
+        imageThumbUrls: imageThumbUrls,
         livePhotoUrls: const [],
       );
     }
@@ -318,6 +368,7 @@ class XiaohongshuParser {
       width: note['width'] as int?,
       height: note['height'] as int?,
       imageUrls: imageUrls,
+      imageThumbUrls: imageThumbUrls,
       livePhotoUrls: const [],
     );
   }
@@ -365,71 +416,122 @@ class XiaohongshuParser {
   }
 
   /// 提取图片 URL 列表（无水印）
-  List<String> _extractImageUrls(Map<String, dynamic> note) {
+  /// 缩略图：优先 WB_PRV > H5_PRV > urlPre > urlDefault
+  /// 大图：优先 WB_DFT > H5_DTL > 其他 DFT > 无水印版
+  List<Map<String, String>> _extractImageUrls(Map<String, dynamic> note) {
     final imageList = note['imageList'] ?? note['images'];
     if (imageList is! List) return [];
 
     return imageList.map((img) {
       if (img is! Map) return null;
 
-      // 从 infoList 中提取原始 fileId 构建高清 URL
+      String? thumbUrl; // 预览图/缩略图
+      String? fullOrigUrl; // 原图（带水印）
+      String? fullNoWaterUrl; // 无水印图
+
       final infoList = img['infoList'];
       if (infoList is List && infoList.isNotEmpty) {
-        final best = infoList.last;
-        if (best is Map && best['url'] is String) {
-          final result = _extractFileIdFromUrl(best['url']);
-          if (result != null) {
-            // 使用 sns-img-hw 域名构建高清无水印 URL，保留前缀
-            return 'https://sns-img-hw.xhscdn.com/${result.prefix}${result.fileId}?imageView2/2/w/0/format/jpg';
+        // 找大图：WB_DFT > H5_DTL > 其他含 DFT 的
+        final dftScenes = ['WB_DFT', 'H5_DTL'];
+        for (final scene in dftScenes) {
+          final match = infoList.cast<Map<String, dynamic>>().firstWhere(
+            (i) => i['imageScene'] == scene && i['url'] is String,
+            orElse: () => {},
+          );
+          if (match.isNotEmpty) {
+            fullOrigUrl = match['url'];
+            break;
           }
-          return best['url'];
+        }
+        // 如果没找到，尝试任何含 DFT 的
+        if (fullOrigUrl == null) {
+          final dftMatch = infoList.cast<Map<String, dynamic>>().firstWhere(
+            (i) => (i['imageScene'] as String?)?.contains('DFT') == true && i['url'] is String,
+            orElse: () => {},
+          );
+          if (dftMatch.isNotEmpty) {
+            fullOrigUrl = dftMatch['url'];
+          }
+        }
+
+        // 找预览图：WB_PRV > H5_PRV
+        final prvScenes = ['WB_PRV', 'H5_PRV'];
+        for (final scene in prvScenes) {
+          final match = infoList.cast<Map<String, dynamic>>().firstWhere(
+            (i) => i['imageScene'] == scene && i['url'] is String,
+            orElse: () => {},
+          );
+          if (match.isNotEmpty) {
+            thumbUrl = match['url'];
+            break;
+          }
         }
       }
 
-      // 其次尝试 traceId 构建（备用）
-      final traceId = img['traceId'];
-      if (traceId is String) {
-        return 'https://sns-img-hw.xhscdn.com/$traceId?imageView2/2/w/0/format/jpg';
-      }
-      final firstInfo = infoList is List && infoList.isNotEmpty ? infoList.first : null;
-      if (firstInfo is Map) {
-        final imageScene = firstInfo['imageScene'];
-        if (imageScene is Map) {
-          final traceId2 = imageScene['traceId'];
-          if (traceId2 is String) {
-            return 'https://sns-img-hw.xhscdn.com/$traceId2?imageView2/2/w/0/format/jpg';
-          }
+      // 外层字段作为备选
+      if (fullOrigUrl == null) {
+        if (img['urlDefault'] is String) {
+          fullOrigUrl = img['urlDefault'];
+        } else if (img['url'] is String) {
+          fullOrigUrl = img['url'];
         }
       }
 
-      // 最后备用：urlDefault 或 url
-      if (img['urlDefault'] is String) return img['urlDefault'];
-      if (img['url'] is String) return img['url'];
-      return null;
-    }).whereType<String>().toList();
+      if (thumbUrl == null) {
+        if (img['urlPre'] is String) {
+          thumbUrl = img['urlPre'];
+        } else if (img['urlDefault'] is String) {
+          thumbUrl = img['urlDefault'];
+        }
+      }
+
+      // 生成无水印 URL
+      if (fullOrigUrl != null) {
+        fullNoWaterUrl = _buildNoWatermarkUrl(fullOrigUrl);
+      }
+
+      // 决定最终使用的 URL
+      final fullUrl = fullNoWaterUrl ?? fullOrigUrl;
+      final thumb = thumbUrl ?? fullUrl;
+
+      if (fullUrl == null && thumb == null) return null;
+
+      return {
+        'thumb': thumb ?? fullUrl!,
+        'full': fullUrl ?? thumb!,
+      };
+    }).whereType<Map<String, String>>().toList();
   }
 
-  /// 从小红书 URL 中提取 fileId 和路径前缀
-  _FileIdResult? _extractFileIdFromUrl(String url) {
+  /// 构建无水印图片 URL
+  String? _buildNoWatermarkUrl(String originalUrl) {
     try {
-      final uri = Uri.parse(url);
+      final uri = Uri.parse(originalUrl);
       final pathParts = uri.pathSegments.where((s) => s.isNotEmpty).toList();
       if (pathParts.isEmpty) return null;
 
-      // 取最后一部分，去掉 !style_xxx 后缀
+      // 提取 fileId（最后一部分，去掉 ! 后缀）
       final lastPart = pathParts.last;
       final fileId = lastPart.split('!').first;
 
-      // 验证 fileId 格式（通常是 1040g 开头）
-      if (fileId.isNotEmpty && RegExp(r'^[a-z0-9]+$').hasMatch(fileId)) {
-        // 检查是否有 notes_uhdr 前缀
-        final prefix = pathParts.contains('notes_uhdr') ? 'notes_uhdr/' : '';
-        return _FileIdResult(fileId: fileId, prefix: prefix);
+      if (fileId.isEmpty || !RegExp(r'^[a-z0-9]+$', caseSensitive: false).hasMatch(fileId)) {
+        return null;
       }
+
+      // 确定路径前缀（注意：有单数 note 和复数 notes 两种形式）
+      String prefix = '';
+      if (pathParts.contains('notes_pre_post')) {
+        prefix = 'notes_pre_post/';
+      } else if (pathParts.contains('note_pre_post_uhdr')) {
+        prefix = 'note_pre_post_uhdr/';
+      } else if (pathParts.contains('notes_uhdr')) {
+        prefix = 'notes_uhdr/';
+      }
+
+      return 'https://sns-img-hw.xhscdn.com/$prefix$fileId?imageView2/2/w/0/format/jpg';
     } catch (_) {
-      // 解析失败返回 null
+      return null;
     }
-    return null;
   }
 
   /// 提取实况图视频 URL 列表
@@ -668,14 +770,6 @@ class XiaohongshuParser {
   }
 
   void dispose() => _client.close();
-}
-
-/// fileId 提取结果
-class _FileIdResult {
-  final String fileId;
-  final String prefix;
-
-  _FileIdResult({required this.fileId, required this.prefix});
 }
 
 /// 视频信息结果

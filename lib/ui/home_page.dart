@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:http/http.dart' as http;
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -29,6 +30,7 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   final _inputCtrl = TextEditingController();
   final _logScrollCtrl = ScrollController();
+  final _thumbScrollCtrl = ScrollController();
   final _parserFacade = ParserFacade();
 
   // 解析状态
@@ -46,6 +48,10 @@ class _HomePageState extends State<HomePage> {
   bool _downloadMusic = false; // 图文：是否同时下载背景音乐
   int? _lastVerboseProgressBucket;
 
+  // 单个 Live Photo 下载状态 (index -> progress)
+  final Map<int, double> _singleLivePhotoProgress = {};
+  final Map<int, bool> _singleLivePhotoDownloading = {};
+
   LogService get _log => widget.log;
   SettingsService get _settings => widget.settings;
 
@@ -58,6 +64,9 @@ class _HomePageState extends State<HomePage> {
   // ─── 解析 ────────────────────────────────────────────────────
 
   Future<void> _parse() async {
+    // 让输入框失去焦点，隐藏键盘
+    FocusScope.of(context).unfocus();
+
     final input = _inputCtrl.text.trim();
     if (input.isEmpty) return;
 
@@ -118,13 +127,10 @@ class _HomePageState extends State<HomePage> {
         _videoInfo = info;
         _fileSizeBytes = null;
         _downloadMusic = false;
-        // 图文作品没有视频清晰度概念
-        if (!info.isImagePost && info.availableQualities.isNotEmpty) {
-          _selectedQuality = info.availableQualities.first;
-        }
       });
+      // 视频作品：获取所有清晰度文件大小并选择最佳质量
       if (!info.isImagePost && info.availableQualities.isNotEmpty) {
-        _fetchFileSize(info, info.availableQualities.first);
+        _fetchAllFileSizesAndSelectBest(info);
       }
       _log.info('解析成功：${info.title}');
       _vlog('解析耗时: ${sw.elapsedMilliseconds} ms');
@@ -157,16 +163,85 @@ class _HomePageState extends State<HomePage> {
 
   // ─── 文件大小预获取 ────────────────────────────────────────────
 
-  Future<void> _fetchFileSize(VideoInfo info, VideoQuality quality) async {
+  /// 获取所有可用清晰度的文件大小，并选择最佳质量（最高分辨率，相同分辨率选文件size大的）
+  Future<void> _fetchAllFileSizesAndSelectBest(VideoInfo info) async {
     if (_fetchingSize) return;
     setState(() {
       _fileSizeBytes = null;
       _fetchingSize = true;
     });
+
+    final qualitySizes = <VideoQuality, int>{};
+    final qualities = info.availableQualities;
+
+    try {
+      _vlog('开始预取所有清晰度文件大小，共 ${qualities.length} 个');
+
+      // 并行获取所有清晰度的文件大小
+      final futures = <Future<void>>[];
+      for (final quality in qualities) {
+        futures.add(_fetchSingleFileSize(info, quality, qualitySizes));
+      }
+      await Future.wait(futures);
+
+      // 选择最佳质量：最高分辨率，相同分辨率选文件size大的
+      VideoQuality? bestQuality;
+      int? bestSize;
+
+      for (final quality in qualities) {
+        final size = qualitySizes[quality];
+        if (size == null) continue;
+
+        if (bestQuality == null) {
+          bestQuality = quality;
+          bestSize = size;
+        } else {
+          // 比较分辨率（清晰度枚举值越大，分辨率越高）
+          final qualityIndex = VideoQuality.values.indexOf(quality);
+          final bestIndex = VideoQuality.values.indexOf(bestQuality);
+
+          if (qualityIndex > bestIndex) {
+            // 更高分辨率，优先选择
+            bestQuality = quality;
+            bestSize = size;
+          } else if (qualityIndex == bestIndex && size > bestSize!) {
+            // 相同分辨率，选文件size大的
+            bestQuality = quality;
+            bestSize = size;
+          }
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          _selectedQuality = bestQuality ?? qualities.first;
+          _fileSizeBytes = bestSize;
+          _fetchingSize = false;
+        });
+      }
+
+      _vlog(
+        '选择最佳清晰度: ${_selectedQuality.ratio}, 大小: ${_formatFileSize(bestSize)}',
+      );
+    } catch (e) {
+      _vlog('预取文件大小失败: $e');
+      // 失败时使用默认最高清晰度
+      if (mounted) {
+        setState(() {
+          _selectedQuality = qualities.first;
+          _fetchingSize = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _fetchSingleFileSize(
+    VideoInfo info,
+    VideoQuality quality,
+    Map<VideoQuality, int> qualitySizes,
+  ) async {
     try {
       final downloadUrl = info.urlFor(quality);
-      _vlog('开始预取文件大小，quality=${quality.ratio}');
-      // 跟随一次 302 重定向后发 HEAD 请求
       final ioClient = HttpClient();
       String resolvedUrl = downloadUrl;
       try {
@@ -179,7 +254,6 @@ class _HomePageState extends State<HomePage> {
           resolvedUrl =
               resp.headers.value(HttpHeaders.locationHeader) ?? downloadUrl;
         }
-        _vlog('探测响应码=${resp.statusCode}, resolvedUrl=$resolvedUrl');
       } finally {
         ioClient.close();
       }
@@ -189,19 +263,146 @@ class _HomePageState extends State<HomePage> {
       );
       final cl = headResp.headers['content-length'];
       final size = cl != null ? int.tryParse(cl) : null;
-      _vlog(
-        'HEAD 响应码=${headResp.statusCode}, content-length=${cl ?? "<none>"}',
-      );
-      if (mounted) setState(() => _fileSizeBytes = size);
+      if (size != null) {
+        qualitySizes[quality] = size;
+      }
     } catch (e) {
-      // 获取失败不影响使用，保持 null
-      _vlog('预取文件大小失败: $e');
-    } finally {
-      if (mounted) setState(() => _fetchingSize = false);
+      // 单个清晰度获取失败不影响其他
+      _vlog('获取 ${quality.ratio} 文件大小失败: $e');
     }
   }
 
+  String _formatFileSize(int? bytes) {
+    if (bytes == null) return 'unknown';
+    final mb = bytes / (1024 * 1024);
+    if (mb >= 1) return '${mb.toStringAsFixed(2)} MB';
+    return '${(bytes / 1024).toStringAsFixed(1)} KB';
+  }
+
   // ─── 下载 ────────────────────────────────────────────────────
+
+  /// 下载单个 Live Photo 视频
+  Future<void> _downloadSingleLivePhoto(int index) async {
+    final info = _videoInfo;
+    if (info == null || info.livePhotoUrls.isEmpty) return;
+    if (_singleLivePhotoDownloading[index] == true) return;
+
+    final url = info.livePhotoUrls[index];
+    final prefix = info.shareId ?? info.videoId;
+    final cleanTitle = _sanitizeFilename(info.title);
+    final filename = '${prefix}_${cleanTitle}_${index + 1}';
+
+    setState(() {
+      _singleLivePhotoDownloading[index] = true;
+      _singleLivePhotoProgress[index] = 0;
+    });
+    _log.info('开始下载实况视频 ${index + 1}/${info.livePhotoUrls.length}');
+
+    try {
+      final downloader = (Platform.isAndroid || Platform.isIOS)
+          ? MobileDownloader()
+          : DesktopDownloader();
+      final path = await downloader.downloadSingleLivePhoto(
+        url,
+        directory: _settings.downloadDir,
+        filename: filename,
+        onProgress: (received, total) {
+          if (!mounted) return;
+          if (total != null && total > 0) {
+            setState(() => _singleLivePhotoProgress[index] = received / total);
+          }
+        },
+        onLog: (msg) => _log.info('[DL] $msg'),
+      );
+      _log.info('实况视频 ${index + 1} 下载完成：$path');
+      if (mounted) {
+        setState(() => _singleLivePhotoProgress[index] = 1.0);
+        // 2秒后清除进度状态
+        Future.delayed(const Duration(seconds: 2), () {
+          if (mounted) {
+            setState(() {
+              _singleLivePhotoProgress.remove(index);
+              _singleLivePhotoDownloading.remove(index);
+            });
+          }
+        });
+      }
+    } on StoragePermissionDeniedException {
+      _log.error('存储权限被永久拒绝，请到系统设置中手动开启');
+      setState(() {
+        _singleLivePhotoProgress.remove(index);
+        _singleLivePhotoDownloading.remove(index);
+      });
+      if (mounted) _showPermissionDialog();
+    } catch (e) {
+      _log.error('实况视频 ${index + 1} 下载失败：$e');
+      setState(() {
+        _singleLivePhotoProgress.remove(index);
+        _singleLivePhotoDownloading.remove(index);
+      });
+    }
+  }
+
+  /// 下载单个图片
+  Future<void> _downloadSingleImage(int index) async {
+    final info = _videoInfo;
+    if (info == null || info.imageUrls.isEmpty) return;
+    if (_singleLivePhotoDownloading[index] == true) return;
+
+    final url = info.imageUrls[index];
+    final prefix = info.shareId ?? info.videoId;
+    final cleanTitle = _sanitizeFilename(info.title);
+    final filename = '${prefix}_${cleanTitle}_${index + 1}';
+
+    setState(() {
+      _singleLivePhotoDownloading[index] = true;
+      _singleLivePhotoProgress[index] = 0;
+    });
+    _log.info('开始下载图片 ${index + 1}/${info.imageUrls.length}');
+
+    try {
+      final downloader = (Platform.isAndroid || Platform.isIOS)
+          ? MobileDownloader()
+          : DesktopDownloader();
+      final path = await downloader.downloadSingleImage(
+        url,
+        directory: _settings.downloadDir,
+        filename: filename,
+        onProgress: (received, total) {
+          if (!mounted) return;
+          if (total != null && total > 0) {
+            setState(() => _singleLivePhotoProgress[index] = received / total);
+          }
+        },
+        onLog: (msg) => _log.info('[DL] $msg'),
+      );
+      _log.info('图片 ${index + 1} 下载完成：$path');
+      if (mounted) {
+        setState(() => _singleLivePhotoProgress[index] = 1.0);
+        Future.delayed(const Duration(seconds: 2), () {
+          if (mounted) {
+            setState(() {
+              _singleLivePhotoProgress.remove(index);
+              _singleLivePhotoDownloading.remove(index);
+            });
+          }
+        });
+      }
+    } on StoragePermissionDeniedException {
+      _log.error('存储权限被永久拒绝，请到系统设置中手动开启');
+      setState(() {
+        _singleLivePhotoProgress.remove(index);
+        _singleLivePhotoDownloading.remove(index);
+      });
+      if (mounted) _showPermissionDialog();
+    } catch (e) {
+      _log.error('图片 ${index + 1} 下载失败：$e');
+      setState(() {
+        _singleLivePhotoProgress.remove(index);
+        _singleLivePhotoDownloading.remove(index);
+      });
+    }
+  }
 
   Future<void> _download() async {
     final info = _videoInfo;
@@ -266,10 +467,7 @@ class _HomePageState extends State<HomePage> {
         onLog: (msg) => _log.info('[DL] $msg'),
       );
       _log.info('下载完成：$path');
-      setState(() {
-        _downloadProgress = 1.0;
-        _videoInfo = null;
-      });
+      setState(() => _downloadProgress = 1.0);
       _inputCtrl.clear();
     } on StoragePermissionDeniedException {
       _log.error('存储权限被永久拒绝，请到系统设置中手动开启');
@@ -464,23 +662,56 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
+    final isAndroid = Platform.isAndroid;
     return Scaffold(
       appBar: AppBar(title: const Text('Umao VDownloader - 短视频下载')),
-      body: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 6, 12, 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _buildInputRow(),
-            const SizedBox(height: 10),
-            _buildResultCard(),
-            const SizedBox(height: 10),
-            _buildDirectoryRow(),
-            const SizedBox(height: 8),
-            Expanded(child: _buildLogPanel()),
-          ],
+      // Android 允许输入法覆盖日志区域
+      resizeToAvoidBottomInset: isAndroid,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 6, 12, 12),
+          child: _buildUnifiedLayout(),
         ),
       ),
+    );
+  }
+
+  /// 统一布局：自适应多平台
+  /// - 上面区域（输入、结果、目录）自然排列，可滚动
+  /// - 日志区域占满剩余空间
+  Widget _buildUnifiedLayout() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // 上面区域自适应，日志占满剩余空间，但日志最小100px
+        final maxContentHeight = constraints.maxHeight - 100 - 8; // 减去日志最小高度和间距
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // 上面区域：限制最大高度，超出可滚动
+            ConstrainedBox(
+              constraints: BoxConstraints(maxHeight: maxContentHeight),
+              child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _buildInputRow(),
+                    const SizedBox(height: 10),
+                    _buildResultCard(),
+                    const SizedBox(height: 10),
+                    _buildDirectoryRow(),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            // 日志区域：占满剩余空间
+            Expanded(child: _buildLogPanel()),
+          ],
+        );
+      },
     );
   }
 
@@ -544,7 +775,7 @@ class _HomePageState extends State<HomePage> {
   Widget _buildResultCard() {
     if (_videoInfo == null && !_parsing) {
       return Container(
-        height: 80,
+        height: 280, // 默认高度扩大一倍
         decoration: BoxDecoration(
           border: Border.all(color: Colors.grey.shade300),
           borderRadius: BorderRadius.circular(8),
@@ -557,7 +788,7 @@ class _HomePageState extends State<HomePage> {
 
     if (_parsing) {
       return const SizedBox(
-        height: 80,
+        height: 280, // 加载状态高度也扩大
         child: Center(child: CircularProgressIndicator()),
       );
     }
@@ -574,10 +805,11 @@ class _HomePageState extends State<HomePage> {
             padding: const EdgeInsets.all(12.0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
                 // 标题（可复制）
                 SelectableText(
-                  info.title,
+                  info.title.replaceAll(RegExp(r'\s+'), ' '),
                   style: const TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
@@ -588,6 +820,15 @@ class _HomePageState extends State<HomePage> {
                   'ID: ${info.videoId}',
                   style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
                 ),
+                // 封面图/缩略图：图文作品或实况图显示缩略图，普通视频显示封面
+                if ((info.isImagePost || info.livePhotoUrls.isNotEmpty) &&
+                    info.imageUrls.isNotEmpty)
+                  _buildThumbnailGrid(info),
+                // 普通视频显示封面
+                if (!info.isImagePost &&
+                    info.livePhotoUrls.isEmpty &&
+                    info.coverUrl != null)
+                  _buildVideoCover(info.coverUrl!),
                 const SizedBox(height: 12),
                 // 操作区：图文展示张数标签；视频展示清晰度下拉
                 if (narrow)
@@ -607,19 +848,292 @@ class _HomePageState extends State<HomePage> {
                                 '已下载 ${((_downloadProgress ?? 0) * info.imageUrls.length).round()} / ${info.imageUrls.length} 张',
                           )
                         : info.livePhotoUrls.isNotEmpty
-                            // 实况图：展示视频个数 X/N
-                            ? LinearProgressIndicator(
-                                value: _downloadProgress,
-                                semanticsLabel:
-                                    '已下载 ${((_downloadProgress ?? 0) * info.livePhotoUrls.length).round()} / ${info.livePhotoUrls.length} 个',
-                              )
-                            : LinearProgressIndicator(value: _downloadProgress),
+                        // 实况图：展示视频个数 X/N
+                        ? LinearProgressIndicator(
+                            value: _downloadProgress,
+                            semanticsLabel:
+                                '已下载 ${((_downloadProgress ?? 0) * info.livePhotoUrls.length).round()} / ${info.livePhotoUrls.length} 个',
+                          )
+                        : LinearProgressIndicator(value: _downloadProgress),
                   ),
               ],
             ),
           ),
         );
       },
+    );
+  }
+
+  // ── 缩略图横向滚动列表（图文作品 / 实况图）─────────────────────────────────────
+
+  Widget _buildThumbnailGrid(VideoInfo info) {
+    final imageUrls = info.imageUrls;
+    final imageThumbUrls = info.imageThumbUrls.isNotEmpty
+        ? info.imageThumbUrls
+        : info.imageUrls;
+    if (imageUrls.isEmpty) return const SizedBox.shrink();
+
+    final isLivePhoto = info.livePhotoUrls.isNotEmpty;
+    final itemCount = imageUrls.length;
+
+    // 固定缩略图尺寸（统一卡片高度为120）
+    const itemWidth = 80.0;
+    const itemHeight = 116.0; // 约3:4比例，统一高度
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: SizedBox(
+        height: itemHeight + 4, // 120总高度
+        child: Listener(
+          // 桌面端：鼠标滚轮转为横向滚动
+          onPointerSignal: (event) {
+            if (event is PointerScrollEvent) {
+              // 将垂直滚轮事件转为横向滚动
+              final newOffset = _thumbScrollCtrl.offset + event.scrollDelta.dy;
+              if (newOffset >= 0 &&
+                  newOffset <= _thumbScrollCtrl.position.maxScrollExtent) {
+                _thumbScrollCtrl.jumpTo(newOffset);
+              }
+            }
+          },
+          child: ScrollConfiguration(
+            behavior: ScrollConfiguration.of(context).copyWith(
+              dragDevices: {
+                PointerDeviceKind.touch,
+                PointerDeviceKind.mouse,
+                PointerDeviceKind.trackpad,
+              },
+            ),
+            child: ListView.separated(
+              controller: _thumbScrollCtrl,
+              scrollDirection: Axis.horizontal,
+              physics: const AlwaysScrollableScrollPhysics(),
+              shrinkWrap: true,
+              itemCount: itemCount,
+              separatorBuilder: (context, index) => const SizedBox(width: 6),
+              itemBuilder: (context, index) {
+                final thumbUrl = imageThumbUrls[index];
+                final isDownloading =
+                    _singleLivePhotoDownloading[index] == true;
+                final progress = _singleLivePhotoProgress[index];
+                final isDone = (progress ?? 0) >= 0.99;
+
+                return Stack(
+                  children: [
+                    // 缩略图
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: SizedBox(
+                        width: itemWidth,
+                        height: itemHeight,
+                        child: Image.network(
+                          thumbUrl,
+                          fit: BoxFit.cover,
+                          headers: thumbUrl.contains('xhscdn.com')
+                              ? const {'Referer': 'https://www.xiaohongshu.com/'}
+                              : null,
+                          loadingBuilder: (context, child, loadingProgress) {
+                            if (loadingProgress == null) return child;
+                            return Container(
+                              color: Colors.grey.shade200,
+                              child: const Center(
+                                child: SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                          errorBuilder: (context, error, stackTrace) {
+                            return Container(
+                              color: Colors.grey.shade300,
+                              child: const Icon(
+                                Icons.broken_image,
+                                color: Colors.grey,
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                    // Live Photo 标识（右上角）
+                    if (isLivePhoto)
+                      Positioned(
+                        top: 4,
+                        right: 4,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 4,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withAlpha(179),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.videocam,
+                                size: 10,
+                                color: Colors.white,
+                              ),
+                              SizedBox(width: 2),
+                              Text(
+                                'LIVE',
+                                style: TextStyle(
+                                  fontSize: 8,
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    // 下载按钮（底部中央）
+                    Positioned(
+                      bottom: 4,
+                      left: 4,
+                      right: 4,
+                      child: SizedBox(
+                        height: 24,
+                        child: ElevatedButton(
+                          onPressed: isDownloading || isDone
+                              ? null
+                              : () => isLivePhoto
+                                    ? _downloadSingleLivePhoto(index)
+                                    : _downloadSingleImage(index),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: isDone
+                                ? Colors.green
+                                : Colors.black.withAlpha(179),
+                            foregroundColor: Colors.white,
+                            padding: EdgeInsets.zero,
+                            minimumSize: Size.zero,
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                          ),
+                          child: isDownloading
+                              ? SizedBox(
+                                  width: 14,
+                                  height: 14,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    value:
+                                        progress != null &&
+                                            progress > 0 &&
+                                            progress < 1
+                                        ? progress
+                                        : null,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : isDone
+                              ? const Icon(Icons.check, size: 14)
+                              : Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      isLivePhoto
+                                          ? Icons.download
+                                          : Icons.download,
+                                      size: 12,
+                                    ),
+                                    const SizedBox(width: 2),
+                                    Text(
+                                      isLivePhoto ? 'livephoto' : '图片',
+                                      style: const TextStyle(fontSize: 10),
+                                    ),
+                                  ],
+                                ),
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── 视频封面（普通视频）────────────────────────────────────────
+
+  Widget _buildVideoCover(String coverUrl) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(
+            maxHeight: 120, // 统一卡片高度
+          ),
+          child: AspectRatio(
+            aspectRatio: 16 / 9,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                Image.network(
+                  coverUrl,
+                  fit: BoxFit.cover,
+                  loadingBuilder: (context, child, progress) {
+                    if (progress == null) return child;
+                    return Container(
+                      color: Colors.grey.shade200,
+                      child: const Center(
+                        child: SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      ),
+                    );
+                  },
+                  errorBuilder: (context, error, stackTrace) {
+                    return Container(
+                      color: Colors.grey.shade300,
+                      child: const Icon(
+                        Icons.broken_image,
+                        color: Colors.grey,
+                        size: 48,
+                      ),
+                    );
+                  },
+                ),
+                // 视频标识（右上角）
+                Positioned(
+                  top: 4,
+                  right: 4,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 4,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withAlpha(179),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.videocam, size: 10, color: Colors.white),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -637,7 +1151,7 @@ class _HomePageState extends State<HomePage> {
               ),
             )
           : const Icon(Icons.download, size: 18),
-      label: Text(_downloading ? '下载中…' : '下载'),
+      label: Text(_downloading ? '下载中…' : '下载全部'),
     );
     final doneLabel = _downloadProgress == 1.0
         ? const Row(
@@ -677,12 +1191,12 @@ class _HomePageState extends State<HomePage> {
       );
     }
 
-    // 实况图作品
+    // livephoto 作品
     if (info.livePhotoUrls.isNotEmpty) {
       return Row(
         children: [
           Text(
-            '实况图作品  ${info.livePhotoUrls.length} 个视频',
+            '实况图  ${info.livePhotoUrls.length} 个',
             style: const TextStyle(fontSize: 13),
           ),
           const Spacer(),
@@ -693,28 +1207,79 @@ class _HomePageState extends State<HomePage> {
       );
     }
 
+    // 视频作品
+    final resolutionInfo = _buildResolutionInfoLabel(info);
+
     return Row(
       children: [
-        const Text('清晰度：', style: TextStyle(fontSize: 13)),
-        const SizedBox(width: 6),
-        _QualityDropdown(
-          qualities: qualities,
-          value: _selectedQuality,
-          onChanged: (q) {
-            setState(() {
-              _selectedQuality = q;
-              _fileSizeBytes = null;
-            });
-            _fetchFileSize(info, q);
-          },
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+          decoration: BoxDecoration(
+            color: Colors.blue.shade50,
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.videocam, size: 12, color: Colors.blue.shade700),
+              const SizedBox(width: 4),
+              Text(
+                '视频',
+                style: TextStyle(fontSize: 11, color: Colors.blue.shade700),
+              ),
+            ],
+          ),
         ),
         const SizedBox(width: 8),
-        _FileSizeLabel(bytes: _fileSizeBytes, loading: _fetchingSize),
+        resolutionInfo,
         const Spacer(),
         doneLabel,
         const SizedBox(width: 8),
         downloadBtn,
       ],
+    );
+  }
+
+  /// 构建视频信息标签：分辨率 | 尺寸 | 文件大小
+  Widget _buildResolutionInfoLabel(VideoInfo info) {
+    final parts = <String>[];
+
+    // 分辨率
+    if (info.resolutionLabel != null) {
+      parts.add(info.resolutionLabel!);
+    }
+
+    // 尺寸（文件大小）
+    if (_fileSizeBytes != null) {
+      final mb = _fileSizeBytes! / (1024 * 1024);
+      final sizeLabel = mb >= 1
+          ? '${mb.toStringAsFixed(1)} MB'
+          : '${(_fileSizeBytes! / 1024).toStringAsFixed(0)} KB';
+      parts.add(sizeLabel);
+    } else if (_fetchingSize) {
+      parts.add('...');
+    }
+
+    final text = parts.join(' | ');
+    if (text.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.info_outline, size: 12, color: Colors.grey.shade600),
+          const SizedBox(width: 4),
+          Text(
+            text,
+            style: TextStyle(fontSize: 11, color: Colors.grey.shade700),
+          ),
+        ],
+      ),
     );
   }
 
@@ -731,7 +1296,7 @@ class _HomePageState extends State<HomePage> {
               ),
             )
           : const Icon(Icons.download, size: 18),
-      label: Text(_downloading ? '下载中…' : '下载'),
+      label: Text(_downloading ? '下载中…' : '下载全部'),
     );
 
     if (info.isImagePost) {
@@ -777,7 +1342,7 @@ class _HomePageState extends State<HomePage> {
       );
     }
 
-    // 实况图作品（窄屏）
+    // livephoto 作品（窄屏）
     if (info.livePhotoUrls.isNotEmpty) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -785,7 +1350,7 @@ class _HomePageState extends State<HomePage> {
           Row(
             children: [
               Text(
-                '实况图作品  ${info.livePhotoUrls.length} 个视频',
+                'livephoto  ${info.livePhotoUrls.length} 个',
                 style: const TextStyle(fontSize: 13),
               ),
               if (_downloadProgress == 1.0) ...const [
@@ -805,26 +1370,34 @@ class _HomePageState extends State<HomePage> {
       );
     }
 
+    // 视频作品（窄屏布局）
+    final resolutionInfo = _buildResolutionInfoLabel(info);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Row(
           children: [
-            const Text('清晰度：', style: TextStyle(fontSize: 13)),
-            const SizedBox(width: 6),
-            _QualityDropdown(
-              qualities: qualities,
-              value: _selectedQuality,
-              onChanged: (q) {
-                setState(() {
-                  _selectedQuality = q;
-                  _fileSizeBytes = null;
-                });
-                _fetchFileSize(info, q);
-              },
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.videocam, size: 12, color: Colors.blue.shade700),
+                  const SizedBox(width: 4),
+                  Text(
+                    '视频',
+                    style: TextStyle(fontSize: 11, color: Colors.blue.shade700),
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(width: 6),
-            _FileSizeLabel(bytes: _fileSizeBytes, loading: _fetchingSize),
+            const SizedBox(width: 8),
+            resolutionInfo,
             if (_downloadProgress == 1.0) ...const [
               Spacer(),
               Icon(Icons.check_circle, color: Colors.green, size: 18),
@@ -1024,53 +1597,8 @@ class _HomePageState extends State<HomePage> {
                   ],
                 ),
               const Divider(height: 4),
-              Expanded(
-                child: ListenableBuilder(
-                  listenable: _log,
-                  builder: (context, _) {
-                    // 自动滚动到底部
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      if (_logScrollCtrl.hasClients) {
-                        _logScrollCtrl.animateTo(
-                          _logScrollCtrl.position.maxScrollExtent,
-                          duration: const Duration(milliseconds: 150),
-                          curve: Curves.easeOut,
-                        );
-                      }
-                    });
-
-                    return Container(
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF1E1E1E),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      padding: const EdgeInsets.all(8),
-                      child: SelectionArea(
-                        child: ListView.builder(
-                          controller: _logScrollCtrl,
-                          itemCount: _log.entries.length,
-                          itemBuilder: (_, i) {
-                            final e = _log.entries[i];
-                            return Text(
-                              e.toString(),
-                              style: TextStyle(
-                                fontFamily: 'monospace',
-                                fontSize: 11,
-                                height: 1.5,
-                                color: switch (e.level) {
-                                  LogLevel.error => const Color(0xFFFF6B6B),
-                                  LogLevel.warn => const Color(0xFFFFD93D),
-                                  LogLevel.info => const Color(0xFFB0BEC5),
-                                },
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
+              // 日志列表占满剩余空间
+              Expanded(child: _buildLogListView()),
             ],
           );
         },
@@ -1078,70 +1606,80 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  Widget _buildLogListView() {
+    return ListenableBuilder(
+      listenable: _log,
+      builder: (context, _) {
+        // 自动滚动到底部
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (_logScrollCtrl.hasClients) {
+            _logScrollCtrl.animateTo(
+              _logScrollCtrl.position.maxScrollExtent,
+              duration: const Duration(milliseconds: 150),
+              curve: Curves.easeOut,
+            );
+          }
+        });
+
+        return Container(
+          decoration: BoxDecoration(
+            color: const Color(0xFF1E1E1E),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          padding: const EdgeInsets.all(8),
+          child: SelectionArea(
+            child: ListView.builder(
+              controller: _logScrollCtrl,
+              itemCount: _log.entries.length,
+              itemBuilder: (_, i) {
+                final e = _log.entries[i];
+                return Text(
+                  e.toString(),
+                  style: TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: Platform.isAndroid ? 10 : 11,
+                    height: 1.4,
+                    color: switch (e.level) {
+                      LogLevel.error => const Color(0xFFFF6B6B),
+                      LogLevel.warn => const Color(0xFFFFD93D),
+                      LogLevel.info => const Color(0xFFB0BEC5),
+                    },
+                  ),
+                );
+              },
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   void dispose() {
     _inputCtrl.dispose();
     _logScrollCtrl.dispose();
+    _thumbScrollCtrl.dispose();
     super.dispose();
   }
-}
 
-// ─── 清晰度下拉组件 ───────────────────────────────────────────────
-
-/// 文件大小标签：加载中显示小转圈，加载完显示 xx.xx MB，失败不显示
-class _FileSizeLabel extends StatelessWidget {
-  final int? bytes;
-  final bool loading;
-
-  const _FileSizeLabel({required this.bytes, required this.loading});
-
-  @override
-  Widget build(BuildContext context) {
-    if (loading) {
-      return const SizedBox(
-        width: 12,
-        height: 12,
-        child: CircularProgressIndicator(strokeWidth: 1.5),
-      );
-    }
-    if (bytes == null) return const SizedBox.shrink();
-    final mb = bytes! / (1024 * 1024);
-    final label = mb >= 1
-        ? '${mb.toStringAsFixed(2)} MB'
-        : '${(bytes! / 1024).toStringAsFixed(1)} KB';
-    return Text(
-      label,
-      style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+  /// 清理文件名（简化版）
+  String _sanitizeFilename(String name, {int maxLen = 20}) {
+    var result = name.replaceAll(
+      RegExp(
+        r'[^\u4e00-\u9fff'
+        r'\u3400-\u4dbf'
+        r'\u3000-\u303f'
+        r'\uff01-\uffe6'
+        r'a-zA-Z0-9'
+        r' .,_\-!?()'
+        r']',
+      ),
+      '',
     );
+    result = result.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (result.length > maxLen) result = result.substring(0, maxLen).trim();
+    return result.isEmpty ? 'file' : result;
   }
 }
 
-class _QualityDropdown extends StatelessWidget {
-  final List<VideoQuality> qualities;
-  final VideoQuality value;
-  final ValueChanged<VideoQuality> onChanged;
-
-  const _QualityDropdown({
-    required this.qualities,
-    required this.value,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    // 没有清晰度时不显示下拉框
-    if (qualities.isEmpty) return const SizedBox.shrink();
-
-    return DropdownButton<VideoQuality>(
-      value: qualities.contains(value) ? value : qualities.first,
-      isDense: true,
-      underline: const SizedBox(),
-      items: qualities
-          .map((q) => DropdownMenuItem(value: q, child: Text(q.ratio)))
-          .toList(),
-      onChanged: (q) {
-        if (q != null) onChanged(q);
-      },
-    );
-  }
-}
+// ─── 辅助组件 ───────────────────────────────────────────────

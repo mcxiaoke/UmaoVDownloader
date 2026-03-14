@@ -95,33 +95,33 @@ class SettingsService extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Android 预设快捷目录（Movies / Downloads / App私有）
+  /// Android 预设快捷目录（Pictures / Downloads / App私有）
   static Future<List<AndroidQuickDir>> androidQuickDirs() async {
     const base = '/storage/emulated/0';
     final appPrivate = await getExternalStorageDirectory();
     return [
-      AndroidQuickDir('Movies', '$base/Movies/umaov'),
-      AndroidQuickDir('Downloads', '$base/Download/umaov'),
+      AndroidQuickDir('Pictures', '$base/Pictures/umaovd'),
+      AndroidQuickDir('Downloads', '$base/Download/umaovd'),
       if (appPrivate != null)
-        AndroidQuickDir('App私有', '${appPrivate.path}/umaov'),
+        AndroidQuickDir('AppPrivate', '${appPrivate.path}/umaovd'),
     ];
   }
 
   static Future<String> _defaultDirAsync() async {
     if (Platform.isAndroid) {
-      // 默认存到 Movies/umaov
-      return '/storage/emulated/0/Movies/umaov';
+      // 默认存到 Pictures/umaovd
+      return '/storage/emulated/0/Pictures/umaovd';
     }
     if (Platform.isWindows) {
       final home =
           Platform.environment['USERPROFILE'] ??
           Platform.environment['HOME'] ??
           '';
-      return home.isEmpty ? Directory.current.path : '$home\\Downloads';
+      return home.isEmpty ? Directory.current.path : '$home\\Downloads\\umaovd';
     }
     if (Platform.isMacOS || Platform.isLinux) {
       final home = Platform.environment['HOME'] ?? '';
-      return home.isEmpty ? Directory.current.path : '$home/Downloads';
+      return home.isEmpty ? Directory.current.path : '$home/Downloads/umaovd';
     }
     return Directory.current.path;
   }

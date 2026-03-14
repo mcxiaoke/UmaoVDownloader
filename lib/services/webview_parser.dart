@@ -423,7 +423,15 @@ class WebViewParser {
                 .where((e) => e.isNotEmpty)
                 .toList()
           : const <String>[];
-      
+
+      // 提取图片 URL 列表（用于缩略图显示）
+      final imageUrls = (data['imageUrls'] is List)
+          ? (data['imageUrls'] as List)
+                .map((e) => e.toString())
+                .where((e) => e.isNotEmpty)
+                .toList()
+          : const <String>[];
+
       // 用第一个实况图 URL 作为默认视频地址
       final qualityUrls = <VideoQuality, String>{};
       if (livePhotoUrls.isNotEmpty) {
@@ -439,6 +447,7 @@ class WebViewParser {
         shareId: data['shareId']?.toString(),
         width: width,
         height: height,
+        imageUrls: imageUrls,
         livePhotoUrls: livePhotoUrls,
       );
     }

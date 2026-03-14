@@ -54,6 +54,10 @@ class VideoInfo {
   /// 纯视频作品为空列表
   final List<String> imageUrls;
 
+  /// 图文作品的缩略图 URL 列表（用于预览显示）
+  /// 如果为空，使用 imageUrls 代替
+  final List<String> imageThumbUrls;
+
   /// 图文作品背景音乐的直连 CDN URL（MP3），无背景音乐或视频作品时为 null
   final String? musicUrl;
 
@@ -75,6 +79,7 @@ class VideoInfo {
     this.height,
     this.bitrateKbps,
     this.imageUrls = const [],
+    this.imageThumbUrls = const [],
     this.musicUrl,
     this.musicTitle,
     this.livePhotoUrls = const [],
@@ -294,9 +299,9 @@ class DouyinParser {
 
     // ── 检测图文作品 ───────────────────────────────────────────
     // 按优先级尝试三种 transform：lqen-new > aweme-images > shrink:1000+
-    final imageUrls = _extractImageUrls(html);
+    final imageList = _extractImageUrls(html);
 
-    if (imageUrls.isNotEmpty) {
+    if (imageList.isNotEmpty) {
       // 图文作品：提取背景音乐直链（<audio src="...mp3">）及其标题
       final musicUrl = _audioTagRe.firstMatch(html)?.group(1);
       final rawMusicTitle = _musicTitleRe.firstMatch(html)?.group(1);
@@ -310,7 +315,8 @@ class DouyinParser {
         qualityUrls: const {},
         coverUrl: coverUrl,
         shareId: shareId,
-        imageUrls: imageUrls,
+        imageUrls: imageList.map((i) => i['full']!).toList(),
+        imageThumbUrls: imageList.map((i) => i['thumb']!).toList(),
         musicUrl: musicUrl,
         musicTitle: musicTitle,
       );
@@ -478,25 +484,51 @@ class DouyinParser {
     final images = item['images'];
     if (images is List && images.isNotEmpty) {
       final imageUrls = <String>[];
+      final imageThumbUrls = <String>[];
       for (final img in images) {
         if (img is! Map) continue;
         final urlList = img['url_list'];
         if (urlList is! List || urlList.isEmpty) continue;
-        String? picked;
+
+        // 找大图：优先 lqen-new（无水印）> aweme-images
+        String? fullUrl;
         for (final u in urlList) {
           final s = u.toString();
           if (s.contains('tplv-dy-lqen-new') && !s.contains('-water')) {
-            picked = s;
+            fullUrl = s;
             break;
           }
         }
-        picked ??= urlList
+        fullUrl ??= urlList
             .map((e) => e.toString())
             .firstWhere(
               (u) => u.contains('tplv-dy-aweme-images'),
               orElse: () => urlList.first.toString(),
             );
-        imageUrls.add(picked);
+
+        // 找缩略图：优先 shrink:480 > shrink:960 > 其他小图
+        String? thumbUrl;
+        for (final u in urlList) {
+          final s = u.toString();
+          if (s.contains('tplv-dy-shrink:480')) {
+            thumbUrl = s;
+            break;
+          }
+        }
+        if (thumbUrl == null) {
+          for (final u in urlList) {
+            final s = u.toString();
+            if (s.contains('tplv-dy-shrink:960')) {
+              thumbUrl = s;
+              break;
+            }
+          }
+        }
+        // 如果没有找到缩略图，使用大图
+        thumbUrl ??= fullUrl;
+
+        imageUrls.add(fullUrl);
+        imageThumbUrls.add(thumbUrl);
       }
 
       String? musicUrl;
@@ -534,6 +566,7 @@ class DouyinParser {
         height: height,
         bitrateKbps: bitrateKbps,
         imageUrls: imageUrls,
+        imageThumbUrls: imageThumbUrls,
         musicUrl: musicUrl,
         musicTitle: musicTitle,
       );
@@ -611,32 +644,46 @@ class DouyinParser {
   }
 
   /// 从 HTML 中提取图文作品的图片 URL 列表。
-  /// 先收集所有 url_list 首 URL，再按 transform 类型分桶，优先返回高清无水印版本：
+  /// 返回 {full, thumb} 对象列表，优先返回高清无水印版本：
   ///   lqen-new（无水印）/ aweme-images  >  shrink:N（N≥1000）
+  /// 缩略图优先 shrink:480 > shrink:960 > 大图
   /// 封面/头像的 resize-walign-adapt、带水印的 lqen-new-water 均被排除。
-  static List<String> _extractImageUrls(String html) {
-    final hqUrls = <String>[]; // lqen-new（无水印）或 aweme-images
-    final shrinkUrls = <String>[]; // shrink:N，N≥1000
+  static List<Map<String, String>> _extractImageUrls(String html) {
+    final results = <Map<String, String>>[];
 
     for (final m in _urlListFirstRe.allMatches(html)) {
       final url = _decodeJsonString(m.group(1)!);
       if (!url.contains('tplv-dy-')) continue;
 
+      String? fullUrl;
+      String? thumbUrl;
+
       if (url.contains('tplv-dy-lqen-new')) {
         // 排除带水印版本 lqen-new-water
-        if (!url.contains('tplv-dy-lqen-new-water')) hqUrls.add(url);
+        if (!url.contains('tplv-dy-lqen-new-water')) {
+          fullUrl = url;
+        }
       } else if (url.contains('tplv-dy-aweme-images')) {
-        hqUrls.add(url);
+        fullUrl = url;
       } else if (url.contains('tplv-dy-shrink:')) {
-        // shrink:480 / shrink:960 是缩略图，排除宽度 < 1000 的
+        // shrink:480 / shrink:960 是缩略图
         final wm = RegExp(r'shrink:(\d+)').firstMatch(url);
-        if (wm != null && int.parse(wm.group(1)!) >= 1000) shrinkUrls.add(url);
+        if (wm != null) {
+          final size = int.parse(wm.group(1)!);
+          if (size >= 1000) {
+            fullUrl = url;
+          } else if (size <= 960) {
+            thumbUrl = url;
+          }
+        }
+      }
+
+      if (fullUrl != null || thumbUrl != null) {
+        results.add({'full': fullUrl ?? thumbUrl!, 'thumb': thumbUrl ?? fullUrl!});
       }
     }
 
-    if (hqUrls.isNotEmpty) return hqUrls;
-    if (shrinkUrls.isNotEmpty) return shrinkUrls;
-    return const [];
+    return results;
   }
 
   /// 解码 JSON 字符串中的 unicode 转义（如 \u002F → /）和常规转义

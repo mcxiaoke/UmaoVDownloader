@@ -60,10 +60,33 @@
   }
 
   /**
-   * 从 HTML 源码解析 __INITIAL_STATE__
-   * 小红书数据包含 undefined，需要用 new Function 解析
+   * 使用 JSON 解析提取 __INITIAL_STATE__
+   * 将 JavaScript undefined 替换为 null 使其成为合法 JSON
    */
-  function parseInitialStateFromHtml() {
+  function parseInitialStateFromHtmlJson() {
+    const html = document.documentElement.innerHTML;
+    const match = html.match(/window\.__INITIAL_STATE__\s*=\s*(\{[\s\S]*?\})(?:;|\s*<\/script>)/);
+    if (!match) return null;
+
+    let jsonStr = match[1];
+
+    // 将 JavaScript undefined 替换为 null
+    // 匹配: : undefined, : undefined} : undefined] 等情况
+    jsonStr = jsonStr.replace(/:\s*undefined\s*([,}\]])/g, ':null$1');
+
+    try {
+      return JSON.parse(jsonStr);
+    } catch {
+      // JSON 解析失败，返回 null 让调用方使用备用方案
+      return null;
+    }
+  }
+
+  /**
+   * 备用方案：手动提取 + new Function 解析
+   * 处理边界情况（如嵌套引号、特殊字符等）
+   */
+  function parseInitialStateFromHtmlLegacy() {
     const html = document.documentElement.innerHTML;
     const marker = /window\.__INITIAL_STATE__\s*=\s*/;
     const match = html.match(marker);
@@ -97,6 +120,7 @@
           const jsonStr = html.substring(start, i + 1);
           try {
             // 小红书数据包含 undefined，标准 JSON.parse 不支持
+            // 使用 new Function 作为安全的替代方案
             return new Function("return " + jsonStr)();
           } catch {
             return null;
@@ -109,11 +133,23 @@
 
   /**
    * 获取初始状态数据
+   * 优先使用 JSON 解析，失败则回退到手动提取
    */
   function getInitialState() {
+    // 1. 优先从 window 对象获取（如果页面已加载完成）
     const fromWindow = getInitialStateFromWindow();
     if (fromWindow) return fromWindow;
-    return parseInitialStateFromHtml();
+
+    // 2. 尝试 JSON 解析
+    const fromJson = parseInitialStateFromHtmlJson();
+    if (fromJson) {
+      console.log('[XHS WebView] 使用 JSON 解析成功');
+      return fromJson;
+    }
+
+    // 3. 回退到手动提取
+    console.log('[XHS WebView] JSON 解析失败，回退到手动提取');
+    return parseInitialStateFromHtmlLegacy();
   }
 
   /**
@@ -138,6 +174,7 @@
 
   /**
    * 从 URL 中提取 fileId 和路径前缀
+   * 支持 notes_pre_post 和 notes_uhdr 路径
    */
   function extractFileIdFromUrl(url) {
     if (!url) return null;
@@ -147,7 +184,15 @@
       const lastPart = pathParts[pathParts.length - 1];
       const fileId = lastPart.split("!")[0];
       if (fileId && /^[a-z0-9]+$/i.test(fileId)) {
-        const prefix = pathParts.includes("notes_uhdr") ? "notes_uhdr/" : "";
+        // 检查路径前缀（注意：有单数 note 和复数 notes 两种形式）
+        let prefix = "";
+        if (pathParts.includes("notes_pre_post")) {
+          prefix = "notes_pre_post/";
+        } else if (pathParts.includes("note_pre_post_uhdr")) {
+          prefix = "note_pre_post_uhdr/";
+        } else if (pathParts.includes("notes_uhdr")) {
+          prefix = "notes_uhdr/";
+        }
         return { fileId, prefix };
       }
     } catch {
@@ -342,9 +387,10 @@
       result.width = videoInfo.width;
       result.height = videoInfo.height;
     } else if (type === "livephoto") {
-      // 实况图：返回视频 URL 列表
+      // 实况图：返回视频 URL 列表和图片 URL 列表（用于缩略图）
       result.livePhotoUrls = livePhotoUrls;
       result.livePhotoCount = livePhotoUrls.length;
+      result.imageUrls = imageUrls; // 缩略图用
       // 用第一个视频 URL 作为默认视频地址
       result.videoUrl = livePhotoUrls[0];
       result.qualityUrls = { "720p": livePhotoUrls[0] };

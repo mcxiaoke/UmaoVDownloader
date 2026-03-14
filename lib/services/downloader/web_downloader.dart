@@ -27,4 +27,26 @@ class WebDownloader implements VideoDownloader {
     // Web 平台无目录概念
     return '浏览器默认下载目录';
   }
+
+  @override
+  Future<String> downloadSingleLivePhoto(
+    String url, {
+    required String directory,
+    required String filename,
+    void Function(int received, int? total)? onProgress,
+    void Function(String message)? onLog,
+  }) {
+    throw UnimplementedError('Web 下载功能尚未实现');
+  }
+
+  @override
+  Future<String> downloadSingleImage(
+    String url, {
+    required String directory,
+    required String filename,
+    void Function(int received, int? total)? onProgress,
+    void Function(String message)? onLog,
+  }) {
+    throw UnimplementedError('Web 下载功能尚未实现');
+  }
 }

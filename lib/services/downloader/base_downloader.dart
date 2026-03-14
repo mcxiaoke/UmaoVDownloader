@@ -396,6 +396,167 @@ abstract class BaseDownloader implements VideoDownloader {
     return firstPath;
   }
 
+  /// 下载单个图片
+  /// 用于 UI 中单独下载某一张图片
+  @override
+  Future<String> downloadSingleImage(
+    String url, {
+    required String directory,
+    required String filename,
+    void Function(int received, int? total)? onProgress,
+    void Function(String message)? onLog,
+  }) async {
+    final dir = directory;
+    final ext = _imageExtension(url);
+    final basePath = '$dir${Platform.pathSeparator}$filename$ext';
+    final String filePath;
+    if (File(basePath).existsSync()) {
+      final now = DateTime.now();
+      final stamp =
+          '${now.year}${_p2(now.month)}${_p2(now.day)}'
+          '_${_p2(now.hour)}${_p2(now.minute)}${_p2(now.second)}';
+      filePath = '$dir${Platform.pathSeparator}${filename}_$stamp$ext';
+    } else {
+      filePath = basePath;
+    }
+
+    onLog?.call('下载单个图片…');
+
+    final partFile = File('$filePath.part');
+    await partFile.parent.create(recursive: true);
+
+    final client = http.Client();
+    try {
+      bool saved = false;
+      for (final ua in downloadUserAgents) {
+        final req = http.Request('GET', Uri.parse(url));
+        req.headers[HttpHeaders.userAgentHeader] = ua;
+        // 小红书图片CDN需要Referer
+        if (url.contains('xhscdn.com')) {
+          req.headers[HttpHeaders.refererHeader] = 'https://www.xiaohongshu.com/';
+        }
+        final streamed = await client.send(req);
+        if (streamed.statusCode >= 300) {
+          await streamed.stream.drain<void>();
+          continue;
+        }
+        final total = streamed.contentLength == -1 ? null : streamed.contentLength;
+        final sink = partFile.openWrite();
+        int received = 0;
+        try {
+          await for (final chunk in streamed.stream.timeout(
+            const Duration(seconds: 30),
+          )) {
+            sink.add(chunk);
+            received += chunk.length;
+            onProgress?.call(received, total);
+          }
+          saved = true;
+        } on TimeoutException {
+          // 超时：换 UA 重试
+        } catch (_) {
+          // 其他流错误：换 UA
+        } finally {
+          await sink.close();
+        }
+        if (saved) break;
+        if (await partFile.exists()) await partFile.delete();
+      }
+
+      if (!saved) {
+        if (await partFile.exists()) await partFile.delete();
+        throw Exception('图片下载失败: $url');
+      }
+
+      await partFile.rename(filePath);
+      await afterDownload(filePath);
+      onLog?.call('图片下载完成: $filePath (来源: $url)');
+      return filePath;
+    } finally {
+      client.close();
+    }
+  }
+
+  /// 下载单个 Live Photo 视频
+  /// 用于 UI 中单独下载某一个实况图视频
+  @override
+  Future<String> downloadSingleLivePhoto(
+    String url, {
+    required String directory,
+    required String filename,
+    void Function(int received, int? total)? onProgress,
+    void Function(String message)? onLog,
+  }) async {
+    final dir = directory;
+    final basePath = '$dir${Platform.pathSeparator}$filename.mp4';
+    final String filePath;
+    if (File(basePath).existsSync()) {
+      final now = DateTime.now();
+      final stamp =
+          '${now.year}${_p2(now.month)}${_p2(now.day)}'
+          '_${_p2(now.hour)}${_p2(now.minute)}${_p2(now.second)}';
+      filePath = '$dir${Platform.pathSeparator}${filename}_$stamp.mp4';
+    } else {
+      filePath = basePath;
+    }
+
+    onLog?.call('下载单个实况视频…');
+
+    final partFile = File('$filePath.part');
+    await partFile.parent.create(recursive: true);
+
+    final client = http.Client();
+    try {
+      bool saved = false;
+      for (final ua in downloadUserAgents) {
+        final req = http.Request('GET', Uri.parse(url));
+        req.headers[HttpHeaders.userAgentHeader] = ua;
+        // 小红书图片CDN需要Referer
+        if (url.contains('xhscdn.com')) {
+          req.headers[HttpHeaders.refererHeader] = 'https://www.xiaohongshu.com/';
+        }
+        final streamed = await client.send(req);
+        if (streamed.statusCode >= 300) {
+          await streamed.stream.drain<void>();
+          continue;
+        }
+        final total = streamed.contentLength == -1 ? null : streamed.contentLength;
+        final sink = partFile.openWrite();
+        int received = 0;
+        try {
+          await for (final chunk in streamed.stream.timeout(
+            const Duration(seconds: 30),
+          )) {
+            sink.add(chunk);
+            received += chunk.length;
+            onProgress?.call(received, total);
+          }
+          saved = true;
+        } on TimeoutException {
+          // 超时：换 UA 重试
+        } catch (_) {
+          // 其他流错误：换 UA
+        } finally {
+          await sink.close();
+        }
+        if (saved) break;
+        if (await partFile.exists()) await partFile.delete();
+      }
+
+      if (!saved) {
+        if (await partFile.exists()) await partFile.delete();
+        throw Exception('实况视频下载失败: $url');
+      }
+
+      await partFile.rename(filePath);
+      await afterDownload(filePath);
+      onLog?.call('实况视频下载完成: $filename');
+      return filePath;
+    } finally {
+      client.close();
+    }
+  }
+
   /// 实况图：按序下载每个视频，保存为 {baseName}_001.mp4 / _002.mp4 …
   /// 返回第一个视频的完整路径（方便 UI 显示结果）
   Future<String> _downloadLivePhotos(

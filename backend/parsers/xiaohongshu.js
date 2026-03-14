@@ -509,10 +509,12 @@ function buildNoWatermarkUrl(originalUrl) {
       return null;
     }
 
-    // 确定路径前缀: notes_pre_post 或 notes_uhdr 或默认空
+    // 确定路径前缀（注意：有单数 note 和复数 notes 两种形式）
     let prefix = "";
     if (pathParts.includes("notes_pre_post")) {
       prefix = "notes_pre_post/";
+    } else if (pathParts.includes("note_pre_post_uhdr")) {
+      prefix = "note_pre_post_uhdr/";
     } else if (pathParts.includes("notes_uhdr")) {
       prefix = "notes_uhdr/";
     }
@@ -543,8 +545,15 @@ function extractFileIdFromUrl(url) {
     const fileId = lastPart.split("!")[0];
     // 验证 fileId 格式（通常是 1040g 开头）
     if (fileId && /^[a-z0-9]+$/i.test(fileId)) {
-      // 检查是否有 notes_uhdr 前缀
-      const prefix = pathParts.includes("notes_uhdr") ? "notes_uhdr/" : "";
+      // 检查路径前缀（注意：有单数 note 和复数 notes 两种形式）
+      let prefix = "";
+      if (pathParts.includes("notes_pre_post")) {
+        prefix = "notes_pre_post/";
+      } else if (pathParts.includes("note_pre_post_uhdr")) {
+        prefix = "note_pre_post_uhdr/";
+      } else if (pathParts.includes("notes_uhdr")) {
+        prefix = "notes_uhdr/";
+      }
       return { fileId, prefix };
     }
   } catch {
