@@ -1,21 +1,42 @@
 /**
- * xiaohongshu.js — 小红书解析器
+ * xiaohongshu.js — 小红书平台解析器
  *
- * 数据结构：window.__INITIAL_STATE__
- * 支持：图文笔记、视频笔记
+ * 功能概述：
+ * 本解析器专门处理小红书平台（xiaohongshu.com）的内容解析。
+ * 支持图文笔记、视频笔记、Live Photo等多种内容类型。
+ * 能够提取高清无水印图片、多画质视频、背景音乐等。
+ *
+ * 数据源：
+ * 主要通过解析页面中的window.__INITIAL_STATE__ JavaScript变量获取数据
+ * 支持SSR数据作为备用数据源
+ *
+ * 主要特性：
+ * - 支持小红书短链接（xhslink.com）解析
+ * - 提取高清无水印图片（自动去除水印）
+ * - 多画质视频解析（H.264/H.265/AV1编码）
+ * - Live Photo动态图片支持
+ * - CDN智能切换，提高下载成功率
+ * - 详细的调试信息输出
+ *
+ * 支持的内容类型：
+ * - 图文笔记：多图片+背景音乐
+ * - 视频笔记：多画质视频流
+ * - Live Photo：图片+短视频组合
  */
 
 import {
   fetchWithRetry,
   extractUrl,
 } from "./common.js";
-import fs from "fs-extra";
-import { join } from "path";
+import fs from "fs-extra";           // 文件系统操作
+import { join } from "path";        // 路径处理
 
+// 小红书专用User-Agent，模拟iOS移动端访问
 const XHS_UA =
   "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) " +
   "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1";
 
+// 小红书专用请求头
 const XHS_HEADERS = {
   "User-Agent": XHS_UA,
   "Referer": "https://www.xiaohongshu.com/",
@@ -23,18 +44,27 @@ const XHS_HEADERS = {
   "Accept-Language": "zh-CN,zh;q=0.9",
 };
 
+// 条件日志函数
 let log = () => {};
-let currentShortId = ''; // 当前解析的短ID，用于调试文件名
+
+// 当前解析的短ID，用于调试文件命名
+let currentShortId = '';
 
 /**
- * 判断是否支持该 URL
+ * 判断是否支持解析该URL
+ * 通过正则表达式检测URL是否属于小红书平台
+ * @param {string} url - 待检测的URL
+ * @returns {boolean} 是否支持解析
  */
 export function canParse(url) {
   return /(xiaohongshu\.com|xhslink\.com)/.test(url);
 }
 
 /**
- * 从URL中提取短ID (如 xhslink.com/o/98zulilsiJI 中的 98zulilsiJI)
+ * 从URL中提取短ID
+ * 小红书短链接格式：xhslink.com/o/短ID
+ * @param {string} url - 小红书链接
+ * @returns {string} 提取的短ID，失败返回空字符串
  */
 function extractShortId(url) {
   const match = url.match(/xhslink\.com\/o\/([A-Za-z0-9_-]+)/);
@@ -46,9 +76,11 @@ function extractShortId(url) {
 }
 
 /**
- * 解析入口
- * @param {string} url - 小红书链接
+ * 小红书链接解析主入口
+ * 负责协调整个解析流程，包括URL重定向、数据提取、内容识别
+ * @param {string} url - 小红书链接（支持短链接和完整链接）
  * @param {boolean} debug - 是否开启调试日志
+ * @returns {Promise<VideoInfo>} 解析结果
  */
 export async function parse(url, debug = false) {
   log = debug ? (...args) => console.log("  [XHS]", ...args) : () => {};

@@ -1,9 +1,24 @@
 /**
- * douyin.js — 抖音解析器
+ * douyin.js — 抖音平台解析器
+ *
+ * 功能概述：
+ * 本解析器专门处理抖音平台（douyin.com）的视频和图文内容解析。
+ * 支持短链接、视频详情页、图文笔记等多种链接格式。
+ * 能够提取无水印视频、高清图片、背景音乐等信息。
+ *
+ * 主要特性：
+ * - 支持抖音短链接（v.douyin.com）解析
+ * - 提取多画质视频（2160p/1080p/720p/480p/360p）
+ * - 图文内容解析，支持背景音乐提取
+ * - 智能数据提取，支持多种页面结构
+ * - 调试信息保存，便于问题排查
+ *
+ * 数据源：
+ * 主要通过解析页面中的window._ROUTER_DATA JavaScript变量获取结构化数据
  */
 
-import fs from "fs-extra";
-import { join } from "path";
+import fs from "fs-extra";                              // 文件系统操作
+import { join } from "path";                           // 路径处理
 import {
   DEFAULT_HEADERS,
   extractUrl,
@@ -12,26 +27,34 @@ import {
   MOBILE_UA,
 } from "./common.js";
 
-// aweme/v1/play/ 无水印播放接口
+// 抖音无水印视频播放接口基础URL
 const PLAY_BASE = "https://aweme.snssdk.com/aweme/v1/play/";
 
-// 各质量档 ratio 字符串
+// 支持的画质等级，按优先级排序（从高到低）
 const QUALITY_RATIOS = ["2160p", "1080p", "720p", "480p", "360p"];
 
+// 条件日志函数
 let log = () => {};
-let currentShortId = ""; // 当前解析的短ID，用于调试文件名
+
+// 当前解析的短ID，用于调试文件命名
+let currentShortId = "";
 
 /**
- * 判断是否支持该 URL
+ * 判断是否支持解析该URL
+ * 通过正则表达式检测URL是否属于抖音平台
+ * @param {string} url - 待检测的URL
+ * @returns {boolean} 是否支持解析
  */
 export function canParse(url) {
   return /(v\.)?douyin\.com|iesdouyin\.com/.test(url);
 }
 
 /**
- * 解析入口
- * @param {string} url - 抖音链接
+ * 抖音链接解析主入口
+ * 负责协调整个解析流程，包括URL处理、数据提取、结果构建
+ * @param {string} url - 抖音链接（支持短链接和完整链接）
  * @param {boolean} debug - 是否开启调试日志
+ * @returns {Promise<VideoInfo>} 解析结果
  */
 export async function parse(url, debug = false) {
   log = debug ? (...args) => console.log("  [DY]", ...args) : () => {};
