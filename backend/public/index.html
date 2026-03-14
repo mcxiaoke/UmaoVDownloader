@@ -54,24 +54,31 @@
           .replace(/[\\/:"*?<>|]/g, "_")
           .substring(0, 60);
 
-        // 构建下载按钮文字：画质 · 分辨率 · 文件大小
-        const quality = info.quality ?? "";
+        // 构建下载按钮文字：下载视频 + 文件大小 + 时长 + 码率 + 分辨率
         const width = info.width ?? "?";
         const height = info.height ?? "?";
         const sizeMB = info.videoSize ? (info.videoSize / 1024 / 1024).toFixed(1) : null;
-        
+        const bitrate = info.videoBitrate ? Math.round(info.videoBitrate / 1000) : null; // kb/s
+        const duration = info.duration ? `${info.duration}s` : null; // 时长(秒)
+
         let btnText = "↓ 下载视频";
-        if (quality) btnText += ` · ${quality}`;
-        if (width !== "?" && height !== "?") btnText += ` · ${width}×${height}`;
-        if (sizeMB) btnText += ` · ${sizeMB}MB`;
+        if (sizeMB) btnText += ` ${sizeMB}MB`;
+        if (duration) btnText += ` ${duration}`;
+        if (bitrate) btnText += ` ${bitrate}kb/s`;
+        if (width !== "?" && height !== "?") btnText += ` ${width}×${height}`;
 
         const qualityBtn = `<a class="btn-dl primary full-width" href="${dlUrl(info.videoUrl, `${safeName}${ext}`)}" download>${btnText}</a>`;
 
         const coverProxyUrl = info.coverUrl
           ? `download?url=${encodeURIComponent(info.coverUrl)}&name=cover.jpg`
           : null;
+
+        // 信息行：ID + 类型 + 数量
+        const metaInfo = `ID: ${info.itemId || info.id || "-"} · 类型: 视频 · 数量: 1`;
+
         result.innerHTML = `
         <div class="info-title">${escHtml(info.title || info.shareId || "")}</div>
+        <div class="info-meta">${escHtml(metaInfo)}</div>
         ${coverProxyUrl ? `<img class="video-cover" src="${coverProxyUrl}" loading="lazy" style="margin-top:0.6rem;" />` : ""}
         <div class="quality-btns video-quality-list" style="margin-top:0.9rem;">${qualityBtn}</div>
       `;
@@ -112,9 +119,13 @@
            </a>`
           : "";
 
+        // 信息行：ID + 类型 + 数量
+        const typeText = info.type === "livephoto" ? "实况" : "图片";
+        const metaInfo = `ID: ${info.itemId || info.id || "-"} · 类型: ${typeText} · 数量: ${info.imageCount || 0}`;
+
         result.innerHTML = `
         <div class="info-title">${escHtml(info.title)}</div>
-        <div class="info-meta">${info.imageCount} 张图片${info.shareId ? ` · ${info.shareId}` : ""}</div>
+        <div class="info-meta">${escHtml(metaInfo)}</div>
         <div class="image-grid">${items}</div>
         <button class="btn-dl-all" id="zipBtn">📦 打包下载全部 WebP（${info.imageCount} 张）</button>
         ${musicBtn}
@@ -238,16 +249,8 @@
             return;
           }
 
-          // 更新状态文本
-          let statusText = "解析完成 · ";
-          if (info.type === "livephoto") {
-            statusText += `实况图 ${info.livePhotoCount || info.imageCount} 张`;
-          } else if (info.type === "image") {
-            statusText += `图文 ${info.imageCount} 张`;
-          } else {
-            statusText += `视频 ${info.quality ?? ""}`;
-          }
-          setStatus(statusText);
+          // 清除状态
+          setStatus("");
 
           // 渲染：livephoto 和 image 都用 renderImages，video 用 renderVideo
           if (info.type === "image" || info.type === "livephoto") {

@@ -126,24 +126,39 @@ export async function parse(url, debug = false) {
   const mediaType = detectMediaType(item);
   log(`  ✓ 内容类型: ${mediaType}`);
 
+  // 提取用户信息
+  // 抖音author对象字段：short_id, unique_id(抖音号), sec_uid, nickname, avatar_thumb
+  const author = item.author ?? {};
+  const userInfo = {
+    userId: author.unique_id ?? author.short_id ?? null,
+    nickname: author.nickname ?? null,
+    avatar: author.avatar_thumb?.url_list?.[0] ?? null,
+  };
+
   // 构建基础信息
+  const itemId = item.aweme_id ?? awemeId;
   const info = {
     type: mediaType,
     platform: "douyin",
-    id: item.aweme_id ?? awemeId,
-    shareId,
+    id: itemId,
+    itemId,           // 统一字段：平台内容ID
+    shareId,          // 短链接ID（如 v.douyin.com/xxxxx 中的 xxxxx）
     title: item.desc ?? "",
     coverUrl: item.video?.cover?.url_list?.[0] ?? null,
     width: item.video?.width ?? null,
     height: item.video?.height ?? null,
+    ...userInfo,
   };
 
   log("→ 构建结果:");
 
   // 根据类型填充详细内容
   if (mediaType === "image") {
-    info.imageUrls = extractImageUrls(item);
-    info.imageCount = info.imageUrls.length;
+    // 统一图片结构：返回完整的 imageList（含 thumb 和 full）
+    info.imageList = extractImageList(item);
+    info.imageUrls = info.imageList.map(i => i.full);
+    info.imageThumbs = info.imageList.map(i => i.thumb);
+    info.imageCount = info.imageList.length;
     info.musicTitle = item.music?.title ?? null;
     info.musicUrl = extractMusicUrl(item);
     log(`  type: image, imageCount: ${info.imageCount}`);
@@ -162,10 +177,13 @@ export async function parse(url, debug = false) {
       : null;
     info.quality = bestQuality?.ratio ?? null;
     info.videoSize = bestQuality?.size ?? null;
+    info.videoBitrate = bestQuality?.bitrate ?? null;  // 视频码率 (bps)
     info.width = bestQuality?.width ?? info.width;
     info.height = bestQuality?.height ?? info.height;
+    // duration 单位是毫秒，转换为秒
+    info.duration = item.video?.duration ? Math.round(item.video.duration / 1000) : null;
     log(
-      `  type: video, quality: ${info.quality || "none"}, size: ${info.videoSize || "unknown"}`,
+      `  type: video, quality: ${info.quality || "none"}, size: ${info.videoSize || "unknown"}, duration: ${info.duration || "unknown"}s`,
     );
     log(`  videoUrl: ${info.videoUrl || "none"}`);
   }
@@ -282,6 +300,7 @@ function extractQualities(item) {
         ratio: b.gear_name?.replace("gear_", "") ?? b.quality_type ?? "",
         videoFileId: b.play_addr?.uri,
         size: b.data_size ?? 0,
+        bitrate: b.bit_rate ?? 0,  // 视频码率 (bps)
         width: b.play_addr?.width ?? video?.width ?? 0,
         height: b.play_addr?.height ?? video?.height ?? 0,
       }))
@@ -317,6 +336,43 @@ function extractImageUrls(item) {
         urls[0] ??
         null
       );
+    })
+    .filter(Boolean);
+}
+
+/**
+ * 提取图片列表（统一结构：含 thumb 和 full）
+ * 返回 [{thumb, full}, ...] 格式，与小红书保持一致
+ */
+function extractImageList(item) {
+  const images = item.images;
+  if (!Array.isArray(images) || images.length === 0) return [];
+
+  return images
+    .map((img, idx) => {
+      const urls = img.url_list ?? [];
+
+      // 找大图（无水印优先）：tplv-dy-lqen-new 且无 water
+      const full =
+        urls.find(
+          (u) => u.includes("tplv-dy-lqen-new") && !u.includes("-water"),
+        ) ??
+        urls.find((u) => u.includes("tplv-dy-aweme-images")) ??
+        urls[0] ??
+        null;
+
+      // 找缩略图：带 200x200 或类似的尺寸标记
+      const thumb =
+        urls.find((u) => u.includes("200x200") || u.includes("thumb")) ??
+        urls.find((u) => u.includes("tplv-dy-aweme-images")) ??
+        full;
+
+      if (!full) {
+        log(`  图片 ${idx + 1}: 无可用 URL`);
+        return null;
+      }
+
+      return { thumb: thumb || full, full };
     })
     .filter(Boolean);
 }

@@ -24,12 +24,9 @@
  * - Live Photo：图片+短视频组合
  */
 
-import {
-  fetchWithRetry,
-  extractUrl,
-} from "./common.js";
-import fs from "fs-extra";           // 文件系统操作
-import { join } from "path";        // 路径处理
+import fs from "fs-extra"; // 文件系统操作
+import { join } from "path"; // 路径处理
+import { extractUrl, fetchWithRetry } from "./common.js";
 
 // 小红书专用User-Agent，模拟iOS移动端访问
 const XHS_UA =
@@ -39,8 +36,8 @@ const XHS_UA =
 // 小红书专用请求头
 const XHS_HEADERS = {
   "User-Agent": XHS_UA,
-  "Referer": "https://www.xiaohongshu.com/",
-  "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+  Referer: "https://www.xiaohongshu.com/",
+  Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
   "Accept-Language": "zh-CN,zh;q=0.9",
 };
 
@@ -48,7 +45,7 @@ const XHS_HEADERS = {
 let log = () => {};
 
 // 当前解析的短ID，用于调试文件命名
-let currentShortId = '';
+let currentShortId = "";
 
 /**
  * 判断是否支持解析该URL
@@ -72,7 +69,18 @@ function extractShortId(url) {
   // 备用：从路径中提取
   const pathMatch = url.match(/\/item\/([A-Za-z0-9]+)/);
   if (pathMatch) return pathMatch[1];
-  return '';
+  return "";
+}
+
+/**
+ * 从URL中提取 shareId（短链接ID）
+ * 用于统一返回结构中的 shareId 字段
+ * @param {string} url - 小红书链接
+ * @returns {string|null} 提取的shareId，失败返回null
+ */
+function extractShareIdFromUrl(url) {
+  const match = url.match(/xhslink\.com\/o\/([A-Za-z0-9_-]+)/);
+  return match ? match[1] : null;
 }
 
 /**
@@ -91,6 +99,9 @@ export async function parse(url, debug = false) {
   const extracted = extractUrl(url);
   log(`提取URL: ${extracted}`);
   log(`短ID: ${currentShortId}`);
+
+  // 从URL中提取 shareId（短链接ID）
+  const shareId = extractShareIdFromUrl(url);
 
   // 跟随重定向获取真实 URL 和 HTML
   log("→ 请求页面...");
@@ -121,9 +132,11 @@ export async function parse(url, debug = false) {
   }
   log(`  ✓ noteId: ${note.noteId || note.id || "unknown"}`);
   log(`  ✓ title: ${(note.title || note.desc || "").substring(0, 50)}`);
-  log(`  ✓ type: ${note.video ? "video" : note.imageList ? "image" : "unknown"}`);
+  log(
+    `  ✓ type: ${note.video ? "video" : note.imageList ? "image" : "unknown"}`,
+  );
 
-  const result = await buildResult(note);
+  const result = await buildResult(note, shareId);
 
   log("→ 构建结果:");
   log(`  type: ${result.type}`);
@@ -134,10 +147,14 @@ export async function parse(url, debug = false) {
     // 打印所有候选 URL
     if (result.allCandidates?.length > 0) {
       log("  所有候选流 (按大小排序):");
-      const sorted = [...result.allCandidates].sort((a, b) => (b.size || 0) - (a.size || 0));
+      const sorted = [...result.allCandidates].sort(
+        (a, b) => (b.size || 0) - (a.size || 0),
+      );
       for (let i = 0; i < Math.min(sorted.length, 6); i++) {
         const c = sorted[i];
-        const sizeMB = c.size ? (c.size / 1024 / 1024).toFixed(2) + "MB" : "unknown";
+        const sizeMB = c.size
+          ? (c.size / 1024 / 1024).toFixed(2) + "MB"
+          : "unknown";
         log(`    #${i + 1} ${c.codec}: ${sizeMB} ${c.width}x${c.height}`);
         log(`        ${c.url}`);
       }
@@ -159,10 +176,14 @@ export async function parse(url, debug = false) {
 
 async function resolveXhsUrl(url) {
   // 跟随重定向
-  const resp = await fetchWithRetry(url, {
-    redirect: "follow",
-    headers: XHS_HEADERS,
-  }, 3);
+  const resp = await fetchWithRetry(
+    url,
+    {
+      redirect: "follow",
+      headers: XHS_HEADERS,
+    },
+    3,
+  );
 
   const finalUrl = resp.url;
   const html = await resp.text();
@@ -176,7 +197,7 @@ async function resolveXhsUrl(url) {
 function extractSSRData(html) {
   // 有些页面数据在 <script id="ssr-data" type="application/json"> 中
   const ssrMatch = html.match(
-    /<script[^>]*id=["']ssr-data["'][^>]*>([\s\S]*?)<\/script>/
+    /<script[^>]*id=["']ssr-data["'][^>]*>([\s\S]*?)<\/script>/,
   );
   if (ssrMatch) {
     try {
@@ -213,19 +234,21 @@ function extractInitialState(html) {
  */
 function extractInitialStateJson(html) {
   // 匹配 window.__INITIAL_STATE__ = {...} 或 window.__INITIAL_STATE__={...}
-  const match = html.match(/window\.__INITIAL_STATE__\s*=\s*(\{[\s\S]*?\})(?:;|\s*<\/script>)/);
+  const match = html.match(
+    /window\.__INITIAL_STATE__\s*=\s*(\{[\s\S]*?\})(?:;|\s*<\/script>)/,
+  );
   if (!match) return null;
 
   let jsonStr = match[1];
 
   // 将 JavaScript undefined 替换为 null
   // 匹配: : undefined, : undefined} : undefined] 等情况
-  jsonStr = jsonStr.replace(/:\s*undefined\s*([,}\]])/g, ':null$1');
+  jsonStr = jsonStr.replace(/:\s*undefined\s*([,}\]])/g, ":null$1");
 
   try {
     const data = JSON.parse(jsonStr);
     // 保存原始 JSON 到 temp 目录供调试
-    saveDebugJson(data, 'initial_state');
+    saveDebugJson(data, "initial_state");
     return data;
   } catch (e) {
     // JSON 解析失败，返回 null 让调用方使用备用方案
@@ -238,11 +261,14 @@ function extractInitialStateJson(html) {
  */
 async function saveDebugJson(data, prefix) {
   try {
-    const tempDir = join(process.cwd(), 'temp');
+    const tempDir = join(process.cwd(), "temp");
     await fs.ensureDir(tempDir);
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const idPrefix = currentShortId ? `${currentShortId}_` : '';
-    const filePath = join(tempDir, `xhs_${idPrefix}${prefix}_${timestamp}.json`);
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const idPrefix = currentShortId ? `${currentShortId}_` : "";
+    const filePath = join(
+      tempDir,
+      `xhs_${idPrefix}${prefix}_${timestamp}.json`,
+    );
     await fs.writeFile(filePath, JSON.stringify(data, null, 2));
     log(`  调试 JSON 已保存: ${filePath}`);
   } catch (e) {
@@ -307,7 +333,7 @@ function extractNoteData(data) {
   // 新结构：noteData.data.noteData
   const note = data.noteData?.data?.noteData;
   if (note) {
-    saveDebugJson(note, 'note_data');
+    saveDebugJson(note, "note_data");
     return note;
   }
 
@@ -317,7 +343,7 @@ function extractNoteData(data) {
     const keys = Object.keys(noteMap);
     if (keys.length > 0) {
       const note = noteMap[keys[0]];
-      saveDebugJson(note, 'note_data');
+      saveDebugJson(note, "note_data");
       return note;
     }
   }
@@ -328,12 +354,12 @@ function extractNoteData(data) {
 /**
  * 智能检测小红书作品类型
  * 根据数据结构特征判断：video / livephoto / image
- * 
+ *
  * 判断逻辑：
  * 1. 有根级别 video.media.stream 且包含有效视频流 → video（普通视频）
  * 2. 无根级别 video，但 imageList 中有 livePhoto=true 且带视频流 → livephoto（实况图）
  * 3. 否则 → image（纯图文）
- * 
+ *
  * @param {object} note - 笔记数据
  * @returns {"video"|"livephoto"|"image"} 媒体类型
  */
@@ -342,7 +368,8 @@ function detectMediaType(note) {
   const rootStream = note.video?.media?.stream;
   if (rootStream && typeof rootStream === "object") {
     const hasValidStream = ["h264", "h265", "av1", "origin"].some(
-      codec => Array.isArray(rootStream[codec]) && rootStream[codec].length > 0
+      (codec) =>
+        Array.isArray(rootStream[codec]) && rootStream[codec].length > 0,
     );
     if (hasValidStream) {
       return "video";
@@ -352,15 +379,15 @@ function detectMediaType(note) {
   // 2. 检查是否为实况图（imageList 中有 livePhoto=true 且带视频流）
   const imageList = note.imageList || note.images || [];
   if (Array.isArray(imageList) && imageList.length > 0) {
-    const hasLivePhoto = imageList.some(img => {
+    const hasLivePhoto = imageList.some((img) => {
       if (img.livePhoto !== true) return false;
       const stream = img.stream;
       if (!stream || typeof stream !== "object") return false;
       return ["h264", "h265", "av1"].some(
-        codec => Array.isArray(stream[codec]) && stream[codec].length > 0
+        (codec) => Array.isArray(stream[codec]) && stream[codec].length > 0,
       );
     });
-    
+
     if (hasLivePhoto) {
       return "livephoto";
     }
@@ -372,8 +399,10 @@ function detectMediaType(note) {
 
 /**
  * 构建统一的结果对象
+ * @param {object} note - 笔记数据
+ * @param {string|null} shareId - 短链接ID
  */
-async function buildResult(note) {
+async function buildResult(note, shareId) {
   const id = note.noteId || note.id || "";
   const title = note.title || "";
   const desc = note.desc || "";
@@ -388,15 +417,27 @@ async function buildResult(note) {
   const mediaType = detectMediaType(note);
   log(`  类型检测: ${mediaType}`);
 
+  // 提取用户信息
+  // 注意：小红书JSON中是 nickName（N大写），不是 nickname
+  const user = note.user || note.author || {};
+  const userInfo = {
+    userId: user.userId || user.id || null,
+    nickname: user.nickName || user.nickname || null,
+    avatar: user.avatar || null,
+  };
+
+  const itemId = String(id);
   const result = {
     type: mediaType,
     platform: "xiaohongshu",
-    id: String(id),
-    shareId: null,
+    id: itemId,
+    itemId, // 统一字段：平台内容ID
+    shareId, // 短链接ID（如 xhslink.com/o/xxxxx 中的 xxxxx）
     title: title || desc.substring(0, 50),
     coverUrl,
     width: note.width || null,
     height: note.height || null,
+    ...userInfo,
   };
 
   // 根据类型填充详细内容
@@ -407,31 +448,33 @@ async function buildResult(note) {
       result.videoUrl = videoInfo.videoUrl;
       result.quality = videoInfo.qualities[0] ?? null;
       result.videoSize = videoInfo.size ?? null;
-      result.width = videoInfo.width ?? result.width;
-      result.height = videoInfo.height ?? result.height;
+      result.videoBitrate = videoInfo.bitrate ?? null; // 视频码率 (bps)
+      result.width = videoInfo.width ?? result.width; // 视频宽度
+      result.height = videoInfo.height ?? result.height; // 视频高度
+      result.duration = videoInfo.duration ?? null; // 视频时长(秒)
     }
   } else if (mediaType === "livephoto") {
     // 实况图：图片列表 + 实况视频URL列表
-    result.imageUrls = imageList.map(i => i.full);
-    result.imageThumbs = imageList.map(i => i.thumb);
+    result.imageUrls = imageList.map((i) => i.full);
+    result.imageThumbs = imageList.map((i) => i.thumb);
     result.imageList = imageList;
     result.imageCount = imageList.length;
-    
+
     // 提取实况视频URL列表
     const livePhotoUrls = imageList
-      .filter(img => img.isLivePhoto && img.videoUrl)
-      .map(img => img.videoUrl);
+      .filter((img) => img.isLivePhoto && img.videoUrl)
+      .map((img) => img.videoUrl);
     result.livePhotoUrls = livePhotoUrls;
     result.livePhotoCount = livePhotoUrls.length;
-    
+
     // 用第一个实况视频作为默认视频
     if (livePhotoUrls.length > 0) {
       result.videoUrl = livePhotoUrls[0];
     }
   } else {
     // 纯图文
-    result.imageUrls = imageList.map(i => i.full);
-    result.imageThumbs = imageList.map(i => i.thumb);
+    result.imageUrls = imageList.map((i) => i.full);
+    result.imageThumbs = imageList.map((i) => i.thumb);
     result.imageList = imageList;
     result.imageCount = imageList.length;
   }
@@ -469,22 +512,25 @@ function extractImageUrls(note) {
   return imageList
     .map((img, idx) => {
       // fullOrig: 带水印原图, fullNoWater: 无水印图(CDN替换)
-      const result = { 
-        thumb: null, 
-        full: null, 
-        fullOrig: null, 
+      const result = {
+        thumb: null,
+        full: null,
+        fullOrig: null,
         fullNoWater: null,
-        videoUrl: null, 
-        isLivePhoto: false 
+        videoUrl: null,
+        isLivePhoto: false,
       };
 
       // 提取 Live Photo 视频 URL
       if (img.livePhoto === true && img.stream) {
-        const videoStream = img.stream.h264?.[0] || img.stream.h265?.[0] || img.stream.av1?.[0];
+        const videoStream =
+          img.stream.h264?.[0] || img.stream.h265?.[0] || img.stream.av1?.[0];
         if (videoStream?.masterUrl) {
           result.videoUrl = videoStream.masterUrl;
           result.isLivePhoto = true;
-          log(`  图片 ${idx + 1}: 检测到 Live Photo, 视频 URL: ${videoStream.masterUrl}`);
+          log(
+            `  图片 ${idx + 1}: 检测到 Live Photo, 视频 URL: ${videoStream.masterUrl}`,
+          );
         }
       }
 
@@ -494,11 +540,13 @@ function extractImageUrls(note) {
         img.infoList.forEach((item, i) => {
           log(`    [${i}] imageScene: ${item.imageScene}, url: ${item.url}`);
         });
-        
+
         // 找大图：WB_DFT > H5_DTL > 其他含 DFT 的
         const dftScenes = ["WB_DFT", "H5_DTL"];
         for (const scene of dftScenes) {
-          const match = img.infoList.find(i => i.imageScene === scene && i.url);
+          const match = img.infoList.find(
+            (i) => i.imageScene === scene && i.url,
+          );
           if (match?.url) {
             result.fullOrig = match.url;
             log(`  图片 ${idx + 1}: 大图(原图)使用 ${scene}`);
@@ -506,7 +554,9 @@ function extractImageUrls(note) {
           }
         }
         if (!result.fullOrig) {
-          const dftMatch = img.infoList.find(i => i.imageScene?.includes("DFT") && i.url);
+          const dftMatch = img.infoList.find(
+            (i) => i.imageScene?.includes("DFT") && i.url,
+          );
           if (dftMatch?.url) {
             result.fullOrig = dftMatch.url;
             log(`  图片 ${idx + 1}: 大图(原图)使用 ${dftMatch.imageScene}`);
@@ -516,7 +566,9 @@ function extractImageUrls(note) {
         // 找预览图：WB_PRV > H5_PRV > urlPre
         const prvScenes = ["WB_PRV", "H5_PRV"];
         for (const scene of prvScenes) {
-          const match = img.infoList.find(i => i.imageScene === scene && i.url);
+          const match = img.infoList.find(
+            (i) => i.imageScene === scene && i.url,
+          );
           if (match?.url) {
             result.thumb = match.url;
             log(`  图片 ${idx + 1}: 预览图使用 ${scene}`);
@@ -687,7 +739,7 @@ async function extractVideoInfo(note) {
       let bestBitrate = bestStream.videoBitrate || 0;
 
       for (const s of streams) {
-        const bitrate = s.videoBitrate || 0;
+        const bitrate = s.avgBitrate || s.videoBitrate || 0;
         if (bitrate > bestBitrate) {
           bestBitrate = bitrate;
           bestStream = s;
@@ -715,6 +767,7 @@ async function extractVideoInfo(note) {
           width: bestStream.width,
           height: bestStream.height,
           size: bestStream.size,
+          duration: bestStream.videoDuration || bestStream.duration || 0, // 视频时长(毫秒)
           url: url,
         };
       }
@@ -726,6 +779,7 @@ async function extractVideoInfo(note) {
   // 默认使用第一个质量的URL，如果失败再尝试切换CDN
   let bestUrl = qualityUrls[qualities[0]];
   let bestSize = formatInfo[qualities[0]]?.size || 0;
+  const bestFormatInfo = formatInfo[qualities[0]];
 
   // 验证默认URL是否可用，如果不可用则尝试切换CDN
   log && log("  验证视频URL可用性...");
@@ -736,7 +790,10 @@ async function extractVideoInfo(note) {
     for (const variant of cdnVariants) {
       const size = await verifyUrlAndGetSize(variant.url);
       if (size > 0) {
-        log && log(`    找到可用CDN: ${variant.url} (${(size / 1024 / 1024).toFixed(2)}MB)`);
+        log &&
+          log(
+            `    找到可用CDN: ${variant.url} (${(size / 1024 / 1024).toFixed(2)}MB)`,
+          );
         bestUrl = variant.url;
         bestSize = size;
         break;
@@ -750,19 +807,33 @@ async function extractVideoInfo(note) {
   if (log) {
     log("  视频流信息:");
     // 按大小排序打印
-    const sorted = [...candidateUrls].sort((a, b) => (b.size || 0) - (a.size || 0));
+    const sorted = [...candidateUrls].sort(
+      (a, b) => (b.size || 0) - (a.size || 0),
+    );
     for (const c of sorted.slice(0, 5)) {
-      const sizeMB = c.size ? (c.size / 1024 / 1024).toFixed(2) + "MB" : "unknown";
+      const sizeMB = c.size
+        ? (c.size / 1024 / 1024).toFixed(2) + "MB"
+        : "unknown";
       log(`    ${c.codec}: ${c.width}x${c.height}, ${c.bitrate}bps, ${sizeMB}`);
       log(`      ${c.url}`);
     }
   }
+
+  // 从最佳流中提取宽高、时长等信息（已在formatInfo中存储）
+  // 时长单位是毫秒，转换为秒
+  const durationMs = bestFormatInfo?.duration || 0;
+  const durationSec = durationMs ? Math.round(durationMs / 1000) : 0;
 
   return {
     qualities,
     qualityUrls,
     videoUrl: bestUrl,
     size: bestSize,
+    bitrate: bestFormatInfo?.bitrate || 0, // 视频码率 (bps)
+    width: bestFormatInfo?.width || 0, // 视频宽度
+    height: bestFormatInfo?.height || 0, // 视频高度
+    duration:
+      durationSec || video.media?.video?.duration || video.capa?.duration || 0, // 视频时长(秒)
   };
 }
 
@@ -774,11 +845,11 @@ function generateCdnVariants(candidates) {
   const variants = [];
   // CDN 域名映射表
   const cdnDomains = [
-    "sns-video-hw.xhscdn.com",   // 华为云
-    "sns-video-hs.xhscdn.com",   // 火山引擎
-    "sns-video-al.xhscdn.com",   // 阿里云
-    "sns-video-qn.xhscdn.com",   // 七牛
-    "sns-video-bd.xhscdn.com",   // 百度云
+    "sns-video-hw.xhscdn.com", // 华为云
+    "sns-video-hs.xhscdn.com", // 火山引擎
+    "sns-video-al.xhscdn.com", // 阿里云
+    "sns-video-qn.xhscdn.com", // 七牛
+    "sns-video-bd.xhscdn.com", // 百度云
   ];
 
   for (const c of candidates) {
@@ -813,7 +884,7 @@ function generateCdnVariants(candidates) {
 async function verifyUrlAvailable(url) {
   const XHS_HEADERS = {
     "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X)",
-    "Referer": "https://www.xiaohongshu.com/",
+    Referer: "https://www.xiaohongshu.com/",
   };
 
   try {
@@ -834,7 +905,7 @@ async function verifyUrlAvailable(url) {
 async function verifyUrlAndGetSize(url) {
   const XHS_HEADERS = {
     "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X)",
-    "Referer": "https://www.xiaohongshu.com/",
+    Referer: "https://www.xiaohongshu.com/",
   };
 
   try {
