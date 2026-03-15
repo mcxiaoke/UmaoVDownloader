@@ -1,10 +1,10 @@
 /// umao_vd — 抖音链接解析 & 下载 CLI 工具
 ///
 /// 用法：
-///   dart run cli/umao_vd.dart <URL>                    # 只解析，打印信息
-///   dart run cli/umao_vd.dart -d <URL>                 # 解析 + 下载（最高清晰度）
-///   dart run cli/umao_vd.dart -d -o <目录> <URL>       # 下载到指定目录
-///   dart run cli/umao_vd.dart -j <URL>                 # 只输出 JSON 解析结果
+///   dart run cli/umao_vd.dart `<URL>`                  # 只解析，打印信息
+///   dart run cli/umao_vd.dart -d `<URL>`               # 解析 + 下载（最高清晰度）
+///   dart run cli/umao_vd.dart -d -o `<目录>` `<URL>`   # 下载到指定目录
+///   dart run cli/umao_vd.dart -j `<URL>`               # 只输出 JSON 解析结果
 ///
 /// 选项：
 ///   -d, --download          解析后立即下载
@@ -61,18 +61,18 @@ void _printHelp() {
 // ── JSON 序列化 ───────────────────────────────────────────────────────────────
 Map<String, dynamic> _toJson(VideoInfo info) {
   return {
-    'type': info.isImagePost ? 'image' : 'video',
+    'type': info.mediaType == MediaType.image ? 'image' : 'video',
     'id': info.itemId,
     'shareId': info.shareId,
     'title': info.title,
-    if (!info.isImagePost) ...{
+    if (info.mediaType != MediaType.image) ...{
       'videoUrl': info.videoUrl,
       'coverUrl': info.coverUrl,
       if (info.width != null) 'width': info.width,
       if (info.height != null) 'height': info.height,
       if (info.bitrateKbps != null) 'bitrateKbps': info.bitrateKbps,
     },
-    if (info.isImagePost) ...{
+    if (info.mediaType == MediaType.image) ...{
       'imageCount': info.imageUrls.length,
       'imageUrls': info.imageUrls,
       if (info.musicUrl != null) 'musicUrl': info.musicUrl,
@@ -88,7 +88,7 @@ void _printInfo(VideoInfo info) {
   stdout.writeln('ID      : ${info.itemId}');
   if (info.shareId != null) stdout.writeln('短链 ID : ${info.shareId}');
 
-  if (info.isImagePost) {
+  if (info.mediaType == MediaType.image) {
     stdout.writeln('类型    : 图文作品');
     stdout.writeln('图片数  : ${info.imageUrls.length} 张');
     for (var i = 0; i < info.imageUrls.length; i++) {
@@ -96,14 +96,18 @@ void _printInfo(VideoInfo info) {
       final preview = url.length > 80 ? '${url.substring(0, 80)}…' : url;
       stdout.writeln('  图片${(i + 1).toString().padLeft(2, '0')}: $preview');
     }
-    if (info.musicTitle != null) stdout.writeln('背景音乐: ${info.musicTitle}');
+    if (info.musicTitle != null) {
+      stdout.writeln('背景音乐: ${info.musicTitle}');
+    }
   } else {
     stdout.writeln('类型    : 视频作品');
     stdout.writeln('视频URL : ${info.videoUrl.substring(0, info.videoUrl.length > 60 ? 60 : info.videoUrl.length)}...');
-    if (info.resolutionLabel != null)
+    if (info.resolutionLabel != null) {
       stdout.writeln('分辨率  : ${info.resolutionLabel}');
-    if (info.bitrateKbps != null)
+    }
+    if (info.bitrateKbps != null) {
       stdout.writeln('码率    : ${info.bitrateKbps} kbps');
+    }
   }
   stdout.writeln('');
 }
@@ -211,7 +215,7 @@ Future<void> main(List<String> args) async {
   final downloader = _CliDownloader(outputDir);
 
   try {
-    if (info.isImagePost) {
+    if (info.mediaType == MediaType.image) {
       stdout.writeln('开始下载图文（${info.imageUrls.length} 张）…');
     } else {
       stdout.writeln('开始下载视频… → $outputDir');

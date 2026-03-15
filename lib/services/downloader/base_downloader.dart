@@ -78,7 +78,7 @@ const kUaIosDouyin =
         : '${prefix}_$cleanTitle';
 
     // ── 图文作品：批量下载图片 ──────────────────────────────────
-    if (info.isImagePost) {
+    if (info.mediaType == MediaType.image) {
       return await _downloadImages(
         info,
         dir,

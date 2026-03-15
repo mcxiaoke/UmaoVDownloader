@@ -65,15 +65,12 @@ class XiaohongshuParser with HttpParserMixin {
     'sns-video-bd.xhscdn.com', // 百度云
   ];
 
-  bool _debug = false;
-
-  XiaohongshuParser({http.Client? client, void Function(String)? onLog}) {
-    initHttpParser(client: client, onLog: onLog, logPrefix: '[XHS]');
+  XiaohongshuParser({http.Client? client}) {
+    initHttpParser(client: client, logPrefix: '[XHS]');
   }
 
   /// 解析小红书分享链接
-  Future<VideoInfo> parse(String input, {bool debug = false}) async {
-    _debug = debug;
+  Future<VideoInfo> parse(String input) async {
     log('开始解析: $input');
 
     final extracted = UrlUtils.extractUrl(input);
@@ -120,13 +117,11 @@ class XiaohongshuParser with HttpParserMixin {
     }
     if (result.imageUrls.isNotEmpty) {
       log('  imageUrls[0]: ${result.imageUrls[0]}');
-      if (_debug) {
-        for (var i = 0; i < result.imageUrls.length; i++) {
-          final thumb = result.imageThumbUrls.length > i ? result.imageThumbUrls[i] : result.imageUrls[i];
-          final full = result.imageUrls[i];
-          log('  图片 ${i + 1}: thumb: $thumb');
-          log('  图片 ${i + 1}: full:  $full');
-        }
+      for (var i = 0; i < result.imageUrls.length; i++) {
+        final thumb = result.imageThumbUrls.length > i ? result.imageThumbUrls[i] : result.imageUrls[i];
+        final full = result.imageUrls[i];
+        logDebug('  图片 ${i + 1}: thumb: $thumb');
+        logDebug('  图片 ${i + 1}: full:  $full');
       }
     }
 
@@ -651,8 +646,8 @@ class XiaohongshuParser with HttpParserMixin {
       log('    默认URL可用');
     }
 
-    if (_debug && candidateUrls.isNotEmpty) {
-      log('  视频流信息:');
+    if (candidateUrls.isNotEmpty) {
+      logDebug('  视频流信息:');
       final sorted = [...candidateUrls]..sort((a, b) => (b.size ?? 0) - (a.size ?? 0));
       for (var i = 0; i < sorted.length.clamp(0, 5); i++) {
         final c = sorted[i];

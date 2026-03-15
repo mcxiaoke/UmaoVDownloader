@@ -1,7 +1,9 @@
 import '../parser_common.dart';
 import 'video_downloader.dart';
 
-/// Web 平台下载器（预留接口，暂未实现）
+// 此类已废弃，不要使用和修改
+
+/// Web 平台下载器（预留接口，暂不实现）
 ///
 /// 实现思路（待完成）：
 /// 1. 由于浏览器 CORS 限制，需要一个后端代理中转请求
@@ -18,7 +20,6 @@ class WebDownloader implements VideoDownloader {
     void Function(int received, int? total)? onProgress,
     void Function(String message)? onLog,
   }) {
-    // TODO: 实现 Web 下载
     throw UnimplementedError('Web 下载功能尚未实现');
   }
 

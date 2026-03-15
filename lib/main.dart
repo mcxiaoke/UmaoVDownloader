@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'services/app_logger.dart';
 import 'services/log_service.dart';
 import 'services/settings_service.dart';
 import 'ui/home_page.dart';
@@ -19,6 +20,9 @@ Future<void> main() async {
 
   // 并行初始化日志服务和设置服务
   await Future.wait([_log.init(), _settings.load()]);
+
+  // 初始化全局日志系统
+  AppLogger.init(logService: _log, verbose: _settings.verboseLog);
 
   // 启动应用程序，传入日志和设置服务实例
   runApp(DViewerApp(log: _log, settings: _settings));

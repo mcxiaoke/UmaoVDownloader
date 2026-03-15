@@ -6,7 +6,7 @@
 /// 功能：
 ///   • 对每条 URL 调用对应 Parser 解析
 ///   • 验证解析结果字段（id, title, type, url字段是否合法）
-///   • 将分享页 HTML 保存到 test/cache/<platform>/<id>.html，供手动分析
+///   • 将分享页 HTML 保存到 test/cache/`<platform>`/`<id>`.html，供手动分析
 ///   • 控制台输出对齐摘要表格，含 PASS / FAIL 标记
 library;
 
@@ -90,14 +90,14 @@ class _CachingClient extends http.BaseClient {
         platformDir.createSync(recursive: true);
       }
 
-      final htmlName = '${_id}.html';
+      final htmlName = '$_id.html';
       final htmlFile = io.File(path.join(platformDir.path, htmlName));
       await htmlFile.writeAsString(resp.body);
       lastSavedPath = htmlFile.path;
 
       final jsonData = _extractInitialState(resp.body);
       if (jsonData != null) {
-        final jsonName = '${_id}.json';
+        final jsonName = '$_id.json';
         final jsonFile = io.File(path.join(platformDir.path, jsonName));
         await jsonFile.writeAsString(jsonData);
       }
@@ -141,25 +141,29 @@ ValidationReport validateVideoInfo(VideoInfo info, Platform platform) {
   final errors = <String>[];
 
   // 基础字段验证
-  fields.add(FieldValidation(
-    field: 'itemId',
-    exists: info.itemId.isNotEmpty,
-    isValid: info.itemId.isNotEmpty,
-    error: info.itemId.isEmpty ? 'itemId为空' : null,
-  ));
+  fields.add(
+    FieldValidation(
+      field: 'itemId',
+      exists: info.itemId.isNotEmpty,
+      isValid: info.itemId.isNotEmpty,
+      error: info.itemId.isEmpty ? 'itemId为空' : null,
+    ),
+  );
 
-  fields.add(FieldValidation(
-    field: 'title',
-    exists: info.title.isNotEmpty,
-    isValid: info.title.isNotEmpty,
-    error: info.title.isEmpty ? 'title为空' : null,
-  ));
+  fields.add(
+    FieldValidation(
+      field: 'title',
+      exists: info.title.isNotEmpty,
+      isValid: info.title.isNotEmpty,
+      error: info.title.isEmpty ? 'title为空' : null,
+    ),
+  );
 
   // 类型判断
   String type;
   if (info.livePhotoUrls.isNotEmpty) {
     type = 'livephoto';
-  } else if (info.isImagePost) {
+  } else if (info.mediaType == MediaType.image) {
     type = 'image';
   } else {
     type = 'video';
@@ -168,98 +172,141 @@ ValidationReport validateVideoInfo(VideoInfo info, Platform platform) {
   // 根据类型验证对应字段
   if (type == 'video') {
     // 视频字段验证
-    fields.add(FieldValidation(
-      field: 'videoUrl',
-      exists: info.videoUrl.isNotEmpty,
-      isValid: isValidUrl(info.videoUrl),
-      error: info.videoUrl.isEmpty ? 'videoUrl为空' : !isValidUrl(info.videoUrl) ? 'videoUrl格式无效' : null,
-    ));
+    fields.add(
+      FieldValidation(
+        field: 'videoUrl',
+        exists: info.videoUrl.isNotEmpty,
+        isValid: isValidUrl(info.videoUrl),
+        error: info.videoUrl.isEmpty
+            ? 'videoUrl为空'
+            : !isValidUrl(info.videoUrl)
+            ? 'videoUrl格式无效'
+            : null,
+      ),
+    );
 
-    fields.add(FieldValidation(
-      field: 'videoFileId',
-      exists: info.videoFileId.isNotEmpty,
-      isValid: info.videoFileId.isNotEmpty,
-      error: info.videoFileId.isEmpty ? 'videoFileId为空' : null,
-    ));
+    fields.add(
+      FieldValidation(
+        field: 'videoFileId',
+        exists: info.videoFileId.isNotEmpty,
+        isValid: info.videoFileId.isNotEmpty,
+        error: info.videoFileId.isEmpty ? 'videoFileId为空' : null,
+      ),
+    );
 
     if (info.coverUrl != null) {
-      fields.add(FieldValidation(
-        field: 'coverUrl',
-        exists: true,
-        isValid: isValidUrl(info.coverUrl),
-        error: !isValidUrl(info.coverUrl) ? 'coverUrl格式无效' : null,
-      ));
+      fields.add(
+        FieldValidation(
+          field: 'coverUrl',
+          exists: true,
+          isValid: isValidUrl(info.coverUrl),
+          error: !isValidUrl(info.coverUrl) ? 'coverUrl格式无效' : null,
+        ),
+      );
     }
   } else if (type == 'livephoto') {
     // 实况图字段验证
-    fields.add(FieldValidation(
-      field: 'livePhotoUrls',
-      exists: info.livePhotoUrls.isNotEmpty,
-      isValid: info.livePhotoUrls.every(isValidUrl),
-      error: info.livePhotoUrls.isEmpty ? 'livePhotoUrls为空' : 
-             !info.livePhotoUrls.every(isValidUrl) ? 'livePhotoUrls包含无效URL' : null,
-    ));
+    fields.add(
+      FieldValidation(
+        field: 'livePhotoUrls',
+        exists: info.livePhotoUrls.isNotEmpty,
+        isValid: info.livePhotoUrls.every(isValidUrl),
+        error: info.livePhotoUrls.isEmpty
+            ? 'livePhotoUrls为空'
+            : !info.livePhotoUrls.every(isValidUrl)
+            ? 'livePhotoUrls包含无效URL'
+            : null,
+      ),
+    );
 
-    fields.add(FieldValidation(
-      field: 'videoUrl',
-      exists: info.videoUrl.isNotEmpty,
-      isValid: isValidUrl(info.videoUrl),
-      error: info.videoUrl.isEmpty ? 'videoUrl为空(首视频)' : !isValidUrl(info.videoUrl) ? 'videoUrl格式无效' : null,
-    ));
+    fields.add(
+      FieldValidation(
+        field: 'videoUrl',
+        exists: info.videoUrl.isNotEmpty,
+        isValid: isValidUrl(info.videoUrl),
+        error: info.videoUrl.isEmpty
+            ? 'videoUrl为空(首视频)'
+            : !isValidUrl(info.videoUrl)
+            ? 'videoUrl格式无效'
+            : null,
+      ),
+    );
 
-    fields.add(FieldValidation(
-      field: 'imageUrls',
-      exists: info.imageUrls.isNotEmpty,
-      isValid: info.imageUrls.every(isValidUrl),
-      error: info.imageUrls.isEmpty ? 'imageUrls为空' :
-             !info.imageUrls.every(isValidUrl) ? 'imageUrls包含无效URL' : null,
-    ));
+    fields.add(
+      FieldValidation(
+        field: 'imageUrls',
+        exists: info.imageUrls.isNotEmpty,
+        isValid: info.imageUrls.every(isValidUrl),
+        error: info.imageUrls.isEmpty
+            ? 'imageUrls为空'
+            : !info.imageUrls.every(isValidUrl)
+            ? 'imageUrls包含无效URL'
+            : null,
+      ),
+    );
 
     if (info.imageThumbUrls.isNotEmpty) {
-      fields.add(FieldValidation(
-        field: 'imageThumbUrls',
-        exists: true,
-        isValid: info.imageThumbUrls.every(isValidUrl),
-        error: !info.imageThumbUrls.every(isValidUrl) ? 'imageThumbUrls包含无效URL' : null,
-      ));
+      fields.add(
+        FieldValidation(
+          field: 'imageThumbUrls',
+          exists: true,
+          isValid: info.imageThumbUrls.every(isValidUrl),
+          error: !info.imageThumbUrls.every(isValidUrl)
+              ? 'imageThumbUrls包含无效URL'
+              : null,
+        ),
+      );
     }
   } else if (type == 'image') {
     // 图文字段验证
-    fields.add(FieldValidation(
-      field: 'imageUrls',
-      exists: info.imageUrls.isNotEmpty,
-      isValid: info.imageUrls.every(isValidUrl),
-      error: info.imageUrls.isEmpty ? 'imageUrls为空' :
-             !info.imageUrls.every(isValidUrl) ? 'imageUrls包含无效URL' : null,
-    ));
+    fields.add(
+      FieldValidation(
+        field: 'imageUrls',
+        exists: info.imageUrls.isNotEmpty,
+        isValid: info.imageUrls.every(isValidUrl),
+        error: info.imageUrls.isEmpty
+            ? 'imageUrls为空'
+            : !info.imageUrls.every(isValidUrl)
+            ? 'imageUrls包含无效URL'
+            : null,
+      ),
+    );
 
     if (info.imageThumbUrls.isNotEmpty) {
-      fields.add(FieldValidation(
-        field: 'imageThumbUrls',
-        exists: true,
-        isValid: info.imageThumbUrls.every(isValidUrl),
-        error: !info.imageThumbUrls.every(isValidUrl) ? 'imageThumbUrls包含无效URL' : null,
-      ));
+      fields.add(
+        FieldValidation(
+          field: 'imageThumbUrls',
+          exists: true,
+          isValid: info.imageThumbUrls.every(isValidUrl),
+          error: !info.imageThumbUrls.every(isValidUrl)
+              ? 'imageThumbUrls包含无效URL'
+              : null,
+        ),
+      );
     }
 
     // 背景音乐可选
     if (info.musicUrl != null) {
-      fields.add(FieldValidation(
-        field: 'musicUrl',
-        exists: true,
-        isValid: isValidUrl(info.musicUrl),
-        error: !isValidUrl(info.musicUrl) ? 'musicUrl格式无效' : null,
-      ));
+      fields.add(
+        FieldValidation(
+          field: 'musicUrl',
+          exists: true,
+          isValid: isValidUrl(info.musicUrl),
+          error: !isValidUrl(info.musicUrl) ? 'musicUrl格式无效' : null,
+        ),
+      );
     }
   }
 
   // 通用可选字段验证
   if (info.shareId != null) {
-    fields.add(FieldValidation(
-      field: 'shareId',
-      exists: true,
-      isValid: info.shareId!.isNotEmpty,
-    ));
+    fields.add(
+      FieldValidation(
+        field: 'shareId',
+        exists: true,
+        isValid: info.shareId!.isNotEmpty,
+      ),
+    );
   }
 
   // 收集错误
@@ -313,11 +360,13 @@ Future<_ParseResult> _testOne(
 }) async {
   String id;
   if (platform == Platform.douyin) {
-    id = RegExp(r'v\.douyin\.com/([A-Za-z0-9_-]+)').firstMatch(url)?.group(1) ??
+    id =
+        RegExp(r'v\.douyin\.com/([A-Za-z0-9_-]+)').firstMatch(url)?.group(1) ??
         RegExp(r'/(?:video|note|slides)/(\d+)').firstMatch(url)?.group(1) ??
         'unknown';
   } else {
-    id = RegExp(r'xhslink\.com/o/([A-Za-z0-9_-]+)').firstMatch(url)?.group(1) ??
+    id =
+        RegExp(r'xhslink\.com/o/([A-Za-z0-9_-]+)').firstMatch(url)?.group(1) ??
         RegExp(r'/explore/(\w+)').firstMatch(url)?.group(1) ??
         RegExp(r'/discovery/item/(\w+)').firstMatch(url)?.group(1) ??
         'unknown';
@@ -333,7 +382,7 @@ Future<_ParseResult> _testOne(
       info = await parser.parse(url);
     } else {
       final parser = XiaohongshuParser(client: caching);
-      info = await parser.parse(url, debug: debug);
+      info = await parser.parse(url);
     }
 
     // 验证字段
@@ -348,7 +397,7 @@ Future<_ParseResult> _testOne(
     if (info.livePhotoUrls.isNotEmpty) {
       type = 'livephoto';
       livePhotoCount = info.livePhotoUrls.length;
-    } else if (info.isImagePost) {
+    } else if (info.mediaType == MediaType.image) {
       type = 'image';
     } else {
       type = 'video';
@@ -453,26 +502,36 @@ Future<void> main(List<String> args) async {
       await Future<void>.delayed(const Duration(milliseconds: delayMs));
     }
     io.stdout.write('  测试 ${e.label.padRight(20)} ${e.url} … ');
-    final r = await _testOne(e.url, cacheDir, platform, debug: debug, validate: validate);
+    final r = await _testOne(
+      e.url,
+      cacheDir,
+      platform,
+      debug: debug,
+      validate: validate,
+    );
     io.stdout.writeln(r.ok ? 'OK' : 'FAIL');
     results.add((e.label, r));
   }
 
   // ── 输出汇总表 ─────────────────────────────────────────────────
   print('\n${'─' * 100}');
-  print('${'类型'.padRight(20)}  ${'ID'.padRight(14)}  ${'平台'.padRight(6)}  ${'结果'.padRight(6)}  ${'内容类型'.padRight(10)}  详情');
+  print(
+    '${'类型'.padRight(20)}  ${'ID'.padRight(14)}  ${'平台'.padRight(6)}  ${'结果'.padRight(6)}  ${'内容类型'.padRight(10)}  详情',
+  );
   print('─' * 100);
 
   int passed = 0;
   int validationPassed = 0;
-  
+
   for (final (label, r) in results) {
-    final status = r.ok ? (r.validation?.allOk ?? true ? '✓ PASS' : '⚠ WARN') : '✗ FAIL';
-    
+    final status = r.ok
+        ? (r.validation?.allOk ?? true ? '✓ PASS' : '⚠ WARN')
+        : '✗ FAIL';
+
     if (r.ok) {
       passed++;
       if (r.validation?.allOk ?? true) validationPassed++;
-      
+
       String contentType;
       if (r.type == 'livephoto') {
         contentType = '实况图(${r.livePhotoCount})';
@@ -481,13 +540,13 @@ Future<void> main(List<String> args) async {
       } else {
         contentType = '视频';
       }
-      
+
       final titleShort = (r.title ?? '').length > 25
           ? '${r.title!.substring(0, 24)}…'
           : (r.title ?? '');
-      
+
       final platformShort = r.platform == Platform.douyin ? '抖音' : '小红书';
-      
+
       print(
         '${label.padRight(20)}  ${r.id.padRight(14)}  ${platformShort.padRight(6)}  ${status.padRight(6)}  ${contentType.padRight(10)}  $titleShort',
       );
@@ -504,7 +563,7 @@ Future<void> main(List<String> args) async {
         '${label.padRight(20)}  ${r.id.padRight(14)}  ${platformShort.padRight(6)}  ${status.padRight(6)}  ${r.error ?? ""}',
       );
     }
-    
+
     if (r.htmlPath != null) {
       print('${' ' * 50}  → ${r.htmlPath}');
     }
@@ -513,11 +572,14 @@ Future<void> main(List<String> args) async {
   print('─' * 100);
   print('解析结果: $passed / ${results.length} 通过');
   if (validate) {
-    print('字段验证: $validationPassed / ${results.where((r) => r.$2.ok).length} 通过');
+    print(
+      '字段验证: $validationPassed / ${results.where((r) => r.$2.ok).length} 通过',
+    );
   }
   print('');
 
-  if (passed < results.length || (validate && validationPassed < results.where((r) => r.$2.ok).length)) {
+  if (passed < results.length ||
+      (validate && validationPassed < results.where((r) => r.$2.ok).length)) {
     io.exit(1);
   }
 }

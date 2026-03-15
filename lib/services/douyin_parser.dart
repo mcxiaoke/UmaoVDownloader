@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
+import 'app_logger.dart';
 import 'parser_common.dart';
 
 /// 抖音作品类型枚举
@@ -42,8 +43,8 @@ class AwemeTypeHelper {
   }
 
   /// 智能检测作品类型
-  static DouyinMediaType detectType(Map<String, dynamic> item, {void Function(String)? onLog}) {
-    void log(String msg) => onLog?.call('[TypeDetector] $msg');
+  static DouyinMediaType detectType(Map<String, dynamic> item) {
+    void log(String msg) => AppLogger.debug('[TypeDetector] $msg');
 
     // 1. 优先使用 aweme_type 判断
     final awemeTypeRaw = item['aweme_type'];
@@ -124,8 +125,8 @@ class DouyinParser with HttpParserMixin {
   static const _routerDataMarker = 'window._ROUTER_DATA = ';
 
   /// [httpClient] 可传入 mock client 方便单元测试
-  DouyinParser({http.Client? httpClient, void Function(String)? onLog}) {
-    initHttpParser(client: httpClient, onLog: onLog, logPrefix: '[DouyinParser]');
+  DouyinParser({http.Client? httpClient}) {
+    initHttpParser(client: httpClient, logPrefix: '[DouyinParser]');
   }
 
   /// 主入口：传入任意抖音链接，返回视频信息
@@ -247,7 +248,7 @@ class DouyinParser with HttpParserMixin {
         ? item['desc'].toString()
         : '作品_$id';
 
-    final mediaType = AwemeTypeHelper.detectType(item, onLog: onLogCallback);
+    final mediaType = AwemeTypeHelper.detectType(item);
 
     return switch (mediaType) {
       DouyinMediaType.image => _buildImagePost(item, id, title, shareId),

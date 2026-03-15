@@ -182,7 +182,7 @@ class ParserFacade {
       }
     } else {
       // 抖音平台或其他平台使用DouyinParser
-      final parser = DouyinParser(onLog: log);
+      final parser = DouyinParser();
       try {
         return await parser.parse(input);
       } finally {

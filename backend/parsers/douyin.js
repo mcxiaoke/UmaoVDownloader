@@ -8,7 +8,7 @@
  *
  * 主要特性：
  * - 支持抖音短链接（v.douyin.com）解析
- * - 提取多画质视频（2160p/1080p/720p/480p/360p）
+ * - 提取多画质视频（2160p/1080p/720p）
  * - 图文内容解析，支持背景音乐提取
  * - 智能数据提取，支持多种页面结构
  * - 调试信息保存，便于问题排查
@@ -17,8 +17,9 @@
  * 主要通过解析页面中的window._ROUTER_DATA JavaScript变量获取结构化数据
  */
 
-import fs from "fs-extra";                              // 文件系统操作
-import { join } from "path";                           // 路径处理
+import fs from "fs-extra"; // 文件系统操作
+import { join } from "path"; // 路径处理
+import { clearCookie, getCookie, isCookieLikelyInvalid } from "../cookies.js";
 import {
   DEFAULT_HEADERS,
   extractUrl,
@@ -26,7 +27,6 @@ import {
   fetchWithRetry,
   MOBILE_UA,
 } from "./common.js";
-import { getCookie, clearCookie, isCookieLikelyInvalid } from "../cookies.js";
 
 // 抖音无水印视频播放接口基础URL
 const PLAY_BASE = "https://aweme.snssdk.com/aweme/v1/play/";
@@ -35,7 +35,7 @@ const PLAY_BASE = "https://aweme.snssdk.com/aweme/v1/play/";
 let DY_HEADERS = { ...DEFAULT_HEADERS };
 
 // 支持的画质等级，按优先级排序（从高到低）
-const QUALITY_RATIOS = ["2160p", "1080p", "720p", "480p", "360p"];
+const QUALITY_RATIOS = ["2160p", "1080p", "720p"];
 
 // 类型映射：aweme_type -> 媒体类型
 const MEDIA_TYPES = {
@@ -128,9 +128,9 @@ export async function parse(url, debug = false) {
   }
 
   // 检测 Cookie 是否可能无效/过期，如果是则清除后重试
-  if (!routerData && isCookieLikelyInvalid('douyin', html, null)) {
+  if (!routerData && isCookieLikelyInvalid("douyin", html, null)) {
     log("  ⚠️ Cookie 可能无效或已过期，正在清除并重新尝试...");
-    await clearCookie('douyin');
+    await clearCookie("douyin");
     // 重置请求头（去掉 Cookie）
     DY_HEADERS = { ...DEFAULT_HEADERS };
     // 重新获取页面
@@ -173,8 +173,8 @@ export async function parse(url, debug = false) {
     type: mediaType,
     platform: "douyin",
     id: itemId,
-    itemId,           // 统一字段：平台内容ID
-    shareId,          // 短链接ID（如 v.douyin.com/xxxxx 中的 xxxxx）
+    itemId, // 统一字段：平台内容ID
+    shareId, // 短链接ID（如 v.douyin.com/xxxxx 中的 xxxxx）
     title: item.desc ?? "",
     coverUrl: item.video?.cover?.url_list?.[0] ?? null,
     width: item.video?.width ?? null,
@@ -188,8 +188,8 @@ export async function parse(url, debug = false) {
   if (mediaType === "image") {
     // 统一图片结构：返回完整的 imageList（含 thumb 和 full）
     info.imageList = extractImageList(item);
-    info.imageUrls = info.imageList.map(i => i.full);
-    info.imageThumbs = info.imageList.map(i => i.thumb);
+    info.imageUrls = info.imageList.map((i) => i.full);
+    info.imageThumbs = info.imageList.map((i) => i.thumb);
     info.imageCount = info.imageList.length;
     info.musicTitle = item.music?.title ?? null;
     info.musicAuthor = item.music?.author ?? null;
@@ -210,11 +210,13 @@ export async function parse(url, debug = false) {
       : null;
     info.quality = bestQuality?.ratio ?? null;
     info.videoSize = bestQuality?.size ?? null;
-    info.videoBitrate = bestQuality?.bitrate ?? null;  // 视频码率 (bps)
+    info.videoBitrate = bestQuality?.bitrate ?? null; // 视频码率 (bps)
     info.width = bestQuality?.width ?? info.width;
     info.height = bestQuality?.height ?? info.height;
     // duration 单位是毫秒，转换为秒
-    info.duration = item.video?.duration ? Math.round(item.video.duration / 1000) : null;
+    info.duration = item.video?.duration
+      ? Math.round(item.video.duration / 1000)
+      : null;
     log(
       `  type: video, quality: ${info.quality || "none"}, size: ${info.videoSize || "unknown"}, duration: ${info.duration || "unknown"}s`,
     );
@@ -322,7 +324,9 @@ function extractVideoId(url) {
     const pathParts = urlObj.pathname.split("/").filter(Boolean);
 
     // /video/xxxxx 或 /note/xxxxx 或 /slides/xxxxx
-    const idIndex = pathParts.findIndex(p => ["video", "note", "slides"].includes(p));
+    const idIndex = pathParts.findIndex((p) =>
+      ["video", "note", "slides"].includes(p),
+    );
     if (idIndex !== -1 && pathParts[idIndex + 1]) {
       return pathParts[idIndex + 1];
     }
@@ -358,7 +362,7 @@ function extractQualities(item) {
         ratio: b.gear_name?.replace("gear_", "") ?? b.quality_type ?? "",
         videoFileId: b.play_addr?.uri,
         size: b.data_size ?? 0,
-        bitrate: b.bit_rate ?? 0,  // 视频码率 (bps)
+        bitrate: b.bit_rate ?? 0, // 视频码率 (bps)
         width: b.play_addr?.width ?? video?.width ?? 0,
         height: b.play_addr?.height ?? video?.height ?? 0,
       }))
@@ -484,7 +488,9 @@ function extractShortId(url) {
     }
 
     // /video/xxxxx 或 /note/xxxxx 或 /slides/xxxxx
-    const idIndex = pathParts.findIndex(p => ["video", "note", "slides"].includes(p));
+    const idIndex = pathParts.findIndex((p) =>
+      ["video", "note", "slides"].includes(p),
+    );
     if (idIndex !== -1 && pathParts[idIndex + 1]) {
       return pathParts[idIndex + 1];
     }

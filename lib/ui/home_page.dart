@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../services/app_logger.dart';
 import '../services/parser_common.dart';
 import '../services/douyin_parser.dart';
 import '../services/downloader/base_downloader.dart';
@@ -432,7 +433,7 @@ class _HomePageState extends State<HomePage> {
       if (info.musicAuthor != null && info.musicTitle != null) {
         final cleanAuthor = _sanitizeFilename(info.musicAuthor!, maxLen: 50);
         final cleanMusicTitle = _sanitizeFilename(info.musicTitle!, maxLen: 50);
-        filename = '${prefix}_${cleanAuthor} - ${cleanMusicTitle}';
+        filename = '${prefix}_$cleanAuthor - $cleanMusicTitle';
       } else {
         filename = '${prefix}_${cleanTitle}_bgm';
       }
@@ -531,6 +532,7 @@ class _HomePageState extends State<HomePage> {
                       onChanged: (v) async {
                         setSheetState(() => verbose = v);
                         await _settings.setVerboseLog(v);
+                        AppLogger.setVerbose(v);
                         _log.info(v ? '已开启详细日志输出' : '已关闭详细日志输出');
                       },
                       title: const Text('详细日志'),

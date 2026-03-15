@@ -5,6 +5,9 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
 
+import 'app_logger.dart';
+import 'url_extractor.dart';
+
 // ==================== 枚举定义 ====================
 
 /// 视频清晰度枚举（ratio 参数值即为实际传参字符串）
@@ -101,9 +104,6 @@ class VideoInfo {
     this.livePhotoUrls = const [],
   });
 
-  /// 是否为图文作品（无视频但有图片）
-  bool get isImagePost => videoUrl.isEmpty && imageUrls.isNotEmpty;
-
   /// 分辨率标签，如 "1920×1080"、"3840×2160 (4K)"，无数据时返回 null
   String? get resolutionLabel {
     if (width == null || height == null) return null;
@@ -145,10 +145,12 @@ class XiaohongshuParseException extends ParserException {
 class UrlUtils {
   UrlUtils._(); // 私有构造函数，防止实例化
 
-  /// 从文本中提取 URL（抖音和小红书使用完全相同的正则）
+  /// 从文本中提取 URL
+  /// 
+  /// 使用 [UrlExtractor] 实现，支持更多中文标点符号
+  /// 未找到时返回原字符串
   static String extractUrl(String text) {
-    final match = RegExp(r'https?://[^\s，,。]+').firstMatch(text);
-    return match?.group(0) ?? text;
+    return UrlExtractor.extractFirst(text) ?? text;
   }
 
   /// 验证 URL 是否可用（HTTP 200-399 视为可用）
@@ -302,38 +304,37 @@ class JsonExtractor {
 // ==================== HTTP 解析器 Mixin ====================
 
 /// HTTP 解析器 Mixin - 提供通用的 HTTP 功能和日志功能
-///
+/// 
 /// 使用方式：
 /// ```dart
 /// class MyParser with HttpParserMixin {
-///   MyParser({http.Client? client, void Function(String)? onLog}) {
-///     initHttpParser(client: client, onLog: onLog, logPrefix: '[MyParser]');
+///   MyParser({http.Client? client}) {
+///     initHttpParser(client: client, logPrefix: '[MyParser]');
 ///   }
 /// }
 /// ```
 mixin HttpParserMixin {
   late final http.Client _httpClient;
-  void Function(String)? _onLog;
   late final String _logPrefix;
 
   /// 初始化 mixin
   void initHttpParser({
     http.Client? client,
-    void Function(String)? onLog,
     required String logPrefix,
   }) {
     _httpClient = client ?? http.Client();
-    _onLog = onLog;
     _logPrefix = logPrefix;
   }
 
-  /// 输出日志
+  /// 输出日志（始终显示）
   void log(String message) {
-    _onLog?.call('$_logPrefix $message');
+    AppLogger.info('$_logPrefix $message');
   }
 
-  /// 获取日志回调（供外部传递到其他组件）
-  void Function(String)? get onLogCallback => _onLog;
+  /// 输出详细日志（只在 verbose 模式显示）
+  void logDebug(String message) {
+    AppLogger.debug('$_logPrefix $message');
+  }
 
   /// 获取 HTTP 客户端
   http.Client get httpClient => _httpClient;

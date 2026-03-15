@@ -33,6 +33,7 @@ dependencies:
 
   cupertino_icons: ^1.0.8
   http: ^1.2.0
+  path: ^1.9.0
   path_provider: ^2.1.0
   permission_handler: ^11.0.0
   file_picker: ^8.0.0
