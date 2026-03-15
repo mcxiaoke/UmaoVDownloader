@@ -432,30 +432,47 @@ class DownloadActionsNarrow extends StatelessWidget {
                 const SizedBox(height: 8),
                 Row(
                   children: [
-                    Expanded(child: downloadBtn),
+                    // 图片按钮
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: downloading ? null : onDownload,
+                        icon: downloading
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Icon(Icons.download, size: 18),
+                        label: Text(downloading ? '下载中…' : downloadLabel),
+                      ),
+                    ),
                     // 动图视频按钮
                     if (liveVideoCount > 0) ...[
                       const SizedBox(width: 8),
-                      OutlinedButton.icon(
-                        onPressed: downloadingLiveVideos ? null : onDownloadLiveVideos,
-                        icon: downloadingLiveVideos
-                            ? const SizedBox(
-                                width: 14,
-                                height: 14,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.orange,
-                                ),
-                              )
-                            : const Icon(Icons.videocam, size: 16),
-                        label: Text(downloadingLiveVideos ? '…' : '视频($liveVideoCount)'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.orange.shade800,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 12,
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: downloadingLiveVideos ? null : onDownloadLiveVideos,
+                          icon: downloadingLiveVideos
+                              ? const SizedBox(
+                                  width: 14,
+                                  height: 14,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.orange,
+                                  ),
+                                )
+                              : const Icon(Icons.videocam, size: 16),
+                          label: Text(downloadingLiveVideos ? '下载中…' : '视频($liveVideoCount)'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.orange.shade800,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 12,
+                            ),
                           ),
-                          visualDensity: VisualDensity.compact,
                         ),
                       ),
                     ],

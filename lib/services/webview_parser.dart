@@ -224,7 +224,15 @@ class WebViewParser {
             if (!finished.isCompleted) finished.complete();
           },
           onWebResourceError: (e) {
-            if ((e.description).contains('ERR_UNKNOWN_URL_SCHEME')) {
+            // 忽略不影响页面内容加载的资源错误
+            final desc = e.description.toLowerCase();
+            final ignorable = desc.contains('unknown_url_scheme') ||
+                desc.contains('net::err_blocked_by_response') ||
+                desc.contains('net::err_connection_refused') ||
+                desc.contains('net::err_name_not_resolved') ||
+                desc.contains('403') ||
+                desc.contains('404');
+            if (ignorable) {
               log?.call('WebView 资源错误(可忽略): ${e.description}');
             } else {
               log?.call('WebView 资源错误: ${e.description}');
@@ -258,7 +266,15 @@ class WebViewParser {
             if (!retryFinished.isCompleted) retryFinished.complete();
           },
           onWebResourceError: (e) {
-            if ((e.description).contains('ERR_UNKNOWN_URL_SCHEME')) {
+            // 忽略不影响页面内容加载的资源错误
+            final desc = e.description.toLowerCase();
+            final ignorable = desc.contains('unknown_url_scheme') ||
+                desc.contains('net::err_blocked_by_response') ||
+                desc.contains('net::err_connection_refused') ||
+                desc.contains('net::err_name_not_resolved') ||
+                desc.contains('403') ||
+                desc.contains('404');
+            if (ignorable) {
               log?.call('WebView 资源错误(可忽略): ${e.description}');
             } else {
               log?.call('WebView 资源错误: ${e.description}');
