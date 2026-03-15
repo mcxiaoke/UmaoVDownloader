@@ -155,6 +155,7 @@ test/
 temp/
 tmp/
 sources/
+cache/
 
 backend/cookies.json
 cookies.json
