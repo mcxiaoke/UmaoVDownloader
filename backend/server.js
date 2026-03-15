@@ -24,13 +24,13 @@
  *   POST /zip {urls, names, filename}  将多张图片打包为ZIP文件下载
  */
 
-import archiver from "archiver";        // ZIP压缩打包库
-import express from "express";          // Web服务器框架
+import archiver from "archiver"; // ZIP压缩打包库
+import express from "express"; // Web服务器框架
 import { Readable } from "node:stream"; // Node.js流处理
-import { dirname, join } from "path";   // 路径处理工具
-import { fileURLToPath } from "url";    // URL转文件路径
-import { parse } from "./parser.js";   // 视频解析核心模块
-import { loadCookies, saveCookies, normalizeCookieString } from "./cookies.js"; // Cookie 管理模块
+import { dirname, join } from "path"; // 路径处理工具
+import { fileURLToPath } from "url"; // URL转文件路径
+import { loadCookies, normalizeCookieString, saveCookies } from "./cookies.js"; // Cookie 管理模块
+import { parse } from "./parser.js"; // 视频解析核心模块
 
 // 获取当前文件所在目录的绝对路径
 const __dir = dirname(fileURLToPath(import.meta.url));
@@ -39,7 +39,7 @@ const __dir = dirname(fileURLToPath(import.meta.url));
 const app = express();
 
 // 服务配置
-const PORT = process.env.PORT ?? 3333;  // 服务端口，默认3333
+const PORT = process.env.PORT ?? 3333; // 服务端口，默认3333
 // 支持子路径部署（用于反向代理场景），移除末尾斜杠
 const BASE = (process.env.BASE_PATH ?? "").replace(/\/+$/, ""); // e.g. "/vd"
 
@@ -48,8 +48,8 @@ const DEBUG = process.env.DEBUG || process.argv.includes("--debug");
 
 // 条件日志函数：仅在DEBUG模式下输出
 const log = DEBUG ? (...args) => console.log("[DEBUG]", ...args) : () => {};
-const logTime = (label) => DEBUG ? console.time(label) : () => {};
-const logTimeEnd = (label) => DEBUG ? console.timeEnd(label) : () => {};
+const logTime = (label) => (DEBUG ? console.time(label) : () => {});
+const logTimeEnd = (label) => (DEBUG ? console.timeEnd(label) : () => {});
 
 // 动态注入 <base href> 到 index.html，支持子路径部署
 app.get([BASE + "/", BASE + "/index.html", BASE || "/"], async (req, res) => {
@@ -72,25 +72,20 @@ app.use(express.json());
 // CDN 域名白名单（防止 SSRF 服务器端请求伪造攻击）
 const ALLOWED_DOMAINS = [
   // 抖音CDN域名
-  "aweme.snssdk.com",          // 抖音主API域名
-  "v3-cold.douyinvod.com",     // 抖音视频CDN (冷存储)
-  "v3-dy.douyinvod.com",       // 抖音视频CDN v3
-  "v19-dy.douyinvod.com",      // 抖音视频CDN v19
-  "v9-dy.douyinvod.com",       // 抖音视频CDN v9
-  "douyinpic.com",             // 抖音图片CDN
-  "douyinstatic.com",          // 抖音静态资源CDN
+  "aweme.snssdk.com", // 抖音主API域名
+  "douyinvod.com", // 抖音视频CDN
+  "douyinpic.com", // 抖音图片CDN
+  "douyinstatic.com", // 抖音静态资源CDN
   // 小红书CDN域名
-  "xhscdn.com",                // 小红书CDN主域名
-  "xiaohongshu.com",           // 小红书主域名
+  "xhscdn.com", // 小红书CDN主域名
+  "xiaohongshu.com", // 小红书主域名
 ];
 
-// 代理请求使用的User-Agent，模拟抖音移动端App
+// 代理请求使用的User-Agent，模拟 iPhone Safari
 const UA_PROXY =
-  "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) " +
+  "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) " +
   "AppleWebKit/605.1.15 (KHTML, like Gecko) " +
-  "Mobile/15E148 aweme_36.7.0 Region/CN AppTheme/light " +
-  "NetType/WIFI JsSdk/2.0 Channel/App ByteLocale/zh " +
-  "ByteFullLocale/zh-Hans-CN WKWebView/1 aweme/36.7.0";
+  "Version/16.6 Mobile/15E148 Safari/604.1";
 
 // ── GET /parse API 端点 ────────────────────────────────────────────────────────────────
 // 功能：解析抖音、小红书等平台链接，返回结构化视频/图文信息
@@ -194,7 +189,9 @@ app.get("/download", async (req, res) => {
     const cl = upstream.headers.get("content-length");
     if (cl) res.setHeader("Content-Length", cl);
 
-    log(`  ✓ 开始流式转发, Content-Type: ${upstream.headers.get("content-type")}`);
+    log(
+      `  ✓ 开始流式转发, Content-Type: ${upstream.headers.get("content-type")}`,
+    );
 
     // 流式转发：直接将上游响应体流式传输到客户端，避免内存缓存
     for await (const chunk of upstream.body) {

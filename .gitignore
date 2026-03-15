@@ -156,6 +156,8 @@ temp/
 tmp/
 sources/
 
+backend/cookies.json
+cookies.json
 
 key.properties
 *.jks
