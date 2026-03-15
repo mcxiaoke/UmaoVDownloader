@@ -100,6 +100,34 @@ class VideoInfo {
   /// 媒体类型
   final MediaType mediaType;
 
+  // ─── 作者信息 ─────────────────────────────────────────────────────────────
+
+  /// 作者唯一标识（抖音: unique_id/short_id, 小红书: userId）
+  final String? authorId;
+
+  /// 作者昵称
+  final String? authorName;
+
+  /// 作者头像 URL
+  final String? authorAvatar;
+
+  // ─── 统计信息 ─────────────────────────────────────────────────────────────
+
+  /// 发布时间戳（秒，抖音；毫秒，小红书）
+  final int? createTime;
+
+  /// 点赞数
+  final int? likeCount;
+
+  /// 收藏数
+  final int? collectCount;
+
+  /// 评论数
+  final int? commentCount;
+
+  /// 分享数
+  final int? shareCount;
+
   const VideoInfo({
     required this.itemId,
     required this.title,
@@ -118,7 +146,89 @@ class VideoInfo {
     this.musicTitle,
     this.musicAuthor,
     this.livePhotoUrls = const [],
+    // 作者信息
+    this.authorId,
+    this.authorName,
+    this.authorAvatar,
+    // 统计信息
+    this.createTime,
+    this.likeCount,
+    this.collectCount,
+    this.commentCount,
+    this.shareCount,
   });
+
+  /// 从 JSON Map 创建 VideoInfo
+  ///
+  /// 统一的反序列化方法，用于从 backend API 或其他 JSON 数据源创建对象
+  factory VideoInfo.fromJson(Map<String, dynamic> j) {
+    final type = j['type']?.toString() ?? 'video';
+    final videoUrl = j['videoUrl']?.toString() ?? '';
+
+    return VideoInfo(
+      itemId: j['id']?.toString() ?? j['itemId']?.toString() ?? '',
+      title: j['title']?.toString() ?? '',
+      videoFileId: _extractVideoFileId(videoUrl),
+      videoUrl: videoUrl,
+      videoUrlNoWatermark: j['videoUrlNoWatermark']?.toString(),
+      mediaType: _parseMediaType(type),
+      coverUrl: j['coverUrl']?.toString(),
+      shareId: j['shareId']?.toString(),
+      width: int.tryParse(j['width']?.toString() ?? ''),
+      height: int.tryParse(j['height']?.toString() ?? ''),
+      bitrateKbps: _parseBitrate(j['videoBitrate']),
+      imageUrls: _parseStringList(j['imageUrls']),
+      imageThumbUrls: _parseStringList(j['imageThumbs'] ?? j['imageThumbUrls']),
+      musicUrl: _parseNullableString(j['musicUrl']),
+      musicTitle: _parseNullableString(j['musicTitle']),
+      musicAuthor: _parseNullableString(j['musicAuthor']),
+      livePhotoUrls: _parseStringList(j['livePhotoUrls']),
+      // 作者信息
+      authorId: _parseNullableString(j['authorId']),
+      authorName: _parseNullableString(j['authorName']),
+      authorAvatar: _parseNullableString(j['authorAvatar']),
+      // 统计信息
+      createTime: int.tryParse(j['createTime']?.toString() ?? ''),
+      likeCount: int.tryParse(j['likeCount']?.toString() ?? ''),
+      collectCount: int.tryParse(j['collectCount']?.toString() ?? ''),
+      commentCount: int.tryParse(j['commentCount']?.toString() ?? ''),
+      shareCount: int.tryParse(j['shareCount']?.toString() ?? ''),
+    );
+  }
+
+  /// 从视频 URL 中提取 videoFileId
+  static String _extractVideoFileId(String videoUrl) {
+    if (videoUrl.isEmpty) return '';
+    final id = Uri.tryParse(videoUrl)?.queryParameters['video_id'];
+    return id ?? '';
+  }
+
+  /// 解析媒体类型
+  static MediaType _parseMediaType(String type) {
+    return switch (type.toLowerCase()) {
+      'image' => MediaType.image,
+      'livephoto' || 'live_photo' => MediaType.livePhoto,
+      _ => MediaType.video,
+    };
+  }
+
+  /// 解析码率 (bps -> kbps)
+  static int? _parseBitrate(dynamic value) {
+    final bps = int.tryParse(value?.toString() ?? '');
+    return bps != null ? bps ~/ 1000 : null;
+  }
+
+  /// 解析字符串列表
+  static List<String> _parseStringList(dynamic value) {
+    if (value is! List) return const [];
+    return value.map((e) => e.toString()).where((e) => e.isNotEmpty).toList();
+  }
+
+  /// 解析可空字符串（空字符串转为 null）
+  static String? _parseNullableString(dynamic value) {
+    final s = value?.toString();
+    return (s != null && s.isNotEmpty) ? s : null;
+  }
 
   /// 分辨率标签，如 "1920×1080"、"3840×2160 (4K)"，无数据时返回 null
   String? get resolutionLabel {

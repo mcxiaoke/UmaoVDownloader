@@ -431,6 +431,12 @@ class XiaohongshuParser with HttpParserMixin {
       }
     }
 
+    // 提取作者信息
+    final author = _extractAuthorInfo(note);
+
+    // 提取统计信息
+    final stats = _extractInteractInfo(note);
+
     if (isLivePhoto) {
       return VideoInfo(
         itemId: id,
@@ -446,6 +452,16 @@ class XiaohongshuParser with HttpParserMixin {
         imageUrls: imageUrls,
         imageThumbUrls: imageThumbUrls,
         livePhotoUrls: videoInfo?.livePhotoUrls ?? const [],
+        // 作者信息
+        authorId: author.id,
+        authorName: author.name,
+        authorAvatar: author.avatar,
+        // 统计信息
+        createTime: stats.createTime,
+        likeCount: stats.likeCount,
+        collectCount: stats.collectCount,
+        commentCount: stats.commentCount,
+        shareCount: stats.shareCount,
       );
     } else if (hasVideoField) {
       return VideoInfo(
@@ -461,6 +477,16 @@ class XiaohongshuParser with HttpParserMixin {
         height: videoInfo?.height ?? note['height'] as int?,
         imageUrls: imageUrls,
         imageThumbUrls: imageThumbUrls,
+        // 作者信息
+        authorId: author.id,
+        authorName: author.name,
+        authorAvatar: author.avatar,
+        // 统计信息
+        createTime: stats.createTime,
+        likeCount: stats.likeCount,
+        collectCount: stats.collectCount,
+        commentCount: stats.commentCount,
+        shareCount: stats.shareCount,
       );
     } else if (imageUrls.isNotEmpty) {
       return VideoInfo(
@@ -476,6 +502,16 @@ class XiaohongshuParser with HttpParserMixin {
         height: note['height'] as int?,
         imageUrls: imageUrls,
         imageThumbUrls: imageThumbUrls,
+        // 作者信息
+        authorId: author.id,
+        authorName: author.name,
+        authorAvatar: author.avatar,
+        // 统计信息
+        createTime: stats.createTime,
+        likeCount: stats.likeCount,
+        collectCount: stats.collectCount,
+        commentCount: stats.commentCount,
+        shareCount: stats.shareCount,
       );
     }
 
@@ -492,7 +528,60 @@ class XiaohongshuParser with HttpParserMixin {
       height: note['height'] as int?,
       imageUrls: imageUrls,
       imageThumbUrls: imageThumbUrls,
+      // 作者信息
+      authorId: author.id,
+      authorName: author.name,
+      authorAvatar: author.avatar,
+      // 统计信息
+      createTime: stats.createTime,
+      likeCount: stats.likeCount,
+      collectCount: stats.collectCount,
+      commentCount: stats.commentCount,
+      shareCount: stats.shareCount,
     );
+  }
+
+  /// 提取作者信息
+  ({String? id, String? name, String? avatar}) _extractAuthorInfo(Map<String, dynamic> note) {
+    final user = note['user'];
+    if (user is! Map) return (id: null, name: null, avatar: null);
+
+    return (
+      id: user['userId']?.toString(),
+      name: user['nickName']?.toString(),
+      avatar: user['avatar']?.toString(),
+    );
+  }
+
+  /// 提取互动统计信息
+  ({int? createTime, int? likeCount, int? collectCount, int? commentCount, int? shareCount}) _extractInteractInfo(
+    Map<String, dynamic> note,
+  ) {
+    // 发布时间（毫秒）
+    final createTimeRaw = note['time'];
+    final createTime = createTimeRaw is int
+        ? createTimeRaw
+        : int.tryParse(createTimeRaw?.toString() ?? '');
+
+    final interact = note['interactInfo'];
+    if (interact is! Map) {
+      return (createTime: createTime, likeCount: null, collectCount: null, commentCount: null, shareCount: null);
+    }
+
+    return (
+      createTime: createTime,
+      likeCount: _parseInt(interact['likedCount']),
+      collectCount: _parseInt(interact['collectedCount']),
+      commentCount: _parseInt(interact['commentCount']),
+      shareCount: _parseInt(interact['shareCount']),
+    );
+  }
+
+  int? _parseInt(dynamic value) {
+    if (value is int) return value;
+    final s = value?.toString();
+    if (s == null || s.isEmpty) return null;
+    return int.tryParse(s);
   }
 
   /// 提取封面图 URL

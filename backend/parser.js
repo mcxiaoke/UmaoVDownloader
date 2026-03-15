@@ -15,20 +15,32 @@ export { parse } from "./parsers/index.js";
 /**
  * 视频/图文信息数据结构定义
  * @typedef {Object} VideoInfo
- * @property {'video'|'image'} type - 内容类型：video(视频) 或 image(图文)
+ * @property {'video'|'image'|'livephoto'} type - 内容类型：video(视频)、image(图文) 或 livephoto(实况图)
  * @property {string} platform - 平台标识，如 "douyin"(抖音)、"xiaohongshu"(小红书)
  * @property {string} id - 内容唯一标识符
- * @property {string|null} shareId - 分享链接中的短ID（抖音特有）
+ * @property {string|null} shareId - 分享链接中的短ID
  * @property {string} title - 内容标题或描述
  * @property {string|null} coverUrl - 封面图片URL
  * @property {number|null} width - 内容宽度（像素）
  * @property {number|null} height - 内容高度（像素）
- * @property {string[]|undefined} qualities - 视频专有：可用画质列表，如 ["1080p", "720p"]
+ * @property {string[]|undefined} qualities - 视频专有：可用画质列表
  * @property {Object|undefined} qualityUrls - 视频专有：各画质对应的URL映射
  * @property {string|null|undefined} videoUrl - 视频专有：最高画质视频直链
  * @property {string[]|undefined} imageUrls - 图文专有：图片URL数组
+ * @property {string[]|undefined} imageThumbs - 图文专有：缩略图URL数组
  * @property {number|undefined} imageCount - 图文专有：图片数量
  * @property {string|null|undefined} musicTitle - 图文专有：背景音乐标题
  * @property {string|null|undefined} musicAuthor - 图文专有：背景音乐作者
  * @property {string|null|undefined} musicUrl - 图文专有：背景音乐URL
+ * @property {string[]|undefined} livePhotoUrls - 实况图专有：实况视频URL数组
+ * // 作者信息
+ * @property {string|null|undefined} authorId - 作者唯一标识（抖音号/用户ID）
+ * @property {string|null|undefined} authorName - 作者昵称
+ * @property {string|null|undefined} authorAvatar - 作者头像URL
+ * // 统计信息
+ * @property {number|null|undefined} createTime - 发布时间戳（抖音:秒，小红书:毫秒）
+ * @property {number|null|undefined} likeCount - 点赞数
+ * @property {number|null|undefined} collectCount - 收藏数
+ * @property {number|null|undefined} commentCount - 评论数
+ * @property {number|null|undefined} shareCount - 分享数
  */

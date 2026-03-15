@@ -547,11 +547,16 @@ async function buildResult(note, shareId) {
   // 提取用户信息
   // 注意：小红书JSON中是 nickName（N大写），不是 nickname
   const user = note.user || note.author || {};
-  const userInfo = {
-    userId: user.userId || user.id || null,
-    nickname: user.nickName || user.nickname || null,
-    avatar: user.avatar || null,
-  };
+  const authorId = user.userId || user.id || null;
+  const authorName = user.nickName || user.nickname || null;
+  const authorAvatar = user.avatar || null;
+
+  // 提取统计信息
+  const interactInfo = note.interactInfo || {};
+  const createTimeRaw = note.time;
+  const createTime = typeof createTimeRaw === "number"
+    ? createTimeRaw
+    : parseInt(createTimeRaw, 10) || null;
 
   const itemId = String(id);
   const result = {
@@ -564,7 +569,16 @@ async function buildResult(note, shareId) {
     coverUrl,
     width: note.width || null,
     height: note.height || null,
-    ...userInfo,
+    // 作者信息（统一字段名）
+    authorId,
+    authorName,
+    authorAvatar,
+    // 统计信息
+    createTime,
+    likeCount: parseInt(interactInfo.likedCount, 10) || null,
+    collectCount: parseInt(interactInfo.collectedCount, 10) || null,
+    commentCount: parseInt(interactInfo.commentCount, 10) || null,
+    shareCount: parseInt(interactInfo.shareCount, 10) || null,
   };
 
   // 根据类型填充详细内容

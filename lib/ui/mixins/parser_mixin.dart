@@ -83,19 +83,10 @@ mixin ParserMixin<T extends StatefulWidget> on State<T> {
     });
     log.info('开始解析：$url');
     vlog('当前平台: ${Platform.operatingSystem}');
-    vlog('策略=${settings.parserStrategy.value}');
-    final enableCompare =
-        settings.compareParsers && settings.parserStrategy == ParserStrategy.auto;
-    vlog('并行对比=${enableCompare ? "开启" : "关闭"}');
     final sw = Stopwatch()..start();
 
     try {
-      final info = await parserFacade.parse(
-        url,
-        strategy: settings.parserStrategy,
-        compareParsers: enableCompare,
-        log: (m) => vlog(m),
-      );
+      final info = await parserFacade.parse(url, log: (m) => vlog(m));
 
       setState(() {
         videoInfo = info;

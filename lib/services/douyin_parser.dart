@@ -250,11 +250,69 @@ class DouyinParser with HttpParserMixin {
 
     final mediaType = AwemeTypeHelper.detectType(item);
 
+    // 提取作者信息
+    final author = _extractAuthorInfo(item);
+
+    // 提取统计信息
+    final stats = _extractStatistics(item);
+
     return switch (mediaType) {
-      DouyinMediaType.image => _buildImagePost(item, id, title, shareId),
-      DouyinMediaType.video => _buildVideoPost(item, id, title, shareId),
-      DouyinMediaType.unknown => _buildVideoPost(item, id, title, shareId),
+      DouyinMediaType.image => _buildImagePost(item, id, title, shareId, author, stats),
+      DouyinMediaType.video => _buildVideoPost(item, id, title, shareId, author, stats),
+      DouyinMediaType.unknown => _buildVideoPost(item, id, title, shareId, author, stats),
     };
+  }
+
+  /// 提取作者信息
+  ({String? id, String? name, String? avatar}) _extractAuthorInfo(Map<String, dynamic> item) {
+    final author = item['author'];
+    if (author is! Map) return (id: null, name: null, avatar: null);
+
+    // 优先使用 unique_id（抖音号），其次 short_id
+    final uniqueId = author['unique_id']?.toString();
+    final shortId = author['short_id']?.toString();
+    final authorId = (uniqueId != null && uniqueId.isNotEmpty) ? uniqueId : shortId;
+
+    final nickname = author['nickname']?.toString();
+
+    String? avatar;
+    final avatarThumb = author['avatar_thumb'];
+    if (avatarThumb is Map) {
+      final urlList = avatarThumb['url_list'];
+      if (urlList is List && urlList.isNotEmpty) {
+        avatar = urlList.first?.toString();
+      }
+    }
+
+    return (id: authorId, name: nickname, avatar: avatar);
+  }
+
+  /// 提取统计信息
+  ({int? createTime, int? likeCount, int? collectCount, int? commentCount, int? shareCount}) _extractStatistics(
+    Map<String, dynamic> item,
+  ) {
+    final createTimeRaw = item['create_time'];
+    final createTime = createTimeRaw is int
+        ? createTimeRaw
+        : int.tryParse(createTimeRaw?.toString() ?? '');
+
+    final stats = item['statistics'];
+    if (stats is! Map) {
+      return (createTime: createTime, likeCount: null, collectCount: null, commentCount: null, shareCount: null);
+    }
+
+    return (
+      createTime: createTime,
+      likeCount: _parseInt(stats['digg_count']),
+      collectCount: _parseInt(stats['collect_count']),
+      commentCount: _parseInt(stats['comment_count']),
+      shareCount: _parseInt(stats['share_count']),
+    );
+  }
+
+  int? _parseInt(dynamic value) {
+    if (value is int) return value;
+    return int.tryParse(value?.toString() ?? '');
   }
 
   /// 构建图文作品
@@ -263,6 +321,8 @@ class DouyinParser with HttpParserMixin {
     String id,
     String title,
     String? shareId,
+    ({String? id, String? name, String? avatar}) author,
+    ({int? createTime, int? likeCount, int? collectCount, int? commentCount, int? shareCount}) stats,
   ) {
     final images = item['images'];
     final imageUrls = <String>[];
@@ -371,6 +431,16 @@ class DouyinParser with HttpParserMixin {
       musicUrl: musicUrl,
       musicTitle: musicTitle,
       musicAuthor: musicAuthor,
+      // 作者信息
+      authorId: author.id,
+      authorName: author.name,
+      authorAvatar: author.avatar,
+      // 统计信息
+      createTime: stats.createTime,
+      likeCount: stats.likeCount,
+      collectCount: stats.collectCount,
+      commentCount: stats.commentCount,
+      shareCount: stats.shareCount,
     );
   }
 
@@ -380,6 +450,8 @@ class DouyinParser with HttpParserMixin {
     String id,
     String title,
     String? shareId,
+    ({String? id, String? name, String? avatar}) author,
+    ({int? createTime, int? likeCount, int? collectCount, int? commentCount, int? shareCount}) stats,
   ) {
     final video = item['video'];
     String? coverUrl;
@@ -442,6 +514,16 @@ class DouyinParser with HttpParserMixin {
       width: width,
       height: height,
       bitrateKbps: bitrateKbps,
+      // 作者信息
+      authorId: author.id,
+      authorName: author.name,
+      authorAvatar: author.avatar,
+      // 统计信息
+      createTime: stats.createTime,
+      likeCount: stats.likeCount,
+      collectCount: stats.collectCount,
+      commentCount: stats.commentCount,
+      shareCount: stats.shareCount,
     );
   }
 

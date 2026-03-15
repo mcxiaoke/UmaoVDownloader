@@ -158,14 +158,15 @@ export async function parse(url, debug = false) {
   const mediaType = detectMediaType(item);
   log(`  ✓ 内容类型: ${mediaType}`);
 
-  // 提取用户信息
-  // 抖音author对象字段：short_id, unique_id(抖音号), sec_uid, nickname, avatar_thumb
+  // 提取作者信息
   const author = item.author ?? {};
-  const userInfo = {
-    userId: author.unique_id ?? author.short_id ?? null,
-    nickname: author.nickname ?? null,
-    avatar: author.avatar_thumb?.url_list?.[0] ?? null,
-  };
+  const authorId = author.unique_id ?? author.short_id ?? null;
+  const authorName = author.nickname ?? null;
+  const authorAvatar = author.avatar_thumb?.url_list?.[0] ?? null;
+
+  // 提取统计信息
+  const statistics = item.statistics ?? {};
+  const createTime = item.create_time ?? null;
 
   // 构建基础信息
   const itemId = item.aweme_id ?? awemeId;
@@ -179,7 +180,16 @@ export async function parse(url, debug = false) {
     coverUrl: item.video?.cover?.url_list?.[0] ?? null,
     width: item.video?.width ?? null,
     height: item.video?.height ?? null,
-    ...userInfo,
+    // 作者信息
+    authorId,
+    authorName,
+    authorAvatar,
+    // 统计信息
+    createTime,
+    likeCount: statistics.digg_count ?? null,
+    collectCount: statistics.collect_count ?? null,
+    commentCount: statistics.comment_count ?? null,
+    shareCount: statistics.share_count ?? null,
   };
 
   log("→ 构建结果:");

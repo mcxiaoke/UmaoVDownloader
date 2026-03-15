@@ -329,16 +329,6 @@ class _HomePageState extends State<HomePage> with ParserMixin, DownloaderMixin {
 
   Future<void> _openLogSettingsPanel() async {
     var verbose = widget.settings.verboseLog;
-    var compare = widget.settings.compareParsers;
-    var parserStrategy = widget.settings.parserStrategy;
-
-    String parserLabel(ParserStrategy s) {
-      return switch (s) {
-        ParserStrategy.auto => '自动',
-        ParserStrategy.dartOnly => 'Dart解析器',
-        ParserStrategy.jsOnly => 'JS解析器',
-      };
-    }
 
     await showModalBottomSheet<void>(
       context: context,
@@ -368,50 +358,6 @@ class _HomePageState extends State<HomePage> with ParserMixin, DownloaderMixin {
                         widget.log.info(v ? '已开启详细日志输出' : '已关闭详细日志输出');
                       },
                       title: const Text('详细日志'),
-                    ),
-                    SwitchListTile.adaptive(
-                      value: compare,
-                      onChanged: parserStrategy == ParserStrategy.auto
-                          ? (v) async {
-                              setSheetState(() => compare = v);
-                              await widget.settings.setCompareParsers(v);
-                              widget.log.info(v ? '已开启双解析器并行对比' : '已关闭双解析器并行对比');
-                            }
-                          : null,
-                      subtitle: parserStrategy == ParserStrategy.auto
-                          ? null
-                          : const Text('仅自动模式生效'),
-                      title: const Text('解析器并行对比'),
-                    ),
-                    ListTile(
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-                      leading: const Icon(Icons.memory),
-                      title: const Text('解析器选择'),
-                      subtitle: Text(parserLabel(parserStrategy)),
-                      trailing: DropdownButton<ParserStrategy>(
-                        value: parserStrategy,
-                        underline: const SizedBox.shrink(),
-                        items: const [
-                          DropdownMenuItem(
-                            value: ParserStrategy.auto,
-                            child: Text('自动'),
-                          ),
-                          DropdownMenuItem(
-                            value: ParserStrategy.dartOnly,
-                            child: Text('Dart解析器'),
-                          ),
-                          DropdownMenuItem(
-                            value: ParserStrategy.jsOnly,
-                            child: Text('JS解析器'),
-                          ),
-                        ],
-                        onChanged: (v) async {
-                          if (v == null) return;
-                          setSheetState(() => parserStrategy = v);
-                          await widget.settings.setParserStrategy(v);
-                          widget.log.info('解析器已切换为：${parserLabel(v)}');
-                        },
-                      ),
                     ),
                     if (widget.log.logFilePath != null)
                       ListTile(
