@@ -27,7 +27,8 @@ enum VideoQuality {
 
 /// 解析视频信息的结果
 class VideoInfo {
-  final String videoId;
+  /// 作品ID (抖音: aweme_id, 小红书: noteId)
+  final String itemId;
   final String title;
 
   /// video_id 参数（用于构造 play URL，如 v0200fg10000xxxxxx）
@@ -68,7 +69,7 @@ class VideoInfo {
   final List<String> livePhotoUrls;
 
   const VideoInfo({
-    required this.videoId,
+    required this.itemId,
     required this.title,
     required this.videoFileId,
     required this.videoUrl,
@@ -98,7 +99,7 @@ class VideoInfo {
 
   @override
   String toString() =>
-      'VideoInfo(id: $videoId, title: $title, resolution: $resolutionLabel)';
+      'VideoInfo(itemId: $itemId, title: $title, resolution: $resolutionLabel)';
 }
 
 /// 抖音作品类型枚举
@@ -545,7 +546,7 @@ class DouyinParser {
     }
 
     return VideoInfo(
-      videoId: id,
+      itemId: id,
       title: title,
       videoFileId: '',
       videoUrl: '',
@@ -617,7 +618,7 @@ class DouyinParser {
     }
 
     return VideoInfo(
-      videoId: id,
+      itemId: id,
       title: title,
       videoFileId: bestVideoFileId ?? '',
       videoUrl: bestVideoUrl,

@@ -79,7 +79,7 @@ class WebViewParser {
       log: log,
     );
     if (info != null) {
-      log?.call('WebView 解析成功: id=${info.videoId}');
+      log?.call('WebView 解析成功: itemId=${info.itemId}');
       return info;
     }
 
@@ -171,7 +171,7 @@ class WebViewParser {
       if (data == null) return null;
 
       final info = _mapToVideoInfo(data);
-      log?.call('WebView(Windows) 解析成功: id=${info.videoId}');
+      log?.call('WebView(Windows) 解析成功: itemId=${info.itemId}');
       return info;
     } on PlatformException catch (e) {
       log?.call('WebView(Windows) 平台错误: ${e.code} ${e.message ?? ''}');
@@ -414,7 +414,7 @@ class WebViewParser {
     final width = int.tryParse(data['width']?.toString() ?? '');
     final height = int.tryParse(data['height']?.toString() ?? '');
 
-    // 提取通用字段
+    // 提取通用字段 - 对齐 backend 字段
     final imageUrls = (data['imageUrls'] is List)
         ? (data['imageUrls'] as List)
               .map((e) => e.toString())
@@ -422,12 +422,31 @@ class WebViewParser {
               .toList()
         : const <String>[];
 
+    final imageThumbUrls = (data['imageThumbs'] is List)
+        ? (data['imageThumbs'] as List)
+              .map((e) => e.toString())
+              .where((e) => e.isNotEmpty)
+              .toList()
+        : const <String>[];
+
+    final livePhotoUrls = (data['livePhotoUrls'] is List)
+        ? (data['livePhotoUrls'] as List)
+              .map((e) => e.toString())
+              .where((e) => e.isNotEmpty)
+              .toList()
+        : const <String>[];
+
     final musicUrl = data['musicUrl']?.toString();
+    final videoUrl = data['videoUrl']?.toString() ?? '';
+
+    // 提取视频码率 (bps -> kbps)
+    final videoBitrate = int.tryParse(data['videoBitrate']?.toString() ?? '');
+    final bitrateKbps = videoBitrate != null ? videoBitrate ~/ 1000 : null;
 
     // 根据类型构建结果
     return switch (type) {
       'image' => VideoInfo(
-          videoId: id,
+          itemId: id,
           title: title,
           videoFileId: '',
           videoUrl: '',
@@ -435,32 +454,50 @@ class WebViewParser {
           shareId: data['shareId']?.toString(),
           width: width,
           height: height,
+          bitrateKbps: bitrateKbps,
           imageUrls: imageUrls,
+          imageThumbUrls: imageThumbUrls,
           musicUrl: (musicUrl != null && musicUrl.isNotEmpty) ? musicUrl : null,
           musicTitle: data['musicTitle']?.toString(),
           livePhotoUrls: const [],
         ),
-      'video' => VideoInfo(
-          videoId: id,
+      'livephoto' => VideoInfo(
+          itemId: id,
           title: title,
-          videoFileId: _pickBestVideoFileId(data['videoUrl']?.toString() ?? ''),
-          videoUrl: data['videoUrl']?.toString() ?? '',
+          videoFileId: _pickBestVideoFileId(videoUrl),
+          videoUrl: videoUrl,
           coverUrl: data['coverUrl']?.toString(),
           shareId: data['shareId']?.toString(),
           width: width,
           height: height,
+          bitrateKbps: bitrateKbps,
+          imageUrls: imageUrls,
+          imageThumbUrls: imageThumbUrls.isNotEmpty ? imageThumbUrls : imageUrls,
+          livePhotoUrls: livePhotoUrls,
+        ),
+      'video' => VideoInfo(
+          itemId: id,
+          title: title,
+          videoFileId: _pickBestVideoFileId(videoUrl),
+          videoUrl: videoUrl,
+          coverUrl: data['coverUrl']?.toString(),
+          shareId: data['shareId']?.toString(),
+          width: width,
+          height: height,
+          bitrateKbps: bitrateKbps,
           livePhotoUrls: const [],
         ),
       _ => VideoInfo(
           // 默认按视频处理
-          videoId: id,
+          itemId: id,
           title: title,
-          videoFileId: _pickBestVideoFileId(data['videoUrl']?.toString() ?? ''),
-          videoUrl: data['videoUrl']?.toString() ?? '',
+          videoFileId: _pickBestVideoFileId(videoUrl),
+          videoUrl: videoUrl,
           coverUrl: data['coverUrl']?.toString(),
           shareId: data['shareId']?.toString(),
           width: width,
           height: height,
+          bitrateKbps: bitrateKbps,
           livePhotoUrls: const [],
         ),
     };

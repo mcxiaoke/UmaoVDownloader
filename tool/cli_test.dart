@@ -68,7 +68,7 @@ Future<void> main(List<String> args) async {
   }
 
   _printSeparator();
-  print('视频ID   : ${info.videoId}');
+  print('作品ID   : ${info.itemId}');
   print('标题     : ${info.title}');
   print('fileId   : ${info.videoFileId}');
   print('封面地址 : ${info.coverUrl ?? "无"}');

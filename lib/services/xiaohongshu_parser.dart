@@ -72,6 +72,10 @@ class XiaohongshuParser {
     final extracted = _extractUrl(input);
     _log('提取URL: $extracted');
 
+    // 从原始 URL 提取 shareId（短链接ID）
+    final shareId = _extractShareId(extracted);
+    _log('  shareId: $shareId');
+
     // 跟随重定向获取真实 URL 和 HTML
     _log('→ 请求页面...');
     final (:html, :finalUrl) = await _resolveXhsUrl(extracted);
@@ -104,7 +108,7 @@ class XiaohongshuParser {
     final hasVideo = note['video'] != null && note['video'] is Map;
     _log('  ✓ type: ${hasVideo ? 'video' : note['imageList'] != null ? 'image' : 'unknown'}');
 
-    final result = await _buildResult(note);
+    final result = await _buildResult(note, shareId: shareId);
 
     _log('→ 构建结果:');
     _log('  type: ${result.videoUrl.isNotEmpty ? 'video' : result.imageUrls.isNotEmpty ? 'image' : 'unknown'}');
@@ -136,6 +140,16 @@ class XiaohongshuParser {
   String _extractUrl(String text) {
     final match = RegExp(r'https?://[^\s，,。]+').firstMatch(text);
     return match?.group(0) ?? text;
+  }
+
+  /// 从 URL 中提取 shareId（短链接ID）
+  /// 例如 http://xhslink.com/o/xxxxx 中的 xxxxx
+  String? _extractShareId(String url) {
+    // 匹配 xhslink.com/o/{shareId}
+    final match = RegExp(r'xhslink\.com/o/([A-Za-z0-9_-]+)').firstMatch(url);
+    if (match != null) return match.group(1);
+    // 匹配 xiaohongshu.com/explore/{noteId} - 这不是 shareId 返回 null
+    return null;
   }
 
   /// 跟随重定向获取真实 URL 和 HTML
@@ -301,7 +315,7 @@ class XiaohongshuParser {
   }
 
   /// 构建统一的结果对象
-  Future<VideoInfo> _buildResult(Map<String, dynamic> note) async {
+  Future<VideoInfo> _buildResult(Map<String, dynamic> note, {String? shareId}) async {
     final id = note['noteId']?.toString() ?? note['id']?.toString() ?? '';
     final title = note['title']?.toString() ?? '';
     final desc = note['desc']?.toString() ?? '';
@@ -333,12 +347,12 @@ class XiaohongshuParser {
     if (hasVideoField || isLivePhoto) {
       // 视频笔记或实况图（即使无法提取流信息，也标记为视频类型）
       return VideoInfo(
-        videoId: id,
+        itemId: id,
         title: title.isNotEmpty ? title : desc.substring(0, desc.length.clamp(0, 50)),
         videoFileId: id,
         videoUrl: videoInfo?.videoUrl ?? '',
         coverUrl: coverUrl,
-        shareId: null,
+        shareId: shareId,
         width: videoInfo?.width ?? note['width'] as int?,
         height: videoInfo?.height ?? note['height'] as int?,
         imageUrls: imageUrls, // 视频笔记也可能有封面图
@@ -350,12 +364,12 @@ class XiaohongshuParser {
     } else if (imageUrls.isNotEmpty) {
       // 纯图片笔记
       return VideoInfo(
-        videoId: id,
+        itemId: id,
         title: title.isNotEmpty ? title : desc.substring(0, desc.length.clamp(0, 50)),
         videoFileId: '',
         videoUrl: '',
         coverUrl: coverUrl,
-        shareId: null,
+        shareId: shareId,
         width: note['width'] as int?,
         height: note['height'] as int?,
         imageUrls: imageUrls,
@@ -368,12 +382,12 @@ class XiaohongshuParser {
 
     // 未知类型
     return VideoInfo(
-      videoId: id,
+      itemId: id,
       title: title.isNotEmpty ? title : desc.substring(0, desc.length.clamp(0, 50)),
       videoFileId: '',
       videoUrl: '',
       coverUrl: coverUrl,
-      shareId: null,
+      shareId: shareId,
       width: note['width'] as int?,
       height: note['height'] as int?,
       imageUrls: imageUrls,

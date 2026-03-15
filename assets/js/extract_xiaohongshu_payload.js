@@ -222,9 +222,9 @@
   }
 
   /**
-   * 提取图片 URL 列表（无水印高清图）
+   * 提取图片列表（含 thumb 和 full）
    */
-  function extractImageUrls(note) {
+  function extractImageList(note) {
     const imageList = get(note, "imageList", []);
     if (!Array.isArray(imageList)) return [];
 
@@ -232,27 +232,63 @@
       .map((img) => {
         // 优先使用 infoList 中的 URL 提取 fileId
         const infoList = get(img, "infoList", []);
+        let fullUrl = null;
+        let thumbUrl = null;
+
         if (infoList.length > 0) {
           const best = infoList[infoList.length - 1];
+          const thumb = infoList[0];
           if (best.url) {
             const result = extractFileIdFromUrl(best.url);
             if (result) {
-              return `https://sns-img-hw.xhscdn.com/${result.prefix}${result.fileId}?imageView2/2/w/0/format/jpg`;
+              fullUrl = `https://sns-img-hw.xhscdn.com/${result.prefix}${result.fileId}?imageView2/2/w/0/format/jpg`;
+            } else {
+              fullUrl = best.url;
             }
-            return best.url;
+          }
+          if (thumb.url) {
+            const result = extractFileIdFromUrl(thumb.url);
+            if (result) {
+              thumbUrl = `https://sns-img-hw.xhscdn.com/${result.prefix}${result.fileId}?imageView2/2/w/200/format/jpg`;
+            } else {
+              thumbUrl = thumb.url;
+            }
           }
         }
 
         // 备用：traceId
-        const traceId = img.traceId || get(img, "infoList.0.imageScene.traceId");
-        if (traceId) {
-          return `https://sns-img-hw.xhscdn.com/${traceId}?imageView2/2/w/0/format/jpg`;
+        if (!fullUrl) {
+          const traceId = img.traceId || get(img, "infoList.0.imageScene.traceId");
+          if (traceId) {
+            fullUrl = `https://sns-img-hw.xhscdn.com/${traceId}?imageView2/2/w/0/format/jpg`;
+            thumbUrl = `https://sns-img-hw.xhscdn.com/${traceId}?imageView2/2/w/200/format/jpg`;
+          }
         }
 
         // 最后备用
-        return img.urlDefault || img.url || null;
+        if (!fullUrl) {
+          fullUrl = img.urlDefault || img.url || null;
+          thumbUrl = img.urlDefault || img.url || null;
+        }
+
+        if (!fullUrl) return null;
+
+        return {
+          full: fullUrl,
+          thumb: thumbUrl || fullUrl,
+          isLivePhoto: img.livePhoto === true,
+          videoUrl: null, // 实况图视频URL在extractLivePhotoUrls中单独处理
+        };
       })
       .filter(Boolean);
+  }
+
+  /**
+   * 提取图片 URL 列表（无水印高清图）- 兼容旧字段
+   */
+  function extractImageUrls(note) {
+    const list = extractImageList(note);
+    return list.map(i => i.full);
   }
 
   /**
@@ -347,9 +383,26 @@
   }
 
   /**
-   * 构建基础结果对象
+   * 从URL中提取分享ID (xhslink.com/o/xxxxx)
    */
-  function buildResult(note) {
+  function extractShareId(url) {
+    try {
+      const urlObj = new URL(url);
+      const pathParts = urlObj.pathname.split("/").filter(Boolean);
+      if (urlObj.hostname === "xhslink.com" && pathParts[0] === "o") {
+        return pathParts[1] || null;
+      }
+    } catch {
+      const match = url.match(/xhslink\.com\/o\/([A-Za-z0-9_-]+)/);
+      if (match) return match[1];
+    }
+    return null;
+  }
+
+  /**
+   * 构建基础结果对象 - 对齐 backend 字段
+   */
+  function buildResult(note, shareId) {
     const id = get(note, "noteId") || get(note, "id") || "";
     const title = get(note, "title") || "";
     const desc = get(note, "desc") || "";
@@ -357,7 +410,9 @@
 
     // 判断类型
     const videoInfo = extractVideoInfo(note);
-    const imageUrls = extractImageUrls(note);
+    const imageList = extractImageList(note);
+    const imageUrls = imageList.map(i => i.full);
+    const imageThumbs = imageList.map(i => i.thumb);
     const livePhotoUrls = extractLivePhotoUrls(note);
 
     // 优先级：普通视频 > 实况图 > 纯图片
@@ -370,14 +425,26 @@
       type = "image";
     }
 
+    // 提取用户信息
+    const user = note.user || note.author || {};
+    const userInfo = {
+      userId: user.userId || user.id || null,
+      nickname: user.nickName || user.nickname || null,
+      avatar: user.avatar || null,
+    };
+
     const result = {
+      ok: true,
+      platform: "xiaohongshu",
       id: String(id),
+      itemId: String(id),
+      shareId,
       title: title || desc.substring(0, 50),
       coverUrl,
       type,
-      platform: "xiaohongshu",
       width: note.width || null,
       height: note.height || null,
+      ...userInfo,
     };
 
     if (type === "video" && videoInfo) {
@@ -390,12 +457,17 @@
       // 实况图：返回视频 URL 列表和图片 URL 列表（用于缩略图）
       result.livePhotoUrls = livePhotoUrls;
       result.livePhotoCount = livePhotoUrls.length;
-      result.imageUrls = imageUrls; // 缩略图用
+      result.imageUrls = imageUrls;
+      result.imageThumbs = imageThumbs;
+      result.imageList = imageList;
+      result.imageCount = imageUrls.length;
       // 用第一个视频 URL 作为默认视频地址
       result.videoUrl = livePhotoUrls[0];
       result.qualityUrls = { "720p": livePhotoUrls[0] };
     } else if (type === "image") {
       result.imageUrls = imageUrls;
+      result.imageThumbs = imageThumbs;
+      result.imageList = imageList;
       result.imageCount = imageUrls.length;
     }
 
@@ -413,8 +485,11 @@
     const note = extractNoteData(data);
     if (!note) return jsonFail(ErrorCode.NO_NOTE_DATA);
 
+    // 提取分享ID
+    const shareId = extractShareId(location.href);
+
     // 构建结果
-    const result = buildResult(note);
+    const result = buildResult(note, shareId);
     return jsonSuccess(result);
   }
 

@@ -65,7 +65,7 @@ abstract class BaseDownloader implements VideoDownloader {
         ? directory!
         : await getDefaultDirectory();
 
-    final prefix = info.shareId ?? info.videoId;
+    final prefix = info.shareId ?? info.itemId;
     final cleanTitle = _sanitizeFilename(info.title);
     final baseName = filename != null && filename.isNotEmpty
         ? _sanitizeFilename(filename)

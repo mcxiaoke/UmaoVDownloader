@@ -218,7 +218,7 @@ class ParserFacade {
 
     // 返回标准化后的视频信息
     return VideoInfo(
-      videoId: info.videoId,
+      itemId: info.itemId,
       title: info.title,
       videoFileId: info.videoFileId,
       videoUrl: info.videoUrl,

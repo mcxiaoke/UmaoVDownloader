@@ -133,7 +133,7 @@ class _HomePageState extends State<HomePage> {
       }
       _log.info('解析成功：${info.title}');
       _vlog('解析耗时: ${sw.elapsedMilliseconds} ms');
-      _log.info('videoId=${info.videoId}');
+      _log.info('itemId=${info.itemId}');
       if (info.isImagePost) {
         _log.info('图文作品，共 ${info.imageUrls.length} 张图片');
         _vlog('musicUrl=${info.musicUrl ?? "<none>"}');
@@ -224,7 +224,7 @@ class _HomePageState extends State<HomePage> {
     if (_singleLivePhotoDownloading[index] == true) return;
 
     final url = info.livePhotoUrls[index];
-    final prefix = info.shareId ?? info.videoId;
+    final prefix = info.shareId ?? info.itemId;
     final cleanTitle = _sanitizeFilename(info.title);
     final filename = '${prefix}_${cleanTitle}_${index + 1}';
 
@@ -286,7 +286,7 @@ class _HomePageState extends State<HomePage> {
     if (_singleLivePhotoDownloading[index] == true) return;
 
     final url = info.imageUrls[index];
-    final prefix = info.shareId ?? info.videoId;
+    final prefix = info.shareId ?? info.itemId;
     final cleanTitle = _sanitizeFilename(info.title);
     final filename = '${prefix}_${cleanTitle}_${index + 1}';
 
@@ -751,7 +751,7 @@ class _HomePageState extends State<HomePage> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'ID: ${info.videoId}',
+                  _buildMetaInfo(info),
                   style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
                 ),
                 // 封面图/缩略图：图文作品或实况图显示缩略图，普通视频显示封面
@@ -1594,6 +1594,24 @@ class _HomePageState extends State<HomePage> {
     _logScrollCtrl.dispose();
     _thumbScrollCtrl.dispose();
     super.dispose();
+  }
+
+  /// 构建元信息文本：ID · 类型 · 数量
+  String _buildMetaInfo(VideoInfo info) {
+    final id = info.shareId ?? info.itemId;
+    String type;
+    String count;
+    if (info.livePhotoUrls.isNotEmpty) {
+      type = '实况图';
+      count = '${info.livePhotoUrls.length}';
+    } else if (info.isImagePost) {
+      type = '图文';
+      count = '${info.imageUrls.length}';
+    } else {
+      type = '视频';
+      count = '1';
+    }
+    return 'ID: $id · 类型: $type · 数量: $count';
   }
 
   /// 清理文件名（简化版）

@@ -304,26 +304,92 @@
   }
 
   /**
-   * 构建基础结果对象
+   * 提取图文作品的图片列表（含 thumb 和 full）
+   */
+  function extractImageList(item) {
+    const images = get(item, "images", []);
+    return images.map((image, idx) => {
+      const urls = get(image, "url_list", []);
+      if (!Array.isArray(urls) || urls.length === 0) return null;
+
+      // 找大图（无水印优先）：tplv-dy-lqen-new 且无 water
+      const full =
+        urls.find(
+          (u) => u.includes("tplv-dy-lqen-new") && !u.includes("-water"),
+        ) ??
+        urls.find((u) => u.includes("tplv-dy-aweme-images")) ??
+        urls[0] ??
+        null;
+
+      // 找缩略图：带 200x200 或类似的尺寸标记
+      const thumb =
+        urls.find((u) => u.includes("200x200") || u.includes("thumb")) ??
+        urls.find((u) => u.includes("tplv-dy-aweme-images")) ??
+        full;
+
+      if (!full) {
+        console.log(`[DY WebView] 图片 ${idx + 1}: 无可用 URL`);
+        return null;
+      }
+
+      return { thumb: thumb || full, full: decodeJsonEscapedString(full) };
+    }).filter(Boolean);
+  }
+
+  /**
+   * 提取视频质量信息
+   */
+  function extractVideoQuality(item) {
+    const bitRates = get(item, "video.bit_rate", []);
+    if (bitRates.length === 0) return null;
+
+    const best = bitRates[0];
+    return {
+      ratio: get(best, "gear_name", "").replace("gear_", "") || "1080p",
+      size: get(best, "data_size"),
+      bitrate: get(best, "bit_rate"),
+      width: get(best, "play_addr.width"),
+      height: get(best, "play_addr.height"),
+    };
+  }
+
+  /**
+   * 构建基础结果对象 - 对齐 backend 字段
    */
   function buildBaseResult(item, shareId) {
     const mediaType = detectMediaType(item);
-    const imageUrls = mediaType === "image" ? extractImageUrls(item) : [];
+    const imageList = mediaType === "image" ? extractImageList(item) : [];
+    const imageUrls = imageList.map(i => i.full);
+    const imageThumbs = imageList.map(i => i.thumb);
     const coverUrl = getArrayItem(item, "video.cover.url_list");
+    const awemeId = String(get(item, "aweme_id", ""));
+
+    // 提取视频质量信息
+    const qualityInfo = mediaType === "video" ? extractVideoQuality(item) : null;
+    const duration = get(item, "video.duration");
 
     return {
       ok: true,
-      id: String(get(item, "aweme_id", "")),
+      platform: "douyin",
+      id: awemeId,
+      itemId: awemeId,
       title: String(get(item, "desc", "")),
       coverUrl: coverUrl ? decodeJsonEscapedString(coverUrl) : null,
       width: get(item, "video.width"),
       height: get(item, "video.height"),
       shareId,
       type: mediaType,
+      imageList,
       imageUrls,
+      imageThumbs,
+      imageCount: imageUrls.length,
       musicTitle: get(item, "music.title"),
       musicUrl: null,
       videoUrl: null,
+      quality: qualityInfo?.ratio || null,
+      videoSize: qualityInfo?.size || null,
+      videoBitrate: qualityInfo?.bitrate || null,
+      duration: duration ? Math.round(duration / 1000) : null,
     };
   }
 

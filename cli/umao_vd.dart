@@ -61,7 +61,7 @@ void _printHelp() {
 Map<String, dynamic> _toJson(VideoInfo info) {
   return {
     'type': info.isImagePost ? 'image' : 'video',
-    'id': info.videoId,
+    'id': info.itemId,
     'shareId': info.shareId,
     'title': info.title,
     if (!info.isImagePost) ...{
@@ -84,7 +84,7 @@ Map<String, dynamic> _toJson(VideoInfo info) {
 void _printInfo(VideoInfo info) {
   stdout.writeln('');
   stdout.writeln('标题    : ${info.title}');
-  stdout.writeln('ID      : ${info.videoId}');
+  stdout.writeln('ID      : ${info.itemId}');
   if (info.shareId != null) stdout.writeln('短链 ID : ${info.shareId}');
 
   if (info.isImagePost) {
