@@ -6,7 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_windows/webview_windows.dart' as wvwin;
 
-import 'douyin_parser.dart';
+import 'parser_common.dart';
 
 /// 支持的平台类型
 enum ParserPlatform {

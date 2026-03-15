@@ -1,4 +1,4 @@
-import '../douyin_parser.dart';
+import '../parser_common.dart';
 
 /// 视频下载器抽象接口
 ///

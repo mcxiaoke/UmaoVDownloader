@@ -17,6 +17,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
+import 'package:umao_vdownloader/services/parser_common.dart';
 import 'package:umao_vdownloader/services/douyin_parser.dart';
 import 'package:umao_vdownloader/services/downloader/base_downloader.dart';
 import 'package:umao_vdownloader/services/url_extractor.dart';

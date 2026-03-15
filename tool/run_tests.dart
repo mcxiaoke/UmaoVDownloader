@@ -14,6 +14,7 @@ import 'dart:io' as io;
 
 import 'package:path/path.dart' as path;
 import 'package:http/http.dart' as http;
+import 'package:umao_vdownloader/services/parser_common.dart';
 import 'package:umao_vdownloader/services/douyin_parser.dart';
 import 'package:umao_vdownloader/services/xiaohongshu_parser.dart';
 

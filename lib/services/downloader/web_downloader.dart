@@ -1,4 +1,4 @@
-import '../douyin_parser.dart';
+import '../parser_common.dart';
 import 'video_downloader.dart';
 
 /// Web 平台下载器（预留接口，暂未实现）

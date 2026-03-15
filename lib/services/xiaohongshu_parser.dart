@@ -1,20 +1,10 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
-import 'douyin_parser.dart';
+import 'parser_common.dart';
 
-/// 小红书解析异常
-class XiaohongshuParseException implements Exception {
-  final String message;
-  const XiaohongshuParseException(this.message);
-
-  @override
-  String toString() => 'XiaohongshuParseException: $message';
-}
-
-/// 视频流信息
+/// 视频流信息 - 小红书特有
 class _VideoStream {
   final String url;
   final int bitrate;
@@ -33,10 +23,27 @@ class _VideoStream {
   });
 }
 
+/// 视频信息结果 - 小红书特有
+class _VideoInfoResult {
+  final String videoUrl;
+  final int? width;
+  final int? height;
+  final bool isLivePhoto;
+  final List<String>? livePhotoUrls;
+
+  _VideoInfoResult({
+    required this.videoUrl,
+    this.width,
+    this.height,
+    this.isLivePhoto = false,
+    this.livePhotoUrls,
+  });
+}
+
 /// 小红书解析器
 ///
 /// 流程：分享链接 → 跟随重定向 → 提取 __INITIAL_STATE__ → 解析笔记数据
-class XiaohongshuParser {
+class XiaohongshuParser with HttpParserMixin {
   static const _timeout = Duration(seconds: 15);
   static const _mobileUserAgent =
       'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) '
@@ -49,7 +56,7 @@ class XiaohongshuParser {
     'Accept-Language': 'zh-CN,zh;q=0.9',
   };
 
-  // CDN 域名列表（用于视频切换）
+  // CDN 域名列表（用于视频切换）- 小红书特有
   static const _cdnDomains = [
     'sns-video-hw.xhscdn.com', // 华为云
     'sns-video-hs.xhscdn.com', // 火山引擎
@@ -58,73 +65,67 @@ class XiaohongshuParser {
     'sns-video-bd.xhscdn.com', // 百度云
   ];
 
-  final http.Client _client;
   bool _debug = false;
 
-  XiaohongshuParser({http.Client? client}) : _client = client ?? http.Client();
+  XiaohongshuParser({http.Client? client, void Function(String)? onLog}) {
+    initHttpParser(client: client, onLog: onLog, logPrefix: '[XHS]');
+  }
 
   /// 解析小红书分享链接
   Future<VideoInfo> parse(String input, {bool debug = false}) async {
     _debug = debug;
-    _log('开始解析: $input');
+    log('开始解析: $input');
 
-    // 提取 URL
-    final extracted = _extractUrl(input);
-    _log('提取URL: $extracted');
+    final extracted = UrlUtils.extractUrl(input);
+    log('提取URL: $extracted');
 
-    // 从原始 URL 提取 shareId（短链接ID）
     final shareId = _extractShareId(extracted);
-    _log('  shareId: $shareId');
+    log('  shareId: $shareId');
 
-    // 跟随重定向获取真实 URL 和 HTML
-    _log('→ 请求页面...');
+    log('→ 请求页面...');
     final (:html, :finalUrl) = await _resolveXhsUrl(extracted);
-    _log('  最终URL: $finalUrl');
-    _log('  HTML长度: ${html.length} bytes');
+    log('  最终URL: $finalUrl');
+    log('  HTML长度: ${html.length} bytes');
 
-    // 尝试从 __INITIAL_STATE__ 提取数据
-    _log('→ 提取 __INITIAL_STATE__...');
+    log('→ 提取 __INITIAL_STATE__...');
     var data = _extractInitialState(html);
 
-    // 如果失败，尝试 SSR 数据
     if (data == null) {
-      _log('  未找到 __INITIAL_STATE__, 尝试 SSR 数据...');
+      log('  未找到 __INITIAL_STATE__, 尝试 SSR 数据...');
       data = _extractSsrData(html);
     }
 
     if (data == null) {
       throw const XiaohongshuParseException('未找到 __INITIAL_STATE__ 或 SSR 数据');
     }
-    _log('  ✓ 数据提取成功');
+    log('  ✓ 数据提取成功');
 
-    // 提取笔记数据
-    _log('→ 提取笔记数据...');
+    log('→ 提取笔记数据...');
     final note = _extractNoteData(data);
     if (note == null) {
       throw const XiaohongshuParseException('无法提取笔记数据');
     }
-    _log('  ✓ noteId: ${note['noteId'] ?? note['id'] ?? 'unknown'}');
-    _log('  ✓ title: ${(note['title'] ?? note['desc'] ?? '').toString().substring(0, (note['title'] ?? note['desc'] ?? '').toString().length.clamp(0, 50))}');
+    log('  ✓ noteId: ${note['noteId'] ?? note['id'] ?? 'unknown'}');
+    log('  ✓ title: ${(note['title'] ?? note['desc'] ?? '').toString().substring(0, (note['title'] ?? note['desc'] ?? '').toString().length.clamp(0, 50))}');
     final hasVideo = note['video'] != null && note['video'] is Map;
-    _log('  ✓ type: ${hasVideo ? 'video' : note['imageList'] != null ? 'image' : 'unknown'}');
+    log('  ✓ type: ${hasVideo ? 'video' : note['imageList'] != null ? 'image' : 'unknown'}');
 
     final result = await _buildResult(note, shareId: shareId);
 
-    _log('→ 构建结果:');
-    _log('  type: ${result.videoUrl.isNotEmpty ? 'video' : result.imageUrls.isNotEmpty ? 'image' : 'unknown'}');
-    _log('  imageCount: ${result.imageUrls.length}');
+    log('→ 构建结果:');
+    log('  type: ${result.videoUrl.isNotEmpty ? 'video' : result.imageUrls.isNotEmpty ? 'image' : 'unknown'}');
+    log('  imageCount: ${result.imageUrls.length}');
     if (result.videoUrl.isNotEmpty) {
-      _log('  最佳视频: ${result.videoUrl.substring(0, result.videoUrl.length.clamp(0, 80))}...');
+      log('  最佳视频: ${result.videoUrl.substring(0, result.videoUrl.length.clamp(0, 80))}...');
     }
     if (result.imageUrls.isNotEmpty) {
-      _log('  imageUrls[0]: ${result.imageUrls[0]}');
-      // 详细日志：打印所有缩略图和下载地址
+      log('  imageUrls[0]: ${result.imageUrls[0]}');
       if (_debug) {
         for (var i = 0; i < result.imageUrls.length; i++) {
           final thumb = result.imageThumbUrls.length > i ? result.imageThumbUrls[i] : result.imageUrls[i];
           final full = result.imageUrls[i];
-          _log('  图片 ${i + 1}: thumb: $thumb');
-          _log('  图片 ${i + 1}: full:  $full');
+          log('  图片 ${i + 1}: thumb: $thumb');
+          log('  图片 ${i + 1}: full:  $full');
         }
       }
     }
@@ -132,30 +133,17 @@ class XiaohongshuParser {
     return result;
   }
 
-  void _log(String msg) {
-    if (_debug) stderr.writeln('  [XHS] $msg');
-  }
-
-  /// 从文本中提取 URL
-  String _extractUrl(String text) {
-    final match = RegExp(r'https?://[^\s，,。]+').firstMatch(text);
-    return match?.group(0) ?? text;
-  }
-
-  /// 从 URL 中提取 shareId（短链接ID）
-  /// 例如 http://xhslink.com/o/xxxxx 中的 xxxxx
+  /// 从 URL 中提取 shareId
   String? _extractShareId(String url) {
-    // 匹配 xhslink.com/o/{shareId}
     final match = RegExp(r'xhslink\.com/o/([A-Za-z0-9_-]+)').firstMatch(url);
     if (match != null) return match.group(1);
-    // 匹配 xiaohongshu.com/explore/{noteId} - 这不是 shareId 返回 null
     return null;
   }
 
   /// 跟随重定向获取真实 URL 和 HTML
   Future<({String html, String finalUrl})> _resolveXhsUrl(String url) async {
     final uri = Uri.parse(url);
-    final request = await _client.get(uri, headers: _headers);
+    final request = await httpClient.get(uri, headers: _headers);
 
     if (request.statusCode >= 300 && request.statusCode < 400) {
       final location = request.headers['location'];
@@ -168,55 +156,40 @@ class XiaohongshuParser {
   }
 
   /// 从 HTML 中提取 __INITIAL_STATE__
-  /// 优先使用 JSON 解析，失败则回退到手动提取
   Map<String, dynamic>? _extractInitialState(String html) {
-    // 方法1: 优先使用 JSON 解析（将 undefined 替换为 null）
+    // 方法1: 优先使用 JSON 解析
     final jsonResult = _extractInitialStateJson(html);
     if (jsonResult != null) {
-      _log('  使用 JSON 解析成功');
+      log('  使用 JSON 解析成功');
       return jsonResult;
     }
 
     // 方法2: 回退到手动提取
-    _log('  JSON 解析失败，回退到手动提取');
+    log('  JSON 解析失败，回退到手动提取');
     return _extractInitialStateLegacy(html);
   }
 
   /// 使用 JSON 解析提取 __INITIAL_STATE__
-  /// 将 JavaScript undefined 替换为 null 使其成为合法 JSON
   Map<String, dynamic>? _extractInitialStateJson(String html) {
-    final match = RegExp(r'window\.__INITIAL_STATE__\s*=\s*(\{[\s\S]*?\})(?:;|\s*</script>)')
-        .firstMatch(html);
-    if (match == null) return null;
-
-    var jsonStr = match.group(1)!;
-
-    // 将 JavaScript undefined 替换为 null
-    // 匹配: : undefined, : undefined} : undefined] 等情况
-    jsonStr = jsonStr.replaceAllMapped(
-      RegExp(r':\s*undefined\s*([,}\]])'),
-      (m) => ':null${m.group(1)}',
+    return JsonExtractor.extractJsonWithRegex(
+      html,
+      r'window\.__INITIAL_STATE__\s*=\s*(\{[\s\S]*?\})(?:;|\s*</script>)',
+      cleanUndefined: true,
     );
-
-    try {
-      return jsonDecode(jsonStr) as Map<String, dynamic>;
-    } catch (e) {
-      // JSON 解析失败，返回 null 让调用方使用备用方案
-      return null;
-    }
   }
 
   /// 备用方案：手动提取 + 处理边界情况
   Map<String, dynamic>? _extractInitialStateLegacy(String html) {
-    final marker = RegExp(r'window\.__INITIAL_STATE__\s*=\s*').firstMatch(html);
-    if (marker == null) return null;
+    final marker = 'window.__INITIAL_STATE__ = ';
+    final start = html.indexOf(marker);
+    if (start < 0) return null;
 
-    final start = marker.end;
+    final jsonStart = start + marker.length;
     var depth = 0;
     var inString = false;
     var escaped = false;
 
-    for (var i = start; i < html.length; i++) {
+    for (var i = jsonStart; i < html.length; i++) {
       final ch = html[i];
       if (escaped) {
         escaped = false;
@@ -230,19 +203,25 @@ class XiaohongshuParser {
         inString = !inString;
         continue;
       }
-      if (inString) continue;
+      if (inString) {
+        continue;
+      }
 
-      if (ch == '{' || ch == '[') depth++;
-      else if (ch == '}' || ch == ']') {
+      if (ch == '{' || ch == '[') {
+        depth++;
+      } else if (ch == '}' || ch == ']') {
         depth--;
         if (depth == 0) {
-          final jsonStr = html.substring(start, i + 1);
+          final jsonStr = html.substring(jsonStart, i + 1);
           try {
-            // 尝试先清理 undefined 再解析
-            final cleanJson = _cleanUndefinedLegacy(jsonStr);
-            return jsonDecode(cleanJson) as Map<String, dynamic>;
+            final cleanJson = JsonExtractor.extractJsonWithRegex(
+              '{"data": $jsonStr}',
+              r'\{.*\}',
+              cleanUndefined: true,
+            );
+            return cleanJson;
           } catch (e) {
-            _log('备用解析失败: $e');
+            log('备用解析失败: $e');
             return null;
           }
         }
@@ -251,31 +230,9 @@ class XiaohongshuParser {
     return null;
   }
 
-  /// 将 undefined 替换为 null，修复 JSON（备用方案使用）
-  String _cleanUndefinedLegacy(String jsonStr) {
-    // 替换独立的 undefined 为 null
-    return jsonStr
-        .replaceAllMapped(
-          RegExp(r'(?<=[,\[\{:])\s*undefined\s*(?=[,\}\]\:])'),
-          (m) => 'null',
-        )
-        .replaceAll(RegExp(r'^\s*undefined\s*'), 'null');
-  }
-
-  /// 尝试从 SSR 渲染的 HTML 中提取数据（备用方案）
+  /// 尝试从 SSR 渲染的 HTML 中提取数据
   Map<String, dynamic>? _extractSsrData(String html) {
-    // 匹配 id="ssr-data" 或 id='ssr-data'
-    final ssrMatch = RegExp(
-      r'<script[^>]*id=["\x27]ssr-data["\x27][^>]*>([\s\S]*?)</script>',
-    ).firstMatch(html);
-    if (ssrMatch != null) {
-      try {
-        return jsonDecode(ssrMatch.group(1)!) as Map<String, dynamic>;
-      } catch (_) {
-        return null;
-      }
-    }
-    return null;
+    return JsonExtractor.extractFromScriptTag(html, 'ssr-data');
   }
 
   /// 从 __INITIAL_STATE__ 中提取笔记数据
@@ -290,7 +247,7 @@ class XiaohongshuParser {
       }
     }
 
-    // 备用路径: note.noteDetailMap[key].note
+    // 备用路径
     final note = data['note'];
     if (note is Map) {
       final noteDetailMap = note['noteDetailMap'];
@@ -299,10 +256,8 @@ class XiaohongshuParser {
         if (keys.isNotEmpty) {
           final noteItem = noteDetailMap[keys.first];
           if (noteItem is Map) {
-            // 实际的笔记数据在 .note 字段中
             final actualNote = noteItem['note'];
             if (actualNote is Map<String, dynamic>) return actualNote;
-            // 有些结构直接是 noteItem
             if (noteItem['noteId'] != null || noteItem['id'] != null) {
               return Map<String, dynamic>.from(noteItem);
             }
@@ -320,35 +275,25 @@ class XiaohongshuParser {
     final title = note['title']?.toString() ?? '';
     final desc = note['desc']?.toString() ?? '';
 
-    // 封面图
     final coverUrl = _extractCoverUrl(note);
-
-    // 提取图片列表（返回包含 thumb 和 full 的对象列表）
     final imageList = _extractImageUrls(note);
     final imageUrls = imageList.map((i) => i['full']!).toList();
     final imageThumbUrls = imageList.map((i) => i['thumb']!).toList();
 
-    // 提取背景音乐
-    final (:musicUrl, :musicTitle, :musicAuthor) = _extractMusicInfo(note);
-    if (musicUrl != null) {
-      _log('  背景音乐: $musicAuthor - $musicTitle');
-    }
-
-    // 判断是否为视频笔记：只要有 video 字段且非空即为视频
     final hasVideoField = note['video'] != null && note['video'] is Map;
-    _log('  hasVideoField: $hasVideoField');
+    log('  hasVideoField: $hasVideoField');
 
-    // 提取视频信息（包括实况图）
     final videoInfo = await _extractVideoInfo(note);
     final hasVideoStream = videoInfo != null && videoInfo.videoUrl.isNotEmpty;
     final isLivePhoto = videoInfo?.isLivePhoto ?? false;
-    _log('  hasVideoStream: $hasVideoStream, isLivePhoto: $isLivePhoto');
+    log('  hasVideoStream: $hasVideoStream, isLivePhoto: $isLivePhoto');
+
+    final displayTitle = title.isNotEmpty ? title : desc.substring(0, desc.length.clamp(0, 50));
 
     if (isLivePhoto) {
-      // 实况图笔记
       return VideoInfo(
         itemId: id,
-        title: title.isNotEmpty ? title : desc.substring(0, desc.length.clamp(0, 50)),
+        title: displayTitle,
         videoFileId: id,
         videoUrl: videoInfo?.videoUrl ?? '',
         mediaType: MediaType.livePhoto,
@@ -359,15 +304,11 @@ class XiaohongshuParser {
         imageUrls: imageUrls,
         imageThumbUrls: imageThumbUrls,
         livePhotoUrls: videoInfo?.livePhotoUrls ?? const [],
-        musicUrl: musicUrl,
-        musicTitle: musicTitle,
-        musicAuthor: musicAuthor,
       );
     } else if (hasVideoField) {
-      // 视频笔记
       return VideoInfo(
         itemId: id,
-        title: title.isNotEmpty ? title : desc.substring(0, desc.length.clamp(0, 50)),
+        title: displayTitle,
         videoFileId: id,
         videoUrl: videoInfo?.videoUrl ?? '',
         mediaType: MediaType.video,
@@ -375,18 +316,13 @@ class XiaohongshuParser {
         shareId: shareId,
         width: videoInfo?.width ?? note['width'] as int?,
         height: videoInfo?.height ?? note['height'] as int?,
-        imageUrls: imageUrls, // 视频笔记也可能有封面图
+        imageUrls: imageUrls,
         imageThumbUrls: imageThumbUrls,
-        livePhotoUrls: const [],
-        musicUrl: musicUrl,
-        musicTitle: musicTitle,
-        musicAuthor: musicAuthor,
       );
     } else if (imageUrls.isNotEmpty) {
-      // 纯图片笔记
       return VideoInfo(
         itemId: id,
-        title: title.isNotEmpty ? title : desc.substring(0, desc.length.clamp(0, 50)),
+        title: displayTitle,
         videoFileId: '',
         videoUrl: '',
         mediaType: MediaType.image,
@@ -396,17 +332,12 @@ class XiaohongshuParser {
         height: note['height'] as int?,
         imageUrls: imageUrls,
         imageThumbUrls: imageThumbUrls,
-        livePhotoUrls: const [],
-        musicUrl: musicUrl,
-        musicTitle: musicTitle,
-        musicAuthor: musicAuthor,
       );
     }
 
-    // 未知类型，默认作为视频处理
     return VideoInfo(
       itemId: id,
-      title: title.isNotEmpty ? title : desc.substring(0, desc.length.clamp(0, 50)),
+      title: displayTitle,
       videoFileId: '',
       videoUrl: '',
       mediaType: MediaType.video,
@@ -416,10 +347,6 @@ class XiaohongshuParser {
       height: note['height'] as int?,
       imageUrls: imageUrls,
       imageThumbUrls: imageThumbUrls,
-      livePhotoUrls: const [],
-      musicUrl: musicUrl,
-      musicTitle: musicTitle,
-      musicAuthor: musicAuthor,
     );
   }
 
@@ -450,7 +377,6 @@ class XiaohongshuParser {
       }
     }
 
-    // 从视频首帧提取
     final video = note['video'];
     if (video is Map) {
       final media = video['media'];
@@ -466,8 +392,6 @@ class XiaohongshuParser {
   }
 
   /// 提取图片 URL 列表（无水印）
-  /// 缩略图：优先 WB_PRV > H5_PRV > urlPre > urlDefault
-  /// 大图：优先 WB_DFT > H5_DTL > 其他 DFT > 无水印版
   List<Map<String, String>> _extractImageUrls(Map<String, dynamic> note) {
     final imageList = note['imageList'] ?? note['images'];
     if (imageList is! List) return [];
@@ -475,13 +399,12 @@ class XiaohongshuParser {
     return imageList.map((img) {
       if (img is! Map) return null;
 
-      String? thumbUrl; // 预览图/缩略图
-      String? fullOrigUrl; // 原图（带水印）
-      String? fullNoWaterUrl; // 无水印图
+      String? thumbUrl;
+      String? fullOrigUrl;
+      String? fullNoWaterUrl;
 
       final infoList = img['infoList'];
       if (infoList is List && infoList.isNotEmpty) {
-        // 找大图：WB_DFT > H5_DTL > 其他含 DFT 的
         final dftScenes = ['WB_DFT', 'H5_DTL'];
         for (final scene in dftScenes) {
           final match = infoList.cast<Map<String, dynamic>>().firstWhere(
@@ -493,7 +416,6 @@ class XiaohongshuParser {
             break;
           }
         }
-        // 如果没找到，尝试任何含 DFT 的
         if (fullOrigUrl == null) {
           final dftMatch = infoList.cast<Map<String, dynamic>>().firstWhere(
             (i) => (i['imageScene'] as String?)?.contains('DFT') == true && i['url'] is String,
@@ -504,7 +426,6 @@ class XiaohongshuParser {
           }
         }
 
-        // 找预览图：WB_PRV > H5_PRV
         final prvScenes = ['WB_PRV', 'H5_PRV'];
         for (final scene in prvScenes) {
           final match = infoList.cast<Map<String, dynamic>>().firstWhere(
@@ -518,7 +439,6 @@ class XiaohongshuParser {
         }
       }
 
-      // 外层字段作为备选
       if (fullOrigUrl == null) {
         if (img['urlDefault'] is String) {
           fullOrigUrl = img['urlDefault'];
@@ -535,12 +455,10 @@ class XiaohongshuParser {
         }
       }
 
-      // 生成无水印 URL
       if (fullOrigUrl != null) {
         fullNoWaterUrl = _buildNoWatermarkUrl(fullOrigUrl);
       }
 
-      // 决定最终使用的 URL
       final fullUrl = fullNoWaterUrl ?? fullOrigUrl;
       final thumb = thumbUrl ?? fullUrl;
 
@@ -553,14 +471,13 @@ class XiaohongshuParser {
     }).whereType<Map<String, String>>().toList();
   }
 
-  /// 构建无水印图片 URL
+  /// 构建无水印图片 URL - 小红书特有
   String? _buildNoWatermarkUrl(String originalUrl) {
     try {
       final uri = Uri.parse(originalUrl);
       final pathParts = uri.pathSegments.where((s) => s.isNotEmpty).toList();
       if (pathParts.isEmpty) return null;
 
-      // 提取 fileId（最后一部分，去掉 ! 后缀）
       final lastPart = pathParts.last;
       final fileId = lastPart.split('!').first;
 
@@ -568,7 +485,6 @@ class XiaohongshuParser {
         return null;
       }
 
-      // 确定路径前缀（注意：有单数 note 和复数 notes 两种形式）
       String prefix = '';
       if (pathParts.contains('notes_pre_post')) {
         prefix = 'notes_pre_post/';
@@ -584,63 +500,7 @@ class XiaohongshuParser {
     }
   }
 
-  /// 提取背景音乐信息
-  /// 返回 (musicUrl, musicTitle, musicAuthor)
-  ({String? musicUrl, String? musicTitle, String? musicAuthor}) _extractMusicInfo(Map<String, dynamic> note) {
-    // 小红书音乐字段可能在不同位置
-    // 1. 直接在 note.music
-    final music = note['music'];
-    if (music is Map) {
-      final url = music['url']?.toString() ??
-                  music['playUrl']?.toString() ??
-                  music['path']?.toString();
-      final title = music['title']?.toString() ??
-                    music['name']?.toString();
-      final author = music['author']?.toString() ??
-                     music['artist']?.toString() ??
-                     music['singer']?.toString();
-      if (url != null && url.isNotEmpty) {
-        return (musicUrl: url, musicTitle: title, musicAuthor: author);
-      }
-    }
-
-    // 2. 在 note.bgm
-    final bgm = note['bgm'];
-    if (bgm is Map) {
-      final url = bgm['url']?.toString() ??
-                  bgm['playUrl']?.toString() ??
-                  bgm['path']?.toString();
-      final title = bgm['title']?.toString() ??
-                    bgm['name']?.toString();
-      final author = bgm['author']?.toString() ??
-                     bgm['artist']?.toString() ??
-                     bgm['singer']?.toString();
-      if (url != null && url.isNotEmpty) {
-        return (musicUrl: url, musicTitle: title, musicAuthor: author);
-      }
-    }
-
-    // 3. 在 note.audio
-    final audio = note['audio'];
-    if (audio is Map) {
-      final url = audio['url']?.toString() ??
-                  audio['playUrl']?.toString() ??
-                  audio['path']?.toString();
-      final title = audio['title']?.toString() ??
-                    audio['name']?.toString();
-      final author = audio['author']?.toString() ??
-                     audio['artist']?.toString() ??
-                     audio['singer']?.toString();
-      if (url != null && url.isNotEmpty) {
-        return (musicUrl: url, musicTitle: title, musicAuthor: author);
-      }
-    }
-
-    return (musicUrl: null, musicTitle: null, musicAuthor: null);
-  }
-
-  /// 提取实况图视频 URL 列表
-  /// 实况图 (livePhoto) 每张图都带有一个短视频（带声音）
+  /// 提取实况图视频 URL 列表 - 小红书特有
   List<String> _extractLivePhotoUrls(Map<String, dynamic> note) {
     final imageList = note['imageList'] ?? note['images'];
     if (imageList is! List) return [];
@@ -648,14 +508,11 @@ class XiaohongshuParser {
     final urls = <String>[];
     for (final img in imageList) {
       if (img is! Map) continue;
-      // 检查是否为实况图
       if (img['livePhoto'] != true) continue;
 
-      // 提取视频流
       final stream = img['stream'];
       if (stream is! Map) continue;
 
-      // 优先 h264，其次 h265/av1
       final formats = ['h264', 'h265', 'hevc', 'av1'];
       String? videoUrl;
       for (final fmt in formats) {
@@ -670,51 +527,46 @@ class XiaohongshuParser {
       }
       if (videoUrl != null) {
         urls.add(videoUrl);
-        _log('  实况图视频: ${videoUrl.substring(videoUrl.lastIndexOf('/') + 1)}');
+        log('  实况图视频: ${videoUrl.substring(videoUrl.lastIndexOf('/') + 1)}');
       }
     }
     return urls;
   }
 
-  /// 提取视频信息
+  /// 提取视频信息 - 小红书特有（含 CDN 切换逻辑）
   Future<_VideoInfoResult?> _extractVideoInfo(Map<String, dynamic> note) async {
     final video = note['video'];
     if (video is! Map) {
-      // 检查是否有实况图视频
       final livePhotoUrls = _extractLivePhotoUrls(note);
       if (livePhotoUrls.isNotEmpty) {
-        _log('  检测到 ${livePhotoUrls.length} 张实况图');
-        // 实况图返回第一个视频的 URL，标记为实况图类型
+        log('  检测到 ${livePhotoUrls.length} 张实况图');
         return _VideoInfoResult(
           videoUrl: livePhotoUrls.first,
-          width: null,
-          height: null,
           isLivePhoto: true,
           livePhotoUrls: livePhotoUrls,
         );
       }
-      _log('  无 video 字段');
+      log('  无 video 字段');
       return null;
     }
 
     final media = video['media'];
     if (media is! Map) {
-      _log('  video.media 为空');
+      log('  video.media 为空');
       return null;
     }
 
     final stream = media['stream'];
     if (stream is! Map) {
-      _log('  video.media.stream 为空');
+      log('  video.media.stream 为空');
       return null;
     }
 
-    _log('  视频流格式: ${stream.keys.join(', ')}');
+    log('  视频流格式: ${stream.keys.join(', ')}');
 
     String? bestVideoUrl;
     final candidateUrls = <_VideoStream>[];
 
-    // 尝试各种编码格式（按优先级排序）
     final formats = [
       (key: 'origin', name: '原画', quality: VideoQuality.p1080),
       (key: 'h264', name: 'HD', quality: VideoQuality.p720),
@@ -731,7 +583,6 @@ class XiaohongshuParser {
       final streams = stream[format.key];
       if (streams is! List || streams.isEmpty) continue;
 
-      // 遍历所有流，找码率最高的
       var bestStream = streams.first;
       var bestBitrate = 0;
 
@@ -743,7 +594,6 @@ class XiaohongshuParser {
           bestStream = s;
         }
 
-        // 收集所有候选URL
         final url = s['masterUrl']?.toString() ?? s['url']?.toString();
         if (url != null) {
           candidateUrls.add(_VideoStream(
@@ -760,7 +610,6 @@ class XiaohongshuParser {
       final url = bestStream['masterUrl']?.toString() ?? bestStream['url']?.toString();
       if (url != null) {
         bestVideoUrl = url;
-
         bestWidth ??= (bestStream['width'] as num?)?.toInt();
         bestHeight ??= (bestStream['height'] as num?)?.toInt();
       }
@@ -768,47 +617,59 @@ class XiaohongshuParser {
 
     if (bestVideoUrl == null) return null;
 
-    // 默认使用第一个质量的URL，如果失败再尝试切换CDN
     var bestUrl = bestVideoUrl;
 
-    // 验证默认URL是否可用，如果不可用则尝试切换CDN
-    _log('  验证视频URL可用性...');
-    final isAvailable = await _verifyUrlAvailable(bestUrl);
+    log('  验证视频URL可用性...');
+    final isAvailable = await UrlUtils.verifyUrlAvailable(
+      bestUrl,
+      client: httpClient,
+      headers: {
+        'User-Agent': _mobileUserAgent,
+        'Referer': 'https://www.xiaohongshu.com/',
+      },
+    );
+
     if (!isAvailable) {
-      _log('    默认URL不可用，尝试切换CDN...');
+      log('    默认URL不可用，尝试切换CDN...');
       final cdnVariants = _generateCdnVariants([_VideoStream(url: bestUrl, bitrate: 0, codec: 'h264')]);
       for (final variant in cdnVariants) {
-        final size = await _verifyUrlAndGetSize(variant.url);
+        final size = await UrlUtils.verifyUrlAndGetSize(
+          variant.url,
+          client: httpClient,
+          headers: {
+            'User-Agent': _mobileUserAgent,
+            'Referer': 'https://www.xiaohongshu.com/',
+          },
+        );
         if (size > 0) {
-          _log('    找到可用CDN: ${variant.url.substring(0, variant.url.length.clamp(0, 60))}... (${(size / 1024 / 1024).toStringAsFixed(2)}MB)');
+          log('    找到可用CDN: ${variant.url.substring(0, variant.url.length.clamp(0, 60))}... (${(size / 1024 / 1024).toStringAsFixed(2)}MB)');
           bestUrl = variant.url;
           break;
         }
       }
     } else {
-      _log('    默认URL可用');
+      log('    默认URL可用');
     }
 
-    // 打印调试信息
     if (_debug && candidateUrls.isNotEmpty) {
-      _log('  视频流信息:');
+      log('  视频流信息:');
       final sorted = [...candidateUrls]..sort((a, b) => (b.size ?? 0) - (a.size ?? 0));
       for (var i = 0; i < sorted.length.clamp(0, 5); i++) {
         final c = sorted[i];
         final sizeMB = c.size != null ? '${(c.size! / 1024 / 1024).toStringAsFixed(2)}MB' : 'unknown';
-        _log('    ${c.codec}: ${c.width}x${c.height}, ${c.bitrate}bps, $sizeMB');
-        _log('      ${c.url.substring(0, c.url.length.clamp(0, 80))}...');
+        log('    ${c.codec}: ${c.width}x${c.height}, ${c.bitrate}bps, $sizeMB');
+        log('      ${c.url.substring(0, c.url.length.clamp(0, 80))}...');
       }
     }
 
-      return _VideoInfoResult(
-        videoUrl: bestUrl,
-        width: bestWidth,
-        height: bestHeight,
-      );
+    return _VideoInfoResult(
+      videoUrl: bestUrl,
+      width: bestWidth,
+      height: bestHeight,
+    );
   }
 
-  /// 生成不同CDN域名的变体URL
+  /// 生成不同CDN域名的变体URL - 小红书特有
   List<_VideoStream> _generateCdnVariants(List<_VideoStream> candidates) {
     final variants = <_VideoStream>[];
 
@@ -819,7 +680,6 @@ class XiaohongshuParser {
       final currentDomain = match.group(1)!;
       final path = match.group(2)!;
 
-      // 为每个CDN生成变体
       for (final domain in _cdnDomains) {
         if (domain != currentDomain) {
           variants.add(_VideoStream(
@@ -836,51 +696,6 @@ class XiaohongshuParser {
     return variants;
   }
 
-  /// 验证 URL 是否可用（HTTP 200-399 视为可用）
-  Future<bool> _verifyUrlAvailable(String url) async {
-    try {
-      final resp = await _client.head(Uri.parse(url), headers: {
-        'User-Agent': _mobileUserAgent,
-        'Referer': 'https://www.xiaohongshu.com/',
-      });
-      return resp.statusCode >= 200 && resp.statusCode < 400;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  /// 验证 URL 并返回文件大小
-  Future<int> _verifyUrlAndGetSize(String url) async {
-    try {
-      final resp = await _client.head(Uri.parse(url), headers: {
-        'User-Agent': _mobileUserAgent,
-        'Referer': 'https://www.xiaohongshu.com/',
-      });
-      if (resp.statusCode >= 200 && resp.statusCode < 400) {
-        return int.tryParse(resp.headers['content-length'] ?? '0') ?? 0;
-      }
-    } catch (_) {
-      // 忽略失败
-    }
-    return 0;
-  }
-
-  void dispose() => _client.close();
-}
-
-/// 视频信息结果
-class _VideoInfoResult {
-  final String videoUrl;
-  final int? width;
-  final int? height;
-  final bool isLivePhoto;
-  final List<String>? livePhotoUrls; // 所有实况图视频 URL
-
-  _VideoInfoResult({
-    required this.videoUrl,
-    this.width,
-    this.height,
-    this.isLivePhoto = false,
-    this.livePhotoUrls,
-  });
+  /// 释放资源
+  void dispose() => disposeHttpParser();
 }

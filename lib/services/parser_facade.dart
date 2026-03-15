@@ -1,3 +1,4 @@
+import 'parser_common.dart';
 import 'douyin_parser.dart';
 import 'settings_service.dart';
 import 'webview_parser.dart';

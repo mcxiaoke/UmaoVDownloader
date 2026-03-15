@@ -3,7 +3,7 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
-import '../douyin_parser.dart';
+import '../parser_common.dart';
 import 'video_downloader.dart';
 
 /// 公共 UA 常量（供所有平台下载器引用）

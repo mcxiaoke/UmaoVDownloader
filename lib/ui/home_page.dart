@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../services/parser_common.dart';
 import '../services/douyin_parser.dart';
 import '../services/downloader/base_downloader.dart';
 import '../services/downloader/desktop_downloader.dart';
