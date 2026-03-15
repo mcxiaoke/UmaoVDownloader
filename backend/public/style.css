@@ -14,7 +14,13 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 2rem 1rem;
+  padding: 2rem 0.5rem;
+}
+
+@media (min-width: 480px) {
+  body {
+    padding: 2rem 1rem;
+  }
 }
 
 header {
@@ -35,9 +41,34 @@ header p {
   background: #fff;
   border-radius: 12px;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
-  padding: 1.5rem;
+  padding: 1rem;
   width: 100%;
   max-width: 640px;
+}
+
+@media (min-width: 480px) {
+  .card {
+    padding: 1.5rem;
+  }
+}
+
+/* 大屏幕扩大卡片宽度 */
+@media (min-width: 900px) {
+  .card {
+    max-width: 800px;
+  }
+}
+
+@media (min-width: 1200px) {
+  .card {
+    max-width: 1100px;
+  }
+}
+
+@media (min-width: 1600px) {
+  .card {
+    max-width: 1400px;
+  }
 }
 
 .input-row {
@@ -154,12 +185,29 @@ header p {
   text-align: center;
 }
 
-/* 图文结果 */
+/* 图文结果 - 自适应网格 */
 .image-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: 0.6rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
   margin-top: 0.9rem;
+}
+.image-grid .image-item {
+  /* 小屏幕：固定2列 */
+  width: calc(50% - 0.2rem);
+  flex: 0 0 auto;
+}
+
+/* 平板及以上：自适应，图片最小200px */
+@media (min-width: 480px) {
+  .image-grid {
+    display: grid;
+    gap: 0.6rem;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  }
+  .image-grid .image-item {
+    width: auto;
+  }
 }
 .image-item {
   position: relative;
@@ -174,26 +222,29 @@ header p {
   object-fit: cover;
   display: block;
 }
-.image-item a,
+/* 图片下载按钮 */
 .image-item .img-dl-btn {
   position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.45);
+  bottom: 8px;
+  left: 8px;
+  background: rgba(25, 118, 210, 0.9);
   color: #fff;
-  font-size: 0.8rem;
-  text-decoration: none;
-  opacity: 0;
-  transition: opacity 0.15s;
   border: none;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 0.75rem;
   cursor: pointer;
-  padding: 0;
+  opacity: 0;
+  transition:
+    opacity 0.15s,
+    background 0.2s;
+  z-index: 2;
 }
-.image-item:hover a,
 .image-item:hover .img-dl-btn {
   opacity: 1;
+}
+.image-item .img-dl-btn:hover {
+  background: rgba(21, 101, 192, 1);
 }
 /* Live Photo 视频下载按钮 */
 .image-item .img-video-btn {
@@ -208,7 +259,9 @@ header p {
   font-size: 0.75rem;
   cursor: pointer;
   opacity: 0;
-  transition: opacity 0.15s, background 0.2s;
+  transition:
+    opacity 0.15s,
+    background 0.2s;
   z-index: 2;
 }
 .image-item:hover .img-video-btn {
@@ -217,6 +270,15 @@ header p {
 .image-item .img-video-btn:hover {
   background: rgba(255, 82, 82, 1);
 }
+
+/* 移动端适配：触摸设备上直接显示按钮 */
+@media (hover: none) and (pointer: coarse) {
+  .image-item .img-dl-btn,
+  .image-item .img-video-btn {
+    opacity: 1;
+  }
+}
+
 .btn-dl-all {
   display: block;
   width: 100%;
@@ -240,9 +302,14 @@ footer {
   color: #aaa;
 }
 
+/* Cookie 底部栏 */
+.kookie-bar {
+  text-align: center;
+  padding: 1rem 0 2rem;
+}
+
 /* Cookie 设置按钮 */
-.cookie-btn {
-  margin-top: 0.8rem;
+.kookie-btn {
   padding: 0.4rem 0.9rem;
   background: transparent;
   border: 1.5px solid #1976d2;
@@ -252,7 +319,7 @@ footer {
   cursor: pointer;
   transition: all 0.2s;
 }
-.cookie-btn:hover {
+.kookie-btn:hover {
   background: #1976d2;
   color: #fff;
 }
@@ -354,27 +421,27 @@ footer {
 }
 
 /* Cookie 弹窗专用样式 */
-.cookie-hint {
+.kookie-hint {
   font-size: 0.85rem;
   color: #666;
   line-height: 1.6;
   margin-bottom: 1rem;
 }
-.cookie-hint a {
+.kookie-hint a {
   color: #1976d2;
   text-decoration: none;
 }
-.cookie-hint a:hover {
+.kookie-hint a:hover {
   text-decoration: underline;
 }
 
-.cookie-tabs {
+.kookie-tabs {
   display: flex;
   gap: 0.4rem;
   margin-bottom: 1rem;
   border-bottom: 2px solid #e5e7eb;
 }
-.cookie-tab {
+.kookie-tab {
   padding: 0.6rem 1.2rem;
   background: none;
   border: none;
@@ -385,23 +452,23 @@ footer {
   margin-bottom: -2px;
   transition: all 0.2s;
 }
-.cookie-tab:hover {
+.kookie-tab:hover {
   color: #1976d2;
 }
-.cookie-tab.active {
+.kookie-tab.active {
   color: #1976d2;
   border-bottom-color: #1976d2;
   font-weight: 500;
 }
 
-.cookie-tab-content {
+.kookie-tab-content {
   display: none;
 }
-.cookie-tab-content.active {
+.kookie-tab-content.active {
   display: block;
 }
 
-.cookie-tab-content textarea {
+.kookie-tab-content textarea {
   width: 100%;
   min-height: 100px;
   padding: 0.8rem;
@@ -412,23 +479,23 @@ footer {
   resize: vertical;
   outline: none;
 }
-.cookie-tab-content textarea:focus {
+.kookie-tab-content textarea:focus {
   border-color: #1976d2;
 }
 
-.cookie-status {
+.kookie-status {
   margin-top: 0.5rem;
   font-size: 0.8rem;
   min-height: 1.2em;
 }
-.cookie-status.success {
+.kookie-status.success {
   color: #2e7d32;
 }
-.cookie-status.error {
+.kookie-status.error {
   color: #c62828;
 }
 
-.cookie-help {
+.kookie-help {
   margin-top: 1rem;
   padding: 1rem;
   background: #f3f4f6;
@@ -436,28 +503,28 @@ footer {
   font-size: 0.82rem;
   line-height: 1.6;
 }
-.cookie-help h4 {
+.kookie-help h4 {
   margin-bottom: 0.5rem;
   color: #1a1a2e;
 }
-.cookie-help ol {
+.kookie-help ol {
   margin-left: 1.2rem;
   margin-bottom: 0.5rem;
 }
-.cookie-help li {
+.kookie-help li {
   margin-bottom: 0.3rem;
 }
-.cookie-help code {
+.kookie-help code {
   background: #e5e7eb;
   padding: 0.1rem 0.3rem;
   border-radius: 4px;
   font-size: 0.8rem;
 }
-.cookie-help kbd {
+.kookie-help kbd {
   background: #fff;
   border: 1px solid #d0d7de;
   padding: 0.1rem 0.4rem;
   border-radius: 4px;
   font-size: 0.8rem;
-  box-shadow: 0 1px 0 rgba(0,0,0,0.1);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.1);
 }
