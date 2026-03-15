@@ -209,7 +209,7 @@ class ParserFacade {
   /// [info] 原始解析结果
   /// 返回标准化后的视频信息
   VideoInfo _normalize(VideoInfo info) {
-    if (!info.isImagePost) return info;
+    if (info.mediaType != MediaType.image) return info;
 
     final imageUrls = info.imageUrls.where((u) => u.isNotEmpty).toList();
     final musicUrl = (info.musicUrl != null && info.musicUrl!.isNotEmpty)
@@ -222,6 +222,7 @@ class ParserFacade {
       title: info.title,
       videoFileId: info.videoFileId,
       videoUrl: info.videoUrl,
+      mediaType: info.mediaType,
       coverUrl: info.coverUrl,
       shareId: info.shareId,
       width: info.width,
@@ -231,6 +232,7 @@ class ParserFacade {
       imageThumbUrls: info.imageThumbUrls,
       musicUrl: musicUrl,             // 过滤后的音乐URL
       musicTitle: info.musicTitle,
+      musicAuthor: info.musicAuthor,
       livePhotoUrls: info.livePhotoUrls,
     );
   }

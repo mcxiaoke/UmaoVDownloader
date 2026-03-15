@@ -45,4 +45,14 @@ abstract class VideoDownloader {
     void Function(int received, int? total)? onProgress,
     void Function(String message)? onLog,
   });
+
+  /// 单独下载背景音乐
+  /// Android 固定保存到 Music/umaovd，其他平台使用指定目录
+  Future<String?> downloadMusicFile(
+    String url, {
+    String? directory,
+    required String filename,
+    void Function(int received, int? total)? onProgress,
+    void Function(String message)? onLog,
+  });
 }

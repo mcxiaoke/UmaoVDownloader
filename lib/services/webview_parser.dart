@@ -155,11 +155,15 @@ class WebViewParser {
       final extractScript = await _loadExtractScript(platform, log: log);
       if (extractScript == null) return null;
 
+      // 从原始 URL 提取 shareId（跳转后会丢失）
+      final shareId = _extractShareId(url);
+
       final data = await _tryExtractWithFallback(
         initialUrl: url,
         currentUrl: currentUrl ?? url,
         platform: platform,
         extractScript: extractScript,
+        shareId: shareId,
         executeJs: (script) async {
           final raw = await controller.executeScript(script);
           return _normalizeJsResult(raw);
@@ -272,11 +276,15 @@ class WebViewParser {
       }
     }
 
+    // 从原始 URL 提取 shareId（跳转后会丢失）
+    final shareId = _extractShareId(url);
+
     final data = await _tryExtractWithFallback(
       initialUrl: url,
       currentUrl: currentUrl ?? url,
       platform: platform,
       extractScript: extractScript,
+      shareId: shareId,
       executeJs: (script) async {
         final raw = await controller.runJavaScriptReturningResult(script);
         return _normalizeJsResult(raw);
@@ -288,18 +296,33 @@ class WebViewParser {
     return data == null ? null : _mapToVideoInfo(data);
   }
 
+  /// 从抖音/小红书 URL 中提取 shareId
+  String? _extractShareId(String url) {
+    // 抖音短链接: v.douyin.com/{shareId}
+    final douyinMatch = RegExp(r'v\.douyin\.com/([A-Za-z0-9_-]+)').firstMatch(url);
+    if (douyinMatch != null) return douyinMatch.group(1);
+
+    // 小红书短链接: xhslink.com/o/{shareId}
+    final xhsMatch = RegExp(r'xhslink\.com/o/([A-Za-z0-9_-]+)').firstMatch(url);
+    if (xhsMatch != null) return xhsMatch.group(1);
+
+    return null;
+  }
+
   /// 统一提取和回退逻辑
   Future<Map<String, dynamic>?> _tryExtractWithFallback({
     required String initialUrl,
     required String currentUrl,
     required ParserPlatform platform,
     required String extractScript,
+    String? shareId,
     required JsExecutor executeJs,
     required Future<bool> Function(String) loadUrl,
     required WebViewParserLog? log,
   }) async {
     var data = await _runExtractWithRetry(
       extractScript: extractScript,
+      shareId: shareId,
       executeJs: executeJs,
       log: log,
     );
@@ -312,6 +335,7 @@ class WebViewParser {
         if (await loadUrl(fallback)) {
           data = await _runExtractWithRetry(
             extractScript: extractScript,
+            shareId: shareId,
             executeJs: executeJs,
             log: log,
           );
@@ -330,11 +354,16 @@ class WebViewParser {
   /// 统一的重试提取逻辑
   Future<Map<String, dynamic>?> _runExtractWithRetry({
     required String extractScript,
+    String? shareId,
     required JsExecutor executeJs,
     required WebViewParserLog? log,
   }) async {
     Map<String, dynamic>? last;
     for (var i = 0; i < _extractMaxRetries; i++) {
+      // 先注入 shareId 到全局变量，再执行提取脚本
+      if (shareId != null) {
+        await executeJs('window.__SHARE_ID__ = "$shareId";');
+      }
       final jsonText = await executeJs(extractScript);
       if (jsonText == null || jsonText.isEmpty) {
         log?.call('JS 返回为空');
@@ -437,6 +466,8 @@ class WebViewParser {
         : const <String>[];
 
     final musicUrl = data['musicUrl']?.toString();
+    final musicTitle = data['musicTitle']?.toString();
+    final musicAuthor = data['musicAuthor']?.toString();
     final videoUrl = data['videoUrl']?.toString() ?? '';
 
     // 提取视频码率 (bps -> kbps)
@@ -450,6 +481,7 @@ class WebViewParser {
           title: title,
           videoFileId: '',
           videoUrl: '',
+          mediaType: MediaType.image,
           coverUrl: data['coverUrl']?.toString(),
           shareId: data['shareId']?.toString(),
           width: width,
@@ -458,7 +490,8 @@ class WebViewParser {
           imageUrls: imageUrls,
           imageThumbUrls: imageThumbUrls,
           musicUrl: (musicUrl != null && musicUrl.isNotEmpty) ? musicUrl : null,
-          musicTitle: data['musicTitle']?.toString(),
+          musicTitle: musicTitle,
+          musicAuthor: musicAuthor,
           livePhotoUrls: const [],
         ),
       'livephoto' => VideoInfo(
@@ -466,6 +499,7 @@ class WebViewParser {
           title: title,
           videoFileId: _pickBestVideoFileId(videoUrl),
           videoUrl: videoUrl,
+          mediaType: MediaType.livePhoto,
           coverUrl: data['coverUrl']?.toString(),
           shareId: data['shareId']?.toString(),
           width: width,
@@ -480,6 +514,7 @@ class WebViewParser {
           title: title,
           videoFileId: _pickBestVideoFileId(videoUrl),
           videoUrl: videoUrl,
+          mediaType: MediaType.video,
           coverUrl: data['coverUrl']?.toString(),
           shareId: data['shareId']?.toString(),
           width: width,
@@ -493,6 +528,7 @@ class WebViewParser {
           title: title,
           videoFileId: _pickBestVideoFileId(videoUrl),
           videoUrl: videoUrl,
+          mediaType: MediaType.video,
           coverUrl: data['coverUrl']?.toString(),
           shareId: data['shareId']?.toString(),
           width: width,

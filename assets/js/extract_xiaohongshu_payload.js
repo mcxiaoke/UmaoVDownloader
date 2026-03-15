@@ -433,6 +433,9 @@
       avatar: user.avatar || null,
     };
 
+    // 提取背景音乐
+    const musicInfo = extractMusicInfo(note);
+
     const result = {
       ok: true,
       platform: "xiaohongshu",
@@ -471,7 +474,54 @@
       result.imageCount = imageUrls.length;
     }
 
+    // 添加音乐信息
+    if (musicInfo.url) {
+      result.musicUrl = musicInfo.url;
+      result.musicTitle = musicInfo.title;
+      result.musicAuthor = musicInfo.author;
+    }
+
     return result;
+  }
+
+  /**
+   * 提取背景音乐信息
+   */
+  function extractMusicInfo(note) {
+    // 1. 直接在 note.music
+    const music = note.music;
+    if (music) {
+      const url = music.url || music.playUrl || music.path;
+      const title = music.title || music.name;
+      const author = music.author || music.artist || music.singer;
+      if (url) {
+        return { url, title, author };
+      }
+    }
+
+    // 2. 在 note.bgm
+    const bgm = note.bgm;
+    if (bgm) {
+      const url = bgm.url || bgm.playUrl || bgm.path;
+      const title = bgm.title || bgm.name;
+      const author = bgm.author || bgm.artist || bgm.singer;
+      if (url) {
+        return { url, title, author };
+      }
+    }
+
+    // 3. 在 note.audio
+    const audio = note.audio;
+    if (audio) {
+      const url = audio.url || audio.playUrl || audio.path;
+      const title = audio.title || audio.name;
+      const author = audio.author || audio.artist || audio.singer;
+      if (url) {
+        return { url, title, author };
+      }
+    }
+
+    return { url: null, title: null, author: null };
   }
 
   // ── 主流程 ──────────────────────────────────────────────────────────────────
@@ -485,8 +535,8 @@
     const note = extractNoteData(data);
     if (!note) return jsonFail(ErrorCode.NO_NOTE_DATA);
 
-    // 提取分享ID
-    const shareId = extractShareId(location.href);
+    // 提取分享ID（优先使用外部传入的 shareId，否则从当前 URL 提取）
+    const shareId = (typeof window !== 'undefined' && window.__SHARE_ID__) || extractShareId(location.href);
 
     // 构建结果
     const result = buildResult(note, shareId);

@@ -49,4 +49,15 @@ class WebDownloader implements VideoDownloader {
   }) {
     throw UnimplementedError('Web 下载功能尚未实现');
   }
+
+  @override
+  Future<String?> downloadMusicFile(
+    String url, {
+    String? directory,
+    required String filename,
+    void Function(int received, int? total)? onProgress,
+    void Function(String message)? onLog,
+  }) {
+    throw UnimplementedError('Web 下载功能尚未实现');
+  }
 }

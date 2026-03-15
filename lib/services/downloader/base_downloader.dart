@@ -35,20 +35,26 @@ const kUaIosDouyin =
     'ByteFullLocale/zh-Hans-CN WKWebView/1 Bullet/1 aweme/36.7.0 '
     'BytedanceWebview/d8a21c6 AnnieX/1 Forest/1 ReqTrigger/renderEngine';
 
-/// 各平台下载器的抽象基类。
-///
-/// 实现了通用的文件命名和带 UA 重试的流式下载循环，
-/// 子类只需覆写 [downloadUserAgents]、[getDefaultDirectory]
-/// 并根据需要覆写 [beforeDownload] / [afterDownload]。
-abstract class BaseDownloader implements VideoDownloader {
-  /// 下载时依次尝试的 UA 列表（优先级从高到低）
-  List<String> get downloadUserAgents;
+  /// 各平台下载器的抽象基类。
+  ///
+  /// 实现了通用的文件命名和带 UA 重试的流式下载循环，
+  /// 子类只需覆写 [downloadUserAgents]、[getDefaultDirectory]
+  /// 并根据需要覆写 [beforeDownload] / [afterDownload]。
+  abstract class BaseDownloader implements VideoDownloader {
+    /// 下载时依次尝试的 UA 列表（优先级从高到低）
+    List<String> get downloadUserAgents;
 
-  /// 下载开始前的钩子，用于权限申请等（默认空实现）
-  Future<void> beforeDownload() async {}
+    /// 下载开始前的钩子，用于权限申请等（默认空实现）
+    Future<void> beforeDownload() async {}
 
-  /// 下载成功后的钩子，用于 MediaStore 通知等（默认空实现）
-  Future<void> afterDownload(String filePath) async {}
+    /// 下载成功后的钩子，用于 MediaStore 通知等（默认空实现）
+    Future<void> afterDownload(String filePath) async {}
+
+    /// 获取音乐保存目录（子类可覆写）
+    /// Android 返回 Music/umaovd，其他平台返回默认目录
+    Future<String> getMusicDirectory() async {
+      return await getDefaultDirectory();
+    }
 
   @override
   Future<String> downloadVideo(
@@ -79,7 +85,6 @@ abstract class BaseDownloader implements VideoDownloader {
         baseName,
         onProgress,
         onLog,
-        downloadMusic: downloadMusic,
       );
     }
 
@@ -307,9 +312,8 @@ abstract class BaseDownloader implements VideoDownloader {
     String dir,
     String baseName,
     void Function(int received, int? total)? onProgress,
-    void Function(String message)? onLog, {
-    bool downloadMusic = false,
-  }) async {
+    void Function(String message)? onLog,
+  ) async {
     final total = info.imageUrls.length;
     onLog?.call('图文作品，共 $total 张图片，开始下载…');
 
@@ -384,10 +388,6 @@ abstract class BaseDownloader implements VideoDownloader {
     }
 
     if (firstPath.isEmpty) throw Exception('所有图片下载失败');
-    // 可选：下载背景音乐
-    if (downloadMusic && info.musicUrl != null) {
-      await _downloadAudio(info.musicUrl!, dir, '${baseName}_bgm', onLog);
-    }
     onLog?.call('图片下载完成，共 $total 张');
     return firstPath;
   }
@@ -639,59 +639,6 @@ abstract class BaseDownloader implements VideoDownloader {
     return firstPath;
   }
 
-  /// 下载背景音乐（MP3 直连 CDN），失败时仅记录日志不抛异常
-  Future<void> _downloadAudio(
-    String url,
-    String dir,
-    String baseName,
-    void Function(String message)? onLog,
-  ) async {
-    final savePath = '$dir${Platform.pathSeparator}$baseName.mp3';
-    final partFile = File('$savePath.part');
-    await partFile.parent.create(recursive: true);
-    onLog?.call('正在下载背景音乐…');
-    final client = http.Client();
-    bool saved = false;
-    try {
-      for (final ua in downloadUserAgents) {
-        final req = http.Request('GET', Uri.parse(url));
-        req.headers[HttpHeaders.userAgentHeader] = ua;
-        final streamed = await client.send(req);
-        if (streamed.statusCode >= 300) {
-          await streamed.stream.drain<void>();
-          continue;
-        }
-        final sink = partFile.openWrite();
-        try {
-          await for (final chunk in streamed.stream.timeout(
-            const Duration(seconds: 30),
-          )) {
-            sink.add(chunk);
-          }
-          saved = true;
-        } on TimeoutException {
-          // 超时换 UA
-        } catch (_) {
-          // 其他错误换 UA
-        } finally {
-          await sink.close();
-        }
-        if (saved) break;
-        if (await partFile.exists()) await partFile.delete();
-      }
-    } finally {
-      client.close();
-    }
-    if (saved) {
-      await partFile.rename(savePath);
-      await afterDownload(savePath);
-      onLog?.call('背景音乐下载完成');
-    } else {
-      if (await partFile.exists()) await partFile.delete();
-      onLog?.call('背景音乐下载失败，跳过');
-    }
-  }
-
   /// 只保留白名单字符（CJK + ASCII 字母数字 + 常见标点），去除 emoji
   /// 及其他非常用 Unicode，截断到 [maxLen] 字符（默认 30）。
   String _sanitizeFilename(String name, {int maxLen = 30}) {
@@ -726,5 +673,86 @@ abstract class BaseDownloader implements VideoDownloader {
     if (path.endsWith('.gif')) return '.gif';
     if (path.endsWith('.jpeg')) return '.jpeg';
     return '.jpg';
+  }
+
+  /// 单独下载背景音乐
+  /// Android 固定保存到 Music/umaovd，其他平台使用指定目录
+  @override
+  Future<String?> downloadMusicFile(
+    String url, {
+    String? directory,
+    required String filename,
+    void Function(int received, int? total)? onProgress,
+    void Function(String message)? onLog,
+  }) async {
+    await beforeDownload();
+
+    // 使用音乐专用目录
+    final dir = await getMusicDirectory();
+    final baseName = _sanitizeFilename(filename);
+    final basePath = '$dir${Platform.pathSeparator}$baseName.mp3';
+    final String filePath;
+    if (File(basePath).existsSync()) {
+      final now = DateTime.now();
+      final stamp =
+          '${now.year}${_p2(now.month)}${_p2(now.day)}'
+          '_${_p2(now.hour)}${_p2(now.minute)}${_p2(now.second)}';
+      filePath = '$dir${Platform.pathSeparator}${baseName}_$stamp.mp3';
+    } else {
+      filePath = basePath;
+    }
+
+    onLog?.call('开始下载背景音乐…');
+
+    final partFile = File('$filePath.part');
+    await partFile.parent.create(recursive: true);
+
+    final client = http.Client();
+    bool saved = false;
+    try {
+      for (final ua in downloadUserAgents) {
+        final req = http.Request('GET', Uri.parse(url));
+        req.headers[HttpHeaders.userAgentHeader] = ua;
+        final streamed = await client.send(req);
+        if (streamed.statusCode >= 300) {
+          await streamed.stream.drain<void>();
+          continue;
+        }
+        final total = streamed.contentLength == -1 ? null : streamed.contentLength;
+        final sink = partFile.openWrite();
+        int received = 0;
+        try {
+          await for (final chunk in streamed.stream.timeout(
+            const Duration(seconds: 30),
+          )) {
+            sink.add(chunk);
+            received += chunk.length;
+            onProgress?.call(received, total);
+          }
+          saved = true;
+        } on TimeoutException {
+          // 超时换 UA
+        } catch (_) {
+          // 其他错误换 UA
+        } finally {
+          await sink.close();
+        }
+        if (saved) break;
+        if (await partFile.exists()) await partFile.delete();
+      }
+
+      if (!saved) {
+        if (await partFile.exists()) await partFile.delete();
+        onLog?.call('背景音乐下载失败');
+        return null;
+      }
+
+      await partFile.rename(filePath);
+      await afterDownload(filePath);
+      onLog?.call('背景音乐下载完成: $filePath');
+      return filePath;
+    } finally {
+      client.close();
+    }
   }
 }

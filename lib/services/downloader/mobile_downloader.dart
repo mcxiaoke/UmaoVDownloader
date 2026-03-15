@@ -50,6 +50,17 @@ class MobileDownloader extends BaseDownloader {
     return (await getApplicationDocumentsDirectory()).path;
   }
 
+  @override
+  Future<String> getMusicDirectory() async {
+    // Android：音乐固定保存到 Music/umaovd
+    // /storage/emulated/0/Music/umaovd
+    if (Platform.isAndroid) {
+      return '/storage/emulated/0/Music/umaovd';
+    }
+    // iOS 使用默认目录
+    return getDefaultDirectory();
+  }
+
   /// 申请存储权限
   /// - Android 11+（API 30+）：申请 manageExternalStorage，可写 Movies/Downloads
   /// - Android 10 及以下：申请 storage，可写外部存储

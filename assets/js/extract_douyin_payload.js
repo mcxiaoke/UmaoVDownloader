@@ -384,6 +384,7 @@
       imageThumbs,
       imageCount: imageUrls.length,
       musicTitle: get(item, "music.title"),
+      musicAuthor: get(item, "music.author"),
       musicUrl: null,
       videoUrl: null,
       quality: qualityInfo?.ratio || null,
@@ -397,7 +398,8 @@
 
   function runExtract() {
     const inputUrl = location.href;
-    const shareId = extractShareId(inputUrl);
+    // 优先使用外部传入的 shareId（通过 window.__SHARE_ID__ 传递），否则从当前 URL 提取
+    const shareId = (typeof window !== 'undefined' && window.__SHARE_ID__) || extractShareId(inputUrl);
 
     // 获取 loaderData
     const loaderData = getLoaderData();

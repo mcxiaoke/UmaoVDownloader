@@ -25,6 +25,13 @@ enum VideoQuality {
   }
 }
 
+/// 媒体类型枚举
+enum MediaType {
+  video,   // 普通视频
+  image,   // 图文/图集
+  livePhoto, // 实况图/动图
+}
+
 /// 解析视频信息的结果
 class VideoInfo {
   /// 作品ID (抖音: aweme_id, 小红书: noteId)
@@ -64,15 +71,22 @@ class VideoInfo {
   /// 背景音乐标题，null 表示无音乐或未能解析
   final String? musicTitle;
 
+  /// 背景音乐作者，null 表示无音乐或未能解析
+  final String? musicAuthor;
+
   /// 实况图视频 URL 列表（小红书 Live Photo）
   /// 每个实况图对应一个短视频，按顺序下载
   final List<String> livePhotoUrls;
+
+  /// 媒体类型
+  final MediaType mediaType;
 
   const VideoInfo({
     required this.itemId,
     required this.title,
     required this.videoFileId,
     required this.videoUrl,
+    required this.mediaType,
     this.coverUrl,
     this.shareId,
     this.width,
@@ -82,6 +96,7 @@ class VideoInfo {
     this.imageThumbUrls = const [],
     this.musicUrl,
     this.musicTitle,
+    this.musicAuthor,
     this.livePhotoUrls = const [],
   });
 
@@ -446,6 +461,8 @@ class DouyinParser {
     };
   }
 
+
+
   /// 构建图文作品
   VideoInfo _buildImagePost(
     Map<String, dynamic> item,
@@ -507,11 +524,13 @@ class DouyinParser {
     // 提取背景音乐
     String? musicUrl;
     String? musicTitle;
+    String? musicAuthor;
     final music = item['music'];
     final video = item['video'];
 
     if (music is Map) {
       musicTitle = music['title']?.toString();
+      musicAuthor = music['author']?.toString();
       final playUrl = music['play_url'];
       if (playUrl is Map) {
         final list = playUrl['url_list'];
@@ -550,12 +569,14 @@ class DouyinParser {
       title: title,
       videoFileId: '',
       videoUrl: '',
+      mediaType: MediaType.image,
       coverUrl: coverUrl,
       shareId: shareId,
       imageUrls: imageUrls,
       imageThumbUrls: imageThumbUrls,
       musicUrl: musicUrl,
       musicTitle: musicTitle,
+      musicAuthor: musicAuthor,
     );
   }
 
@@ -622,6 +643,7 @@ class DouyinParser {
       title: title,
       videoFileId: bestVideoFileId ?? '',
       videoUrl: bestVideoUrl,
+      mediaType: MediaType.video,
       coverUrl: coverUrl,
       shareId: shareId,
       width: width,
