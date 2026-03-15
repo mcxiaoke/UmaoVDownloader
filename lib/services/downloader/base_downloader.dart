@@ -95,9 +95,10 @@ const kUaIosDouyin =
       );
     }
 
-    // ── 实况图：批量下载视频（类似图片，逐个顺序下载）──────────────
-    if (info.livePhotoUrls.isNotEmpty) {
-      return await _downloadLivePhotos(
+    // ── 实况图：默认批量下载图片（动图视频只能单独下载）──────────────
+    // 原因：实况图可能包含混合的静态图+动图，livePhotoUrls 中会有空字符串
+    if (info.mediaType == MediaType.livePhoto) {
+      return await _downloadImages(
         info,
         dir,
         baseName,
@@ -613,8 +614,27 @@ const kUaIosDouyin =
     }
   }
 
-  /// 实况图：按序下载每个视频，保存为 {baseName}_001.mp4 / _002.mp4 …
+  /// 实况图：按序下载每个视频，  /// 注意：目前已改为默认下载图片，此方法仅用于单独下载动图视频
+  /// 保存为 {baseName}_001.mp4 / _002.mp4 …
   /// 返回第一个视频的完整路径（方便 UI 显示结果）
+  /// 批量下载实况图的视频
+  /// 返回第一个成功下载的视频路径
+  Future<String> downloadLivePhotos(
+    VideoInfo info, {
+    String? directory,
+    void Function(int received, int? total)? onProgress,
+    void Function(String message)? onLog,
+  }) async {
+    await beforeDownload();
+    final dir = directory?.isNotEmpty == true
+        ? directory!
+        : await getDefaultDirectory();
+    final prefix = info.shareId ?? info.itemId;
+    final cleanTitle = _sanitizeFilename(info.title);
+    final baseName = '${prefix}_$cleanTitle';
+    return await _downloadLivePhotos(info, dir, baseName, onProgress, onLog);
+  }
+
   Future<String> _downloadLivePhotos(
     VideoInfo info,
     String dir,
@@ -622,15 +642,33 @@ const kUaIosDouyin =
     void Function(int received, int? total)? onProgress,
     void Function(String message)? onLog,
   ) async {
-    final total = info.livePhotoUrls.length;
+    // 过滤掉空 URL，只下载有效的动图视频
+    final validUrls = <String>[];
+    final urlIndexMap = <int, int>{}; // 原始索引 -> 有效索引
+    for (int i = 0; i < info.livePhotoUrls.length; i++) {
+      final url = info.livePhotoUrls[i];
+      if (url.isNotEmpty) {
+        urlIndexMap[validUrls.length] = i;
+        validUrls.add(url);
+      }
+    }
+
+    if (validUrls.isEmpty) {
+      onLog?.call('没有有效的动图视频可下载');
+      return '';
+    }
+
+    final total = validUrls.length;
     onLog?.call('实况图作品，共 $total 个视频，开始下载…');
 
     String firstPath = '';
+    int successCount = 0;
     final client = http.Client();
     try {
       for (int i = 0; i < total; i++) {
-        final url = info.livePhotoUrls[i];
-        final idx = _p3(i + 1);
+        final url = validUrls[i];
+        final originalIndex = urlIndexMap[i]!;
+        final idx = _p3(originalIndex + 1);
         final basePath = '$dir${Platform.pathSeparator}${baseName}_$idx.mp4';
         final String videoPath;
         if (File(basePath).existsSync()) {
@@ -680,22 +718,26 @@ const kUaIosDouyin =
 
         if (!saved) {
           if (await partFile.exists()) await partFile.delete();
-          onLog?.call('实况视频 ${i + 1} 下载失败，跳过');
+          onLog?.call('实况视频 ${originalIndex + 1} 下载失败，跳过');
           onLog?.call('  失败 URL: $url');
           continue;
         }
 
         await partFile.rename(videoPath);
         await afterDownload(videoPath);
-        onProgress?.call(i + 1, total);
-        if (i == 0) firstPath = videoPath;
+        successCount++;
+        onProgress?.call(successCount, total);
+        if (successCount == 1) firstPath = videoPath;
       }
     } finally {
       client.close();
     }
 
-    if (firstPath.isEmpty) throw Exception('所有实况视频下载失败');
-    onLog?.call('实况视频下载完成，共 $total 个');
+    if (firstPath.isEmpty) {
+      onLog?.call('所有实况视频下载失败');
+      return '';
+    }
+    onLog?.call('实况视频下载完成，共 $successCount/$total 个');
     return firstPath;
   }
 
