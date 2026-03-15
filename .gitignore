@@ -151,7 +151,6 @@ coverage.xml
 *.cover
 *.py,cover
 
-test/
 temp/
 tmp/
 sources/

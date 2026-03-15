@@ -1,585 +1,373 @@
-/// 批量测试脚本 — 读取 test/urls.txt 或 test/xhs.txt，逐条解析并验证字段
+/// 媒体 URL 可用性验证工具
 ///
 /// 用法：
-///   dart run tool/run_tests.dart [urls.txt|xhs.txt] [--debug] [--validate]
+///   dart run tool/run_tests.dart                    # 验证所有缓存数据的媒体 URL
+///   dart run tool/run_tests.dart --verbose          # 详细输出
+///   dart run tool/run_tests.dart --cache backend/tests/cache  # 指定缓存目录
 ///
 /// 功能：
-///   • 对每条 URL 调用对应 Parser 解析
-///   • 验证解析结果字段（id, title, type, url字段是否合法）
-///   • 将分享页 HTML 保存到 test/cache/`<platform>`/`<id>`.html，供手动分析
-///   • 控制台输出对齐摘要表格，含 PASS / FAIL 标记
+///   • 从缓存 JSON 读取解析结果
+///   • 对媒体 URL 发送 HEAD 请求检测可用性
+///   • 检测 401、403、404 等不可用状态
+///   • 报告哪些 URL 已失效
 library;
 
 import 'dart:io' as io;
+import 'dart:convert';
 
-import 'package:path/path.dart' as path;
 import 'package:http/http.dart' as http;
-import 'package:umao_vdownloader/services/parser_common.dart';
-import 'package:umao_vdownloader/services/douyin_parser.dart';
-import 'package:umao_vdownloader/services/xiaohongshu_parser.dart';
+import 'package:path/path.dart' as path;
 
-// ── 平台类型 ──────────────────────────────────────────────────────────────────
-enum Platform { douyin, xiaohongshu }
+// ── 配置 ──────────────────────────────────────────────────────────────────────
+const _defaultCacheDir = 'backend/tests/cache';
+const _timeout = Duration(seconds: 10);
+// 与 lib/services/downloader/base_downloader.dart 保持一致
+const _userAgent =
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) '
+    'AppleWebKit/605.1.15 (KHTML, like Gecko) '
+    'Version/16.6 Mobile/15E148 Safari/604.1';
 
-extension PlatformExt on Platform {
-  String get displayName => switch (this) {
-    Platform.douyin => '抖音',
-    Platform.xiaohongshu => '小红书',
-  };
-}
-
-// ── 验证结果类型 ──────────────────────────────────────────────────────────────
-enum ValidationStatus { pass, fail, skip }
-
-class FieldValidation {
-  final String field;
-  final bool exists;
-  final bool isValid;
+// ── URL 检测结果 ──────────────────────────────────────────────────────────────
+class UrlCheckResult {
+  final String url;
+  final int? statusCode;
   final String? error;
+  bool get isOk => statusCode != null && statusCode! < 400;
+  bool get isForbidden => statusCode == 403 || statusCode == 401;
+  bool get isNotFound => statusCode == 404;
+  bool get isMethodNotAllowed => statusCode == 405; // HEAD 不支持，URL 可能仍可用
 
-  FieldValidation({
-    required this.field,
-    required this.exists,
-    required this.isValid,
-    this.error,
-  });
+  UrlCheckResult({required this.url, this.statusCode, this.error});
 
-  bool get ok => exists && isValid;
+  String get statusLabel {
+    if (error != null) return 'ERROR: $error';
+    if (isForbidden) return 'FORBIDDEN ($statusCode)';
+    if (isNotFound) return 'NOT_FOUND ($statusCode)';
+    if (isMethodNotAllowed) return 'UNKNOWN (405)';
+    if (isOk) return 'OK ($statusCode)';
+    return 'STATUS $statusCode';
+  }
 }
 
-class ValidationReport {
+// ── 缓存文件解析 ──────────────────────────────────────────────────────────────
+class MediaUrls {
+  final String platform;
   final String id;
-  final String type; // video, image, livephoto
-  final List<FieldValidation> fields;
-  final List<String> errors;
+  final String? videoUrl;
+  final List<String> imageUrls;
+  final List<String> livePhotoUrls;
+  final String? coverUrl;
+  final String? musicUrl;
 
-  ValidationReport({
+  MediaUrls({
+    required this.platform,
     required this.id,
-    required this.type,
-    required this.fields,
-    required this.errors,
+    this.videoUrl,
+    this.imageUrls = const [],
+    this.livePhotoUrls = const [],
+    this.coverUrl,
+    this.musicUrl,
   });
 
-  bool get allOk => errors.isEmpty && fields.every((f) => f.ok);
-  int get passCount => fields.where((f) => f.ok).length;
-  int get totalCount => fields.length;
-}
-
-// ── HTML 拦截 Client ──────────────────────────────────────────────────────────
-class _CachingClient extends http.BaseClient {
-  _CachingClient(this._inner, this._cacheDir, this._platform, this._id);
-
-  final http.Client _inner;
-  final io.Directory _cacheDir;
-  final Platform _platform;
-  final String _id;
-  String? lastSavedPath;
-
-  @override
-  Future<http.StreamedResponse> send(http.BaseRequest request) =>
-      _inner.send(request);
-
-  @override
-  Future<http.Response> get(Uri url, {Map<String, String>? headers}) async {
-    final resp = await _inner.get(url, headers: headers);
-    if (resp.statusCode == 200) {
-      final platformDir = io.Directory(
-        path.join(_cacheDir.path, _platform.name),
-      );
-      if (!platformDir.existsSync()) {
-        platformDir.createSync(recursive: true);
-      }
-
-      final htmlName = '$_id.html';
-      final htmlFile = io.File(path.join(platformDir.path, htmlName));
-      await htmlFile.writeAsString(resp.body);
-      lastSavedPath = htmlFile.path;
-
-      final jsonData = _extractInitialState(resp.body);
-      if (jsonData != null) {
-        final jsonName = '$_id.json';
-        final jsonFile = io.File(path.join(platformDir.path, jsonName));
-        await jsonFile.writeAsString(jsonData);
-      }
+  List<(String type, String url)> get allUrls {
+    final urls = <(String, String)>[];
+    if (videoUrl != null && videoUrl!.isNotEmpty) {
+      urls.add(('video', videoUrl!));
     }
-    return resp;
-  }
-
-  String? _extractInitialState(String html) {
-    final reg = RegExp(
-      r'window\.__INITIAL_STATE__\s*=\s*({.+?});?\s*</script>',
-      caseSensitive: false,
-      dotAll: true,
-    );
-    final match = reg.firstMatch(html);
-    if (match != null) {
-      var jsonStr = match.group(1)!;
-      jsonStr = jsonStr.replaceAllMapped(
-        RegExp(r':\s*undefined\s*([,}\]])'),
-        (m) => ':null${m.group(1)}',
-      );
-      return jsonStr;
+    for (var i = 0; i < imageUrls.length; i++) {
+      urls.add(('image[$i]', imageUrls[i]));
     }
-    return null;
+    for (var i = 0; i < livePhotoUrls.length; i++) {
+      urls.add(('livephoto[$i]', livePhotoUrls[i]));
+    }
+    if (coverUrl != null && coverUrl!.isNotEmpty) {
+      urls.add(('cover', coverUrl!));
+    }
+    if (musicUrl != null && musicUrl!.isNotEmpty) {
+      urls.add(('music', musicUrl!));
+    }
+    return urls;
   }
 }
 
-// ── URL 验证工具 ─────────────────────────────────────────────────────────────
-bool isValidUrl(String? url) {
-  if (url == null || url.isEmpty) return false;
+MediaUrls? parseCacheFile(String filePath) {
+  final file = io.File(filePath);
+  if (!file.existsSync()) return null;
+
+  final fileName = path.basenameWithoutExtension(filePath);
+  final json = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
+
+  if (fileName.startsWith('dy_')) {
+    return _parseDouyinCache(fileName, json);
+  } else if (fileName.startsWith('xhs_')) {
+    return _parseXiaohongshuCache(fileName, json);
+  }
+  return null;
+}
+
+MediaUrls _parseDouyinCache(String id, Map<String, dynamic> json) {
+  String? videoUrl;
+  final imageUrls = <String>[];
+
+  // 判断类型：aweme_type 2 是图文，4 是视频
+  final awemeType = json['aweme_type'];
+  final isImagePost = awemeType == 2;
+
+  if (!isImagePost) {
+    // 视频
+    final playAddr = json['video']?['play_addr'];
+    if (playAddr is Map) {
+      final urlList = playAddr['url_list'] as List?;
+      if (urlList != null && urlList.isNotEmpty) {
+        videoUrl = urlList.first.toString();
+      }
+    }
+  }
+
+  // 图片
+  final images = json['images'] as List?;
+  if (images != null) {
+    for (final img in images) {
+      if (img is! Map) continue;
+      final urlList = img['url_list'] as List?;
+      if (urlList != null && urlList.isNotEmpty) {
+        imageUrls.add(urlList.first.toString());
+      }
+    }
+  }
+
+  // 封面
+  String? coverUrl;
+  final cover = json['video']?['cover'];
+  if (cover is Map) {
+    final urlList = cover['url_list'] as List?;
+    if (urlList != null && urlList.isNotEmpty) {
+      coverUrl = urlList.first.toString();
+    }
+  }
+
+  // 音乐
+  String? musicUrl;
+  final music = json['music'];
+  if (music is Map) {
+    musicUrl = music['play_url']?.toString();
+  }
+
+  return MediaUrls(
+    platform: 'douyin',
+    id: id,
+    videoUrl: videoUrl,
+    imageUrls: imageUrls,
+    coverUrl: coverUrl,
+    musicUrl: musicUrl,
+  );
+}
+
+MediaUrls _parseXiaohongshuCache(String id, Map<String, dynamic> json) {
+  String? videoUrl;
+  final imageUrls = <String>[];
+  final livePhotoUrls = <String>[];
+
+  final type = json['type']?.toString();
+
+  if (type == 'video') {
+    // 视频：stream 是对象 {h264: [...], h265: [...]}
+    final stream = json['video']?['media']?['stream'];
+    if (stream is Map) {
+      // 优先使用 h264
+      final h264 = stream['h264'] as List?;
+      final h265 = stream['h265'] as List?;
+
+      List? targetStream = h264;
+      if (h264 == null || h264.isEmpty) {
+        targetStream = h265;
+      }
+
+      if (targetStream != null && targetStream.isNotEmpty) {
+        videoUrl = targetStream.first['masterUrl']?.toString();
+      }
+    }
+  } else {
+    // 图文/实况图
+    final imageList = json['imageList'] as List?;
+    if (imageList != null) {
+      for (final img in imageList) {
+        if (img is! Map) continue;
+
+        final livePhoto = img['livePhoto'] == true;
+        final url = img['urlDefault']?.toString() ?? img['url']?.toString();
+
+        if (livePhoto) {
+          // 实况图视频
+          final liveUrl = img['livePhotoUrl']?.toString();
+          if (liveUrl != null && liveUrl.isNotEmpty) {
+            livePhotoUrls.add(liveUrl);
+          }
+        }
+
+        if (url != null && url.isNotEmpty) {
+          imageUrls.add(url);
+        }
+      }
+    }
+  }
+
+  // 封面
+  String? coverUrl = json['imageList']?.first?['urlDefault']?.toString();
+
+  return MediaUrls(
+    platform: 'xiaohongshu',
+    id: id,
+    videoUrl: videoUrl,
+    imageUrls: imageUrls,
+    livePhotoUrls: livePhotoUrls,
+    coverUrl: coverUrl,
+  );
+}
+
+// ── URL 检测 ──────────────────────────────────────────────────────────────────
+Future<UrlCheckResult> checkUrl(String url) async {
   try {
     final uri = Uri.parse(url);
-    return uri.isAbsolute && (uri.scheme == 'http' || uri.scheme == 'https');
-  } catch (_) {
-    return false;
-  }
-}
+    final request = http.Request('HEAD', uri)
+      ..headers['User-Agent'] = _userAgent;
 
-// ── 字段验证 ─────────────────────────────────────────────────────────────────
-ValidationReport validateVideoInfo(VideoInfo info, Platform platform) {
-  final fields = <FieldValidation>[];
-  final errors = <String>[];
+    final response = await http.Client().send(request).timeout(_timeout);
+    final statusCode = response.statusCode;
 
-  // 基础字段验证
-  fields.add(
-    FieldValidation(
-      field: 'itemId',
-      exists: info.itemId.isNotEmpty,
-      isValid: info.itemId.isNotEmpty,
-      error: info.itemId.isEmpty ? 'itemId为空' : null,
-    ),
-  );
-
-  fields.add(
-    FieldValidation(
-      field: 'title',
-      exists: info.title.isNotEmpty,
-      isValid: info.title.isNotEmpty,
-      error: info.title.isEmpty ? 'title为空' : null,
-    ),
-  );
-
-  // 类型判断
-  String type;
-  if (info.livePhotoUrls.isNotEmpty) {
-    type = 'livephoto';
-  } else if (info.mediaType == MediaType.image) {
-    type = 'image';
-  } else {
-    type = 'video';
-  }
-
-  // 根据类型验证对应字段
-  if (type == 'video') {
-    // 视频字段验证
-    fields.add(
-      FieldValidation(
-        field: 'videoUrl',
-        exists: info.videoUrl.isNotEmpty,
-        isValid: isValidUrl(info.videoUrl),
-        error: info.videoUrl.isEmpty
-            ? 'videoUrl为空'
-            : !isValidUrl(info.videoUrl)
-            ? 'videoUrl格式无效'
-            : null,
-      ),
-    );
-
-    fields.add(
-      FieldValidation(
-        field: 'videoFileId',
-        exists: info.videoFileId.isNotEmpty,
-        isValid: info.videoFileId.isNotEmpty,
-        error: info.videoFileId.isEmpty ? 'videoFileId为空' : null,
-      ),
-    );
-
-    if (info.coverUrl != null) {
-      fields.add(
-        FieldValidation(
-          field: 'coverUrl',
-          exists: true,
-          isValid: isValidUrl(info.coverUrl),
-          error: !isValidUrl(info.coverUrl) ? 'coverUrl格式无效' : null,
-        ),
-      );
-    }
-  } else if (type == 'livephoto') {
-    // 实况图字段验证
-    fields.add(
-      FieldValidation(
-        field: 'livePhotoUrls',
-        exists: info.livePhotoUrls.isNotEmpty,
-        isValid: info.livePhotoUrls.every(isValidUrl),
-        error: info.livePhotoUrls.isEmpty
-            ? 'livePhotoUrls为空'
-            : !info.livePhotoUrls.every(isValidUrl)
-            ? 'livePhotoUrls包含无效URL'
-            : null,
-      ),
-    );
-
-    fields.add(
-      FieldValidation(
-        field: 'videoUrl',
-        exists: info.videoUrl.isNotEmpty,
-        isValid: isValidUrl(info.videoUrl),
-        error: info.videoUrl.isEmpty
-            ? 'videoUrl为空(首视频)'
-            : !isValidUrl(info.videoUrl)
-            ? 'videoUrl格式无效'
-            : null,
-      ),
-    );
-
-    fields.add(
-      FieldValidation(
-        field: 'imageUrls',
-        exists: info.imageUrls.isNotEmpty,
-        isValid: info.imageUrls.every(isValidUrl),
-        error: info.imageUrls.isEmpty
-            ? 'imageUrls为空'
-            : !info.imageUrls.every(isValidUrl)
-            ? 'imageUrls包含无效URL'
-            : null,
-      ),
-    );
-
-    if (info.imageThumbUrls.isNotEmpty) {
-      fields.add(
-        FieldValidation(
-          field: 'imageThumbUrls',
-          exists: true,
-          isValid: info.imageThumbUrls.every(isValidUrl),
-          error: !info.imageThumbUrls.every(isValidUrl)
-              ? 'imageThumbUrls包含无效URL'
-              : null,
-        ),
-      );
-    }
-  } else if (type == 'image') {
-    // 图文字段验证
-    fields.add(
-      FieldValidation(
-        field: 'imageUrls',
-        exists: info.imageUrls.isNotEmpty,
-        isValid: info.imageUrls.every(isValidUrl),
-        error: info.imageUrls.isEmpty
-            ? 'imageUrls为空'
-            : !info.imageUrls.every(isValidUrl)
-            ? 'imageUrls包含无效URL'
-            : null,
-      ),
-    );
-
-    if (info.imageThumbUrls.isNotEmpty) {
-      fields.add(
-        FieldValidation(
-          field: 'imageThumbUrls',
-          exists: true,
-          isValid: info.imageThumbUrls.every(isValidUrl),
-          error: !info.imageThumbUrls.every(isValidUrl)
-              ? 'imageThumbUrls包含无效URL'
-              : null,
-        ),
-      );
-    }
-
-    // 背景音乐可选
-    if (info.musicUrl != null) {
-      fields.add(
-        FieldValidation(
-          field: 'musicUrl',
-          exists: true,
-          isValid: isValidUrl(info.musicUrl),
-          error: !isValidUrl(info.musicUrl) ? 'musicUrl格式无效' : null,
-        ),
-      );
-    }
-  }
-
-  // 通用可选字段验证
-  if (info.shareId != null) {
-    fields.add(
-      FieldValidation(
-        field: 'shareId',
-        exists: true,
-        isValid: info.shareId!.isNotEmpty,
-      ),
-    );
-  }
-
-  // 收集错误
-  for (final f in fields) {
-    if (!f.ok && f.error != null) {
-      errors.add('${f.field}: ${f.error}');
-    }
-  }
-
-  return ValidationReport(
-    id: info.itemId,
-    type: type,
-    fields: fields,
-    errors: errors,
-  );
-}
-
-// ── 解析一条 URL ─────────────────────────────────────────────────────────────
-class _ParseResult {
-  final String id;
-  final bool ok;
-  final Platform platform;
-  final String? title;
-  final String type;
-  final int imageCount;
-  final int? livePhotoCount;
-  final String? error;
-  final String? htmlPath;
-  final ValidationReport? validation;
-
-  _ParseResult({
-    required this.id,
-    required this.ok,
-    required this.platform,
-    this.title,
-    this.type = 'unknown',
-    this.imageCount = 0,
-    this.livePhotoCount,
-    this.error,
-    this.htmlPath,
-    this.validation,
-  });
-}
-
-Future<_ParseResult> _testOne(
-  String url,
-  io.Directory cacheDir,
-  Platform platform, {
-  bool debug = false,
-  bool validate = false,
-}) async {
-  String id;
-  if (platform == Platform.douyin) {
-    id =
-        RegExp(r'v\.douyin\.com/([A-Za-z0-9_-]+)').firstMatch(url)?.group(1) ??
-        RegExp(r'/(?:video|note|slides)/(\d+)').firstMatch(url)?.group(1) ??
-        'unknown';
-  } else {
-    id =
-        RegExp(r'xhslink\.com/o/([A-Za-z0-9_-]+)').firstMatch(url)?.group(1) ??
-        RegExp(r'/explore/(\w+)').firstMatch(url)?.group(1) ??
-        RegExp(r'/discovery/item/(\w+)').firstMatch(url)?.group(1) ??
-        'unknown';
-  }
-
-  final inner = http.Client();
-  final caching = _CachingClient(inner, cacheDir, platform, id);
-
-  try {
-    VideoInfo info;
-    if (platform == Platform.douyin) {
-      final parser = DouyinParser(httpClient: caching);
-      info = await parser.parse(url);
-    } else {
-      final parser = XiaohongshuParser(client: caching);
-      info = await parser.parse(url);
-    }
-
-    // 验证字段
-    ValidationReport? validation;
-    if (validate) {
-      validation = validateVideoInfo(info, platform);
-    }
-
-    // 判断类型
-    String type;
-    int? livePhotoCount;
-    if (info.livePhotoUrls.isNotEmpty) {
-      type = 'livephoto';
-      livePhotoCount = info.livePhotoUrls.length;
-    } else if (info.mediaType == MediaType.image) {
-      type = 'image';
-    } else {
-      type = 'video';
-    }
-
-    return _ParseResult(
-      id: id,
-      ok: true,
-      platform: platform,
-      title: info.title,
-      type: type,
-      imageCount: info.imageUrls.length,
-      livePhotoCount: livePhotoCount,
-      htmlPath: caching.lastSavedPath,
-      validation: validation,
-    );
+    return UrlCheckResult(url: url, statusCode: statusCode);
+  } on http.ClientException catch (e) {
+    return UrlCheckResult(url: url, error: '网络错误: ${e.message}');
+  } on io.SocketException catch (e) {
+    return UrlCheckResult(url: url, error: '连接失败: ${e.message}');
   } catch (e) {
-    return _ParseResult(
-      id: id,
-      ok: false,
-      platform: platform,
-      error: e.toString(),
-      htmlPath: caching.lastSavedPath,
-    );
-  } finally {
-    inner.close();
+    return UrlCheckResult(url: url, error: e.toString());
   }
 }
 
 // ── 主入口 ───────────────────────────────────────────────────────────────────
 Future<void> main(List<String> args) async {
-  String urlsFileName = 'urls.txt';
-  bool debug = false;
-  bool validate = false;
+  bool verbose = args.contains('--verbose') || args.contains('-v');
+  String cacheDir = _defaultCacheDir;
 
   for (final arg in args) {
-    if (arg == '--debug') {
-      debug = true;
-    } else if (arg == '--validate') {
-      validate = true;
-    } else if (arg.endsWith('.txt')) {
-      urlsFileName = arg;
+    if (arg.startsWith('--cache=')) {
+      cacheDir = arg.substring('--cache='.length);
+    } else if (arg == '--cache' && args.indexOf(arg) + 1 < args.length) {
+      cacheDir = args[args.indexOf(arg) + 1];
     }
   }
 
-  final urlsFile = io.File(path.join('test', urlsFileName));
-  if (!urlsFile.existsSync()) {
-    print('找不到 ${urlsFile.path}');
+  final cacheDirectory = io.Directory(cacheDir);
+  if (!cacheDirectory.existsSync()) {
+    print('缓存目录不存在: $cacheDir');
     io.exit(1);
   }
 
-  Platform detectUrlPlatform(String url) {
-    if (url.contains('xhslink.com') || url.contains('xiaohongshu.com')) {
-      return Platform.xiaohongshu;
+  // 扫描缓存文件
+  final cacheFiles = <io.File>[];
+  await for (final entity in cacheDirectory.list()) {
+    if (entity is io.File && entity.path.endsWith('.json')) {
+      cacheFiles.add(entity);
     }
-    if (url.contains('douyin.com') || url.contains('v.douyin.com')) {
-      return Platform.douyin;
-    }
-    return Platform.douyin;
   }
 
-  final lines = urlsFile.readAsLinesSync();
-
-  final entries = <({String url, String label})>[];
-  for (final line in lines) {
-    final trimmed = line.trim();
-    if (trimmed.isEmpty || trimmed.startsWith('#')) continue;
-
-    final urlMatch = RegExp(r'https?://\S+').firstMatch(trimmed);
-    if (urlMatch == null) continue;
-    final url = urlMatch.group(0)!;
-
-    String label = '';
-    if (trimmed.contains('#')) {
-      final parts = trimmed.split('#');
-      label = parts.length > 1 ? parts.sublist(1).join('#').trim() : '';
-    } else {
-      label = trimmed.substring(urlMatch.end).trim();
-    }
-
-    if (url.isNotEmpty) entries.add((url: url, label: label));
-  }
-
-  if (entries.isEmpty) {
-    print('${urlsFile.path} 中没有有效 URL');
+  if (cacheFiles.isEmpty) {
+    print('缓存目录中没有 JSON 文件: $cacheDir');
     io.exit(1);
   }
 
-  final cacheDir = io.Directory(path.join('test', 'cache'));
-  await cacheDir.create(recursive: true);
+  print('媒体 URL 可用性验证');
+  print('缓存目录: $cacheDir');
+  print('文件数量: ${cacheFiles.length}');
+  print('');
 
-  print('文件: ${urlsFile.path}');
-  print('验证模式: ${validate ? "开启" : "关闭"}');
-  print('共 ${entries.length} 条 URL，开始测试…\n');
+  int totalUrls = 0;
+  int okUrls = 0;
+  int unknownUrls = 0; // 405 等，HEAD 不支持但 URL 可能可用
+  int failedUrls = 0;
+  int forbiddenUrls = 0;
 
-  const delayMs = 6000;
-  final results = <(String label, _ParseResult result)>[];
-  for (var i = 0; i < entries.length; i++) {
-    final e = entries[i];
-    final platform = detectUrlPlatform(e.url);
-    if (i > 0) {
-      await Future<void>.delayed(const Duration(milliseconds: delayMs));
-    }
-    io.stdout.write('  测试 ${e.label.padRight(20)} ${e.url} … ');
-    final r = await _testOne(
-      e.url,
-      cacheDir,
-      platform,
-      debug: debug,
-      validate: validate,
-    );
-    io.stdout.writeln(r.ok ? 'OK' : 'FAIL');
-    results.add((e.label, r));
-  }
+  final failedItems =
+      <(String platform, String id, String type, String url, String status)>[];
 
-  // ── 输出汇总表 ─────────────────────────────────────────────────
-  print('\n${'─' * 100}');
-  print(
-    '${'类型'.padRight(20)}  ${'ID'.padRight(14)}  ${'平台'.padRight(6)}  ${'结果'.padRight(6)}  ${'内容类型'.padRight(10)}  详情',
-  );
-  print('─' * 100);
+  for (final file in cacheFiles) {
+    final media = parseCacheFile(file.path);
+    if (media == null) continue;
 
-  int passed = 0;
-  int validationPassed = 0;
+    final fileName = path.basename(file.path);
+    final platformIcon = media.platform == 'douyin' ? '🎵' : '📕';
+    print('$platformIcon ${media.id}');
 
-  for (final (label, r) in results) {
-    final status = r.ok
-        ? (r.validation?.allOk ?? true ? '✓ PASS' : '⚠ WARN')
-        : '✗ FAIL';
+    for (final (type, url) in media.allUrls) {
+      totalUrls++;
 
-    if (r.ok) {
-      passed++;
-      if (r.validation?.allOk ?? true) validationPassed++;
-
-      String contentType;
-      if (r.type == 'livephoto') {
-        contentType = '实况图(${r.livePhotoCount})';
-      } else if (r.type == 'image') {
-        contentType = '图文(${r.imageCount})';
-      } else {
-        contentType = '视频';
+      if (verbose) {
+        print('  检测 $type …');
       }
 
-      final titleShort = (r.title ?? '').length > 25
-          ? '${r.title!.substring(0, 24)}…'
-          : (r.title ?? '');
+      final result = await checkUrl(url);
 
-      final platformShort = r.platform == Platform.douyin ? '抖音' : '小红书';
-
-      print(
-        '${label.padRight(20)}  ${r.id.padRight(14)}  ${platformShort.padRight(6)}  ${status.padRight(6)}  ${contentType.padRight(10)}  $titleShort',
-      );
-
-      // 显示验证详情
-      if (validate && r.validation != null && !r.validation!.allOk) {
-        for (final error in r.validation!.errors) {
-          print('${' ' * 58}  ! $error');
+      if (result.isOk) {
+        okUrls++;
+        if (verbose) {
+          print('    ✓ ${result.statusLabel}');
         }
+      } else if (result.isMethodNotAllowed) {
+        // 405: HEAD 不支持，URL 可能仍可用
+        unknownUrls++;
+        if (verbose) {
+          print('    ? ${result.statusLabel}');
+        }
+      } else {
+        failedUrls++;
+        if (result.isForbidden) {
+          forbiddenUrls++;
+        }
+        print('    ✗ $type: ${result.statusLabel}');
+        failedItems.add((
+          media.platform,
+          media.id,
+          type,
+          url,
+          result.statusLabel,
+        ));
       }
-    } else {
-      final platformShort = r.platform == Platform.douyin ? '抖音' : '小红书';
-      print(
-        '${label.padRight(20)}  ${r.id.padRight(14)}  ${platformShort.padRight(6)}  ${status.padRight(6)}  ${r.error ?? ""}',
-      );
-    }
 
-    if (r.htmlPath != null) {
-      print('${' ' * 50}  → ${r.htmlPath}');
+      // 避免请求过快
+      await Future.delayed(const Duration(milliseconds: 1000));
     }
   }
 
-  print('─' * 100);
-  print('解析结果: $passed / ${results.length} 通过');
-  if (validate) {
-    print(
-      '字段验证: $validationPassed / ${results.where((r) => r.$2.ok).length} 通过',
-    );
+  // ── 汇总 ───────────────────────────────────────────────────────────────
+  print('');
+  print('=' * 60);
+  print('检测结果汇总');
+  print('=' * 60);
+  print('总 URL 数: $totalUrls');
+  print('可用: $okUrls');
+  if (unknownUrls > 0) {
+    print('未知 (405): $unknownUrls');
+  }
+  print('不可用: $failedUrls');
+  if (forbiddenUrls > 0) {
+    print('  其中 401/403: $forbiddenUrls');
   }
   print('');
 
-  if (passed < results.length ||
-      (validate && validationPassed < results.where((r) => r.$2.ok).length)) {
+  if (failedItems.isNotEmpty) {
+    print('不可用 URL 列表:');
+    print('-' * 60);
+    for (final (platform, id, type, url, status) in failedItems) {
+      final shortUrl = url.length > 60 ? '${url.substring(0, 57)}...' : url;
+      print('[$platform] $id / $type: $status');
+      if (verbose) {
+        print('  $shortUrl');
+      }
+    }
+  }
+
+  if (failedUrls > 0) {
     io.exit(1);
   }
 }

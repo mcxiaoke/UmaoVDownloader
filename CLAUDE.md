@@ -41,18 +41,34 @@ dart run cli/umao_vd.dart -j "https://v.douyin.com/example/"
 dart compile exe cli/umao_vd.dart -o build/umao_vd.exe
 ```
 
-### 测试和调试
+### 解析器测试（重要！）
+
+**每次修改解析器代码后，必须运行测试验证！**
 
 ```bash
-# 运行批量 URL 测试
-dart run tool/run_tests.dart urls.txt
-dart run tool/run_tests.dart xhs.txt --debug
+# Node.js 端测试（本地模式，快速验证）
+cd backend
+node tests/cache-validator.js --local              # 测试所有
+node tests/cache-validator.js --local --douyin     # 只测抖音
+node tests/cache-validator.js --local --xhs        # 只测小红书
+node tests/cache-validator.js --local --verbose    # 详细输出
 
-# 运行 Flutter 组件测试
-flutter test test/widget_test.dart
+# Node.js 端测试（在线模式，真实网络请求）
+node tests/cache-validator.js --online
 
-# 代码分析
-flutter analyze
+# Dart 端测试
+cd ..
+flutter test test/parser_test.dart
+```
+
+### 媒体 URL 可用性验证
+
+验证解析出的媒体 URL 是否真实可用（检测 401/403/404 等失效情况）：
+
+```bash
+dart run tool/run_tests.dart                    # 验证缓存数据的媒体 URL
+dart run tool/run_tests.dart --verbose          # 详细输出
+dart run tool/run_tests.dart --cache path/to/cache  # 指定缓存目录
 ```
 
 ### 发布构建
@@ -89,13 +105,11 @@ PORT=3333 BASE_PATH=/vd pm2 start server.js --name umao-vd
 
 - **ParserFacade** (`lib/services/parser_facade.dart`)：视频解析的主要入口点
   - 支持多平台（抖音、小红书）
-  - 实现解析策略模式（WebView 与 Dart 解析器）
-  - 提供解析器对比模式用于测试准确性
+  - 自动检测 URL 平台并路由到对应解析器
 
 - **平台解析器**：
   - `DouyinParser`：从抖音分享链接提取视频数据
-  - `XiaohongshuParser`：处理小红书内容解析
-  - `WebViewParser`：基于 JavaScript 的回退解析器
+  - `XiaohongshuParser`：处理小红书内容解析（视频、图文、实况图）
 
 - **下载系统**：
   - `BaseDownloader`：包含通用下载逻辑的抽象基类
@@ -108,6 +122,7 @@ PORT=3333 BASE_PATH=/vd pm2 start server.js --name umao-vd
   - 视频元数据（ID、标题、尺寸、码率）
   - 具有直接 CDN 链接的质量变体
   - 图文作品支持（多图片、背景音乐）
+  - 实况图支持（Live Photo URL 列表）
   - 封面图片和分享信息
 
 ### 用户界面结构
@@ -130,7 +145,6 @@ PORT=3333 BASE_PATH=/vd pm2 start server.js --name umao-vd
 ### Flutter 依赖
 
 - `http`：网络请求
-- `webview_flutter` + `webview_windows`：JavaScript 解析回退
 - `permission_handler`：Android 存储权限
 - `path_provider`：平台特定文件路径
 - `shared_preferences`：设置持久化
@@ -144,7 +158,7 @@ PORT=3333 BASE_PATH=/vd pm2 start server.js --name umao-vd
 
 ### Node.js 服务端特性
 
-- **轻量级实现**：无需第三方 NPM 依赖的原始纯函数解析器
+- **轻量级实现**：模块化的解析器架构（`parsers/` 目录）
 - **跨域解决方案**：Express.js 代理接口解决浏览器 CORS 问题
 - **安全机制**：白名单拦截功能防止 SSRF 攻击
 - **前端优化**：
@@ -160,7 +174,6 @@ PORT=3333 BASE_PATH=/vd pm2 start server.js --name umao-vd
 
 ### Windows 特性
 
-- 用于 JavaScript 解析的 WebView2 集成
 - 针对桌面优化的 UI 和文件处理
 - MSIX 打包支持
 
@@ -170,19 +183,39 @@ PORT=3333 BASE_PATH=/vd pm2 start server.js --name umao-vd
 - 下载进度指示
 - 可配置的输出目录
 
-## 测试策略
+## 测试系统
 
-### 测试文件
+### 测试文件结构
 
-- `test/urls.txt`：抖音测试 URL 示例
-- `test/xhs.txt`：小红书 URL 示例
-- `tool/run_tests.dart`：带 HTML 缓存的自动批量测试
+```
+backend/tests/
+├── cache-validator.js      # 验证器（支持本地/在线模式）
+├── cache-test-cases.js     # 测试用例定义
+└── cache/                  # 测试数据缓存
+    ├── dy_*.json           # 抖音测试数据
+    └── xhs_*.json          # 小红书测试数据
 
-### 测试执行
+test/
+└── parser_test.dart        # Dart 端单元测试
+```
 
-- 批量测试将 HTML/JSON 保存到 `test/cache/` 以供分析
-- 比较解析器性能和准确性
-- 支持调试模式以输出详细信息
+### 测试用例覆盖
+
+| 平台 | 类型 | 说明 |
+|------|------|------|
+| 抖音 | video | 短视频、长视频 |
+| 抖音 | image | 图文作品 |
+| 小红书 | video | 视频笔记 |
+| 小红书 | image | 静态图片 |
+| 小红书 | livephoto | 实况图（Live Photo）|
+
+### 测试验证项
+
+- 媒体类型（type）正确性
+- 标题匹配
+- 作者信息
+- 时长/图片数量
+- 必要字段完整性
 
 ## 构建和发布流程
 
@@ -205,11 +238,26 @@ PORT=3333 BASE_PATH=/vd pm2 start server.js --name umao-vd
 
 ## 开发指南
 
-### 解析器开发
+### 解析器开发流程（重要！）
 
-- 始终使用 WebView 和 Dart 解析器进行测试
-- 在开发期间缓存 HTML 响应
-- 优雅地处理平台特定的错误情况
+1. **修改前**：先运行现有测试，确保基准状态正常
+2. **修改代码**：修改 `parsers/*.js` 或 `*_parser.dart`
+3. **运行测试**：**必须**运行本地测试验证
+   ```bash
+   # Node.js 端
+   node tests/cache-validator.js --local
+   
+   # Dart 端
+   flutter test test/parser_test.dart
+   ```
+4. **检查结果**：所有测试通过后才能提交
+
+### 添加新测试用例
+
+1. 从真实 URL 获取缓存数据（使用解析器缓存功能）
+2. 将缓存文件复制到 `backend/tests/cache/`
+3. 在 `cache-test-cases.js` 中添加测试用例定义
+4. 在 `test/parser_test.dart` 中添加对应测试
 
 ### 用户界面开发
 
@@ -230,9 +278,10 @@ lib/
 ├── main.dart                          # 应用入口点
 ├── services/
 │   ├── parser_facade.dart            # 主要解析接口
+│   ├── parser_common.dart            # 公共数据模型
 │   ├── douyin_parser.dart            # 抖音特定解析
 │   ├── xiaohongshu_parser.dart       # 小红书解析
-│   ├── webview_parser.dart           # JavaScript 回退
+│   ├── url_extractor.dart            # URL 提取工具
 │   ├── downloader/                   # 平台下载器
 │   │   ├── base_downloader.dart
 │   │   ├── desktop_downloader.dart
@@ -246,21 +295,31 @@ cli/
 └── umao_vd.dart                     # 独立 CLI 工具
 
 backend/                             # Node.js 服务端
-├── parser.js                       # 纯函数解析器
+├── parser.js                       # 解析器入口
 ├── server.js                       # Express.js 服务
+├── parsers/                        # 解析器模块
+│   ├── index.js                    # 路由
+│   ├── common.js                   # 公共工具
+│   ├── douyin.js                   # 抖音解析
+│   └── xiaohongshu.js              # 小红书解析
+├── tests/                          # 测试系统
+│   ├── cache-validator.js          # 验证器
+│   ├── cache-test-cases.js         # 测试用例
+│   └── cache/                      # 测试数据
 ├── public/                         # 静态前端文件
-│   ├── index.html                  # Web 界面
-│   ├── js/                         # 前端 JavaScript
-│   └── css/                        # 样式文件
-└── package.json                    # 依赖配置
+│   ├── index.html
+│   ├── app.js
+│   └── style.css
+└── package.json
 
 tool/
 ├── run_tests.dart                   # 批量测试工具
 └── debug_parse.dart                 # 调试解析工具
+
 test/
+├── parser_test.dart                 # 解析器单元测试
 ├── urls.txt                         # 测试 URL 集合
-├── xhs.txt                          # 小红书 URL
-└── cache/                           # 用于分析的缓存 HTML/JSON
+└── xhs.txt                          # 小红书 URL
 ```
 
 ## 常见开发任务
@@ -270,32 +329,32 @@ test/
 1. 在 `parser_facade.dart` 中扩展 `ParserPlatform` 枚举
 2. 创建平台特定的解析器类
 3. 更新 URL 检测逻辑
-4. 添加到批量测试中
+4. 添加测试缓存和测试用例
+5. **运行测试验证**
 
 ### Node.js 服务端开发
 
-1. 修改 `backend/parser.js` 添加新的解析逻辑
-2. 更新 `backend/server.js` 的路由处理
+1. 在 `backend/parsers/` 下添加/修改解析逻辑
+2. 更新 `backend/parsers/index.js` 的路由
 3. 在前端界面添加对应的 UI 元素
-4. 测试跨域和安全性配置
+4. **运行测试验证**
 
 ### 提高解析器准确性
 
 1. 使用 `tool/run_tests.dart --debug` 分析 HTML 结构
-2. 检查 `test/cache/` 中的缓存文件
-3. 更新正则表达式模式或 JSON 提取逻辑
-4. 使用两种解析策略进行测试
+2. 检查 `backend/temp/` 中的缓存文件
+3. 更新解析逻辑
+4. **运行测试验证**
 
 ### 添加新视频质量
 
-1. 在解析器文件中扩展 `VideoQuality` 枚举
-2. 更新质量检测逻辑
-3. 使用各种源视频进行测试
-4. 验证 CDN URL 可访问性
+1. 在解析器文件中扩展质量检测逻辑
+2. 使用各种源视频进行测试
+3. 验证 CDN URL 可访问性
 
-### 代码规则
+## 代码规则
 
-1. 修改代码前仔细思考
-2. 修改代码后仔细检查
-3. 运行代码静态检查工具
-4. 如果有测试就运行
+1. **修改代码前仔细思考**
+2. **修改代码后仔细检查**
+3. **运行代码静态检查工具**（`flutter analyze`）
+4. **修改解析器后必须运行测试**
