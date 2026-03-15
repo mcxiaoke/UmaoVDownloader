@@ -223,6 +223,7 @@ class ParserFacade {
       title: info.title,
       videoFileId: info.videoFileId,
       videoUrl: info.videoUrl,
+      videoUrlNoWatermark: info.videoUrlNoWatermark,  // 传递无水印URL
       mediaType: info.mediaType,
       coverUrl: info.coverUrl,
       shareId: info.shareId,

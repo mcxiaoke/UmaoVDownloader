@@ -6,9 +6,9 @@ import 'base_downloader.dart';
 class DesktopDownloader extends BaseDownloader {
   @override
   List<String> get downloadUserAgents => const [
-    kUaIosDouyin,
-    kUaEdge,
-    kUaIosWechat,
+    kUaIphoneSafari,
+    // kUaEdge,
+    // kUaIosWechat,
   ];
 
   @override

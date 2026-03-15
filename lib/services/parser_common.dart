@@ -48,8 +48,14 @@ class VideoInfo {
   /// video_id 参数（用于构造 play URL，如 v0200fg10000xxxxxx）
   final String videoFileId;
 
-  /// 视频播放 URL（无水印，已自动选择最高质量）
+  /// 视频播放 URL（有水印，已自动选择最高质量）
+  /// 这是确保可用的原始 URL
   final String videoUrl;
+
+  /// 无水印视频 URL（备用）
+  /// 可能无水印，但不保证可用性
+  /// 下载失败时可回退到 [videoUrl]
+  final String? videoUrlNoWatermark;
 
   final String? coverUrl;
 
@@ -91,6 +97,7 @@ class VideoInfo {
     required this.videoFileId,
     required this.videoUrl,
     required this.mediaType,
+    this.videoUrlNoWatermark,
     this.coverUrl,
     this.shareId,
     this.width,
@@ -239,7 +246,7 @@ class JsonExtractor {
     try {
       var raw = html.substring(jsonStart, end + 1);
       if (cleanUndefined) {
-        raw = _cleanUndefined(raw);
+        raw = JsonExtractor.cleanUndefined(raw);
       }
       return jsonDecode(raw) as Map<String, dynamic>;
     } catch (_) {
@@ -248,23 +255,28 @@ class JsonExtractor {
   }
 
   /// 使用正则表达式提取并解析 JSON（适用于简单的 JSON 结构）
-  static Map<String, dynamic>? extractJsonWithRegex(
+  /// 
+  /// 返回一个 record，包含原始 JSON 字符串和解析后的 Map
+  /// - rawJson: 提取的原始 JSON 字符串（cleanUndefined 处理后的）
+  /// - data: 解析后的 Map，解析失败时为 null
+  static ({String rawJson, Map<String, dynamic>? data}) extractJsonWithRegex(
     String html,
     String pattern, {
     bool cleanUndefined = false,
   }) {
     final match = RegExp(pattern).firstMatch(html);
-    if (match == null) return null;
+    if (match == null) return (rawJson: '', data: null);
 
     var jsonStr = match.group(1)!;
     if (cleanUndefined) {
-      jsonStr = _cleanUndefined(jsonStr);
+      jsonStr = JsonExtractor.cleanUndefined(jsonStr);
     }
 
     try {
-      return jsonDecode(jsonStr) as Map<String, dynamic>;
+      final data = jsonDecode(jsonStr) as Map<String, dynamic>;
+      return (rawJson: jsonStr, data: data);
     } catch (_) {
-      return null;
+      return (rawJson: jsonStr, data: null);
     }
   }
 
@@ -287,7 +299,7 @@ class JsonExtractor {
   }
 
   /// 将 JavaScript undefined 替换为 null
-  static String _cleanUndefined(String jsonStr) {
+  static String cleanUndefined(String jsonStr) {
     return jsonStr
         .replaceAllMapped(
           RegExp(r':\s*undefined\s*([,}\]])'),

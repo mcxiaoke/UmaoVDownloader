@@ -336,12 +336,27 @@
 
     if (qualities.length === 0) return null;
 
+    // 从第一个可用的流中提取 width/height
+    let width = null;
+    let height = null;
+    for (const { key } of formats) {
+      const streams = stream[key];
+      if (Array.isArray(streams) && streams.length > 0) {
+        const s = streams[0];
+        if (s.width && s.height) {
+          width = s.width;
+          height = s.height;
+          break;
+        }
+      }
+    }
+
     return {
       qualities,
       qualityUrls,
       videoUrl: qualityUrls[qualities[0]],
-      width: video.width,
-      height: video.height,
+      width,
+      height,
     };
   }
 

@@ -7,6 +7,13 @@ import '../parser_common.dart';
 import 'video_downloader.dart';
 
 /// 公共 UA 常量（供所有平台下载器引用）
+
+/// iPhone Safari UA（默认推荐，兼容性最好）
+const kUaIphoneSafari =
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) '
+    'AppleWebKit/605.1.15 (KHTML, like Gecko) '
+    'Version/16.6 Mobile/15E148 Safari/604.1';
+
 const kUaEdge =
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
     'AppleWebKit/537.36 (KHTML, like Gecko) '
@@ -118,11 +125,64 @@ const kUaIosDouyin =
     final partFile = File(partPath);
     await partFile.parent.create(recursive: true);
 
-    // 预解析 aweme 重定向，获取 line=0 和 line=1 两个直连 CDN 节点
-    final awemeUrl = info.videoUrl;
-    onLog?.call('正在解析 CDN 节点…');
-    final cdnUrls = await _resolveCdnUrls(awemeUrl, onLog);
-    onLog?.call('获得 ${cdnUrls.length} 个 CDN 节点，开始下载');
+    // 优先尝试无水印 URL，失败时回退到有水印 URL
+    final urlsToTry = <String>[];
+    if (info.videoUrlNoWatermark != null && info.videoUrlNoWatermark!.isNotEmpty) {
+      urlsToTry.add(info.videoUrlNoWatermark!);
+      onLog?.call('将优先尝试无水印 URL');
+    }
+    urlsToTry.add(info.videoUrl);
+
+    // 尝试下载（优先无水印，失败回退）
+    for (int urlIdx = 0; urlIdx < urlsToTry.length; urlIdx++) {
+      final currentUrl = urlsToTry[urlIdx];
+      final isNoWatermark = urlIdx == 0 && urlsToTry.length > 1;
+
+      if (urlIdx > 0) {
+        onLog?.call('无水印 URL 下载失败，回退到有水印 URL...');
+        // 清理之前的残留文件
+        if (await partFile.exists()) await partFile.delete();
+      }
+
+      onLog?.call(isNoWatermark ? '正在使用无水印 URL 解析 CDN 节点…' : '正在解析 CDN 节点…');
+      onLog?.call('  解析 URL: ${currentUrl.substring(0, currentUrl.length.clamp(0, 100))}...');
+      final cdnUrls = await _resolveCdnUrls(currentUrl, onLog);
+      onLog?.call('获得 ${cdnUrls.length} 个 CDN 节点，开始下载');
+
+      final success = await _downloadWithCdnAndUa(
+        cdnUrls,
+        partFile,
+        filePath,
+        onProgress,
+        onLog,
+      );
+
+      if (success) {
+        onLog?.call('视频下载完成: $filePath (使用 ${isNoWatermark ? "无水印" : "有水印"} URL)');
+        return filePath;
+      }
+
+      // 如果这是最后一个 URL，抛出异常
+      if (urlIdx == urlsToTry.length - 1) {
+        throw Exception(
+          '下载失败，已尝试 ${urlsToTry.length} 个 URL × ${cdnUrls.length} 个 CDN 节点 × ${downloadUserAgents.length} 个 UA',
+        );
+      }
+    }
+
+    // 理论上不会执行到这里
+    throw Exception('下载失败：所有 URL 均不可用');
+  }
+
+  /// 使用 CDN 和 UA 循环下载视频
+  /// 返回是否下载成功
+  Future<bool> _downloadWithCdnAndUa(
+    List<String> cdnUrls,
+    File partFile,
+    String filePath,
+    void Function(int received, int? total)? onProgress,
+    void Function(String message)? onLog,
+  ) async {
 
     const chunkTimeout = Duration(seconds: 30);
     final client = http.Client();
@@ -220,20 +280,19 @@ const kUaIosDouyin =
             // 下载完成后原子重命名为最终文件名，避免中途断开留下损坏文件
             await partFile.rename(filePath);
             await afterDownload(filePath);
-            return filePath;
+            return true;
           }
 
           // 失败：清理残留 .part 文件
           if (await partFile.exists()) await partFile.delete();
         }
       }
-      throw Exception(
-        '下载失败，已尝试 ${cdnUrls.length} 个 CDN 节点 × ${downloadUserAgents.length} 个 UA，URL: $awemeUrl',
-      );
+      // 所有 CDN 和 UA 都失败了
+      return false;
     } catch (_) {
       // 异常时清理未完成的 .part 文件
       if (await partFile.exists()) await partFile.delete();
-      rethrow;
+      return false;
     } finally {
       client.close();
     }
@@ -278,11 +337,12 @@ const kUaIosDouyin =
                   Uri.parse(candidate).queryParameters['line'] ?? '?';
               // 显示 scheme://host + path 前段，参数省略（URL 完整但过长）
               final locUri = Uri.parse(loc);
-              final locPath = locUri.path.length > 50
-                  ? '${locUri.path.substring(0, 50)}…'
+              // 显示更多路径信息（最多 100 字符）
+              final displayPath = locUri.path.length > 100
+                  ? '${locUri.path.substring(0, 100)}…'
                   : locUri.path;
               onLog?.call(
-                'CDN 节点 line=$lineParam → ${locUri.scheme}://${locUri.host}$locPath',
+                'CDN 节点 line=$lineParam → ${locUri.scheme}://${locUri.host}$displayPath',
               );
               continue;
             }

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
@@ -113,7 +114,10 @@ class XiaohongshuParser with HttpParserMixin {
     log('  type: ${result.videoUrl.isNotEmpty ? 'video' : result.imageUrls.isNotEmpty ? 'image' : 'unknown'}');
     log('  imageCount: ${result.imageUrls.length}');
     if (result.videoUrl.isNotEmpty) {
-      log('  最佳视频: ${result.videoUrl.substring(0, result.videoUrl.length.clamp(0, 80))}...');
+      log('  videoUrl: ${result.videoUrl.substring(0, result.videoUrl.length.clamp(0, 120))}...');
+    }
+    if (result.videoUrlNoWatermark != null) {
+      log('  videoUrlNoWatermark: ${result.videoUrlNoWatermark!.substring(0, result.videoUrlNoWatermark!.length.clamp(0, 120))}...');
     }
     if (result.imageUrls.isNotEmpty) {
       log('  imageUrls[0]: ${result.imageUrls[0]}');
@@ -129,9 +133,19 @@ class XiaohongshuParser with HttpParserMixin {
   }
 
   /// 从 URL 中提取 shareId
+  /// 
+  /// 支持格式：
+  /// - 短链接: xhslink.com/o/xxxxx
+  /// - 长链接: xiaohongshu.com/explore/xxxxx
   String? _extractShareId(String url) {
-    final match = RegExp(r'xhslink\.com/o/([A-Za-z0-9_-]+)').firstMatch(url);
-    if (match != null) return match.group(1);
+    // 短链接格式
+    final shortMatch = RegExp(r'xhslink\.com/o/([A-Za-z0-9_-]+)').firstMatch(url);
+    if (shortMatch != null) return shortMatch.group(1);
+    
+    // 长链接格式: /explore/xxxxx 或 /discovery/item/xxxxx
+    final longMatch = RegExp(r'xiaohongshu\.com/(?:explore|discovery/item)/([a-z0-9]+)').firstMatch(url);
+    if (longMatch != null) return longMatch.group(1);
+    
     return null;
   }
 
@@ -166,11 +180,53 @@ class XiaohongshuParser with HttpParserMixin {
 
   /// 使用 JSON 解析提取 __INITIAL_STATE__
   Map<String, dynamic>? _extractInitialStateJson(String html) {
-    return JsonExtractor.extractJsonWithRegex(
+    final result = JsonExtractor.extractJsonWithRegex(
       html,
       r'window\.__INITIAL_STATE__\s*=\s*(\{[\s\S]*?\})(?:;|\s*</script>)',
       cleanUndefined: true,
     );
+    
+    // 保存原始 JSON 字符串
+    if (result.rawJson.isNotEmpty) {
+      _saveRawJson(result.rawJson, prefix: 'initial_state');
+    }
+    
+    return result.data;
+  }
+
+  /// 保存原始 JSON 字符串到下载目录（仅桌面平台）
+  void _saveRawJson(String jsonStr, {required String prefix}) {
+    if (!Platform.isWindows && !Platform.isMacOS && !Platform.isLinux) return;
+    
+    try {
+      final timestamp = DateTime.now().toIso8601String().replaceAll(':', '-');
+      
+      String downloadDir;
+      if (Platform.isWindows) {
+        // 优先使用 F:\Downloads\TikTok，如果不存在则使用用户目录
+        final fDir = Directory('F:\\\\Downloads\\\\TikTok');
+        if (fDir.existsSync()) {
+          downloadDir = 'F:\\\\Downloads\\\\TikTok';
+        } else {
+          final home = Platform.environment['USERPROFILE'] ?? Platform.environment['HOME'];
+          downloadDir = home != null ? '$home\\Downloads\\TikTok' : 'F:\\\\Downloads\\\\TikTok';
+        }
+      } else {
+        final home = Platform.environment['HOME'];
+        downloadDir = home != null ? '$home/Downloads' : Directory.current.path;
+      }
+
+      final dir = Directory(downloadDir);
+      dir.createSync(recursive: true);
+
+      final file = File('${dir.path}${Platform.pathSeparator}xhs_${prefix}_$timestamp.json');
+      file.writeAsStringSync(jsonStr, encoding: utf8);
+      final size = file.lengthSync();
+      log('  已保存原始 $prefix: ${file.path} (${size} bytes)');
+    } catch (e, stack) {
+      log('  保存原始数据失败: $e');
+      log('  错误堆栈: $stack');
+    }
   }
 
   /// 备用方案：手动提取 + 处理边界情况
@@ -208,13 +264,11 @@ class XiaohongshuParser with HttpParserMixin {
         depth--;
         if (depth == 0) {
           final jsonStr = html.substring(jsonStart, i + 1);
+          // 保存原始 JSON 字符串
+          _saveRawJson(jsonStr, prefix: 'initial_state_legacy');
           try {
-            final cleanJson = JsonExtractor.extractJsonWithRegex(
-              '{"data": $jsonStr}',
-              r'\{.*\}',
-              cleanUndefined: true,
-            );
-            return cleanJson;
+            final cleanStr = JsonExtractor.cleanUndefined(jsonStr);
+            return jsonDecode('{"data": $cleanStr}') as Map<String, dynamic>;
           } catch (e) {
             log('备用解析失败: $e');
             return null;
@@ -227,7 +281,19 @@ class XiaohongshuParser with HttpParserMixin {
 
   /// 尝试从 SSR 渲染的 HTML 中提取数据
   Map<String, dynamic>? _extractSsrData(String html) {
-    return JsonExtractor.extractFromScriptTag(html, 'ssr-data');
+    final pattern = '<script[^>]*id=["\']ssr-data["\'][^>]*>([\\s\\S]*?)</script>';
+    final match = RegExp(pattern).firstMatch(html);
+    if (match == null) return null;
+
+    final jsonStr = match.group(1)!;
+    // 保存原始 JSON 字符串
+    _saveRawJson(jsonStr, prefix: 'ssr_data');
+    
+    try {
+      return jsonDecode(jsonStr) as Map<String, dynamic>;
+    } catch (_) {
+      return null;
+    }
   }
 
   /// 从 __INITIAL_STATE__ 中提取笔记数据
@@ -264,6 +330,30 @@ class XiaohongshuParser with HttpParserMixin {
     return null;
   }
 
+  /// 构建无水印视频 URL（通过替换 CDN 域名实现）
+  /// 
+  /// 原理：将视频 CDN 域名从火山引擎(hs)替换为华为云(hw)，可能获得无水印版本
+  /// - 有水印: sns-video-hs.xhscdn.com (火山引擎)
+  /// - 无水印: sns-video-hw.xhscdn.com (华为云)
+  String? _buildNoWatermarkVideoUrl(String originalUrl) {
+    try {
+      final uri = Uri.parse(originalUrl);
+      final host = uri.host;
+
+      // 只处理小红书的视频 CDN 域名
+      if (!host.contains('xhscdn.com')) return null;
+
+      // 将视频 CDN 域名中的 -hs- 替换为 -hw- (火山引擎->华为云)
+      // 例如: sns-video-hs.xhscdn.com -> sns-video-hw.xhscdn.com
+      final newHost = host.replaceFirst(RegExp(r'sns-video-([a-z]+)'), 'sns-video-hw');
+      final newUri = uri.replace(host: newHost);
+
+      return newUri.toString();
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// 构建统一的结果对象
   Future<VideoInfo> _buildResult(Map<String, dynamic> note, {String? shareId}) async {
     final id = note['noteId']?.toString() ?? note['id']?.toString() ?? '';
@@ -285,12 +375,23 @@ class XiaohongshuParser with HttpParserMixin {
 
     final displayTitle = title.isNotEmpty ? title : desc.substring(0, desc.length.clamp(0, 50));
 
+    // 构建无水印 URL（仅对普通视频）
+    String? noWatermarkUrl;
+    if (videoInfo?.videoUrl.isNotEmpty == true && !isLivePhoto) {
+      noWatermarkUrl = _buildNoWatermarkVideoUrl(videoInfo!.videoUrl);
+      if (noWatermarkUrl != null) {
+        log('  原始URL: ${videoInfo.videoUrl.substring(0, videoInfo.videoUrl.length.clamp(0, 120))}...');
+        log('  无水印URL: ${noWatermarkUrl.substring(0, noWatermarkUrl.length.clamp(0, 120))}...');
+      }
+    }
+
     if (isLivePhoto) {
       return VideoInfo(
         itemId: id,
         title: displayTitle,
         videoFileId: id,
         videoUrl: videoInfo?.videoUrl ?? '',
+        videoUrlNoWatermark: null, // 实况图不使用无水印 URL
         mediaType: MediaType.livePhoto,
         coverUrl: coverUrl,
         shareId: shareId,
@@ -306,6 +407,7 @@ class XiaohongshuParser with HttpParserMixin {
         title: displayTitle,
         videoFileId: id,
         videoUrl: videoInfo?.videoUrl ?? '',
+        videoUrlNoWatermark: noWatermarkUrl,
         mediaType: MediaType.video,
         coverUrl: coverUrl,
         shareId: shareId,
@@ -320,6 +422,7 @@ class XiaohongshuParser with HttpParserMixin {
         title: displayTitle,
         videoFileId: '',
         videoUrl: '',
+        videoUrlNoWatermark: null,
         mediaType: MediaType.image,
         coverUrl: coverUrl,
         shareId: shareId,
@@ -335,6 +438,7 @@ class XiaohongshuParser with HttpParserMixin {
       title: displayTitle,
       videoFileId: '',
       videoUrl: '',
+      videoUrlNoWatermark: null,
       mediaType: MediaType.video,
       coverUrl: coverUrl,
       shareId: shareId,
@@ -612,6 +716,17 @@ class XiaohongshuParser with HttpParserMixin {
 
     if (bestVideoUrl == null) return null;
 
+    // 如果 bestStream 没有 width/height，从 candidateUrls 中找
+    if (bestWidth == null || bestHeight == null) {
+      for (final c in candidateUrls) {
+        if (c.width != null && c.height != null) {
+          bestWidth = c.width;
+          bestHeight = c.height;
+          break;
+        }
+      }
+    }
+
     var bestUrl = bestVideoUrl;
 
     log('  验证视频URL可用性...');
@@ -653,7 +768,7 @@ class XiaohongshuParser with HttpParserMixin {
         final c = sorted[i];
         final sizeMB = c.size != null ? '${(c.size! / 1024 / 1024).toStringAsFixed(2)}MB' : 'unknown';
         log('    ${c.codec}: ${c.width}x${c.height}, ${c.bitrate}bps, $sizeMB');
-        log('      ${c.url.substring(0, c.url.length.clamp(0, 80))}...');
+        log('      ${c.url.substring(0, c.url.length.clamp(0, 120))}...');
       }
     }
 

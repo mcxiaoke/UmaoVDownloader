@@ -22,10 +22,11 @@ class StoragePermissionDeniedException implements Exception {
 class MobileDownloader extends BaseDownloader {
   @override
   List<String> get downloadUserAgents => const [
-    kUaIosDouyin,
-    kUaAndroidWechat,
-    kUaEdge,
-    kUaIosWechat,
+    kUaIphoneSafari,
+    // kUaIosDouyin,
+    // kUaAndroidWechat,
+    // kUaEdge,
+    // kUaIosWechat,
   ];
 
   @override
