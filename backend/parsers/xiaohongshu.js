@@ -26,8 +26,8 @@
 
 import fs from "fs-extra"; // 文件系统操作
 import { join } from "path"; // 路径处理
+import { clearCookie, getCookie, isCookieLikelyInvalid } from "../cookies.js";
 import { extractUrl, fetchWithRetry } from "./common.js";
-import { getCookie, clearCookie, isCookieLikelyInvalid } from "../cookies.js";
 
 // 小红书专用User-Agent，模拟iOS移动端访问
 const XHS_UA =
@@ -95,17 +95,28 @@ function extractShortId(url) {
     }
 
     // xiaohongshu.com/explore/笔记ID
-    if (urlObj.hostname.includes("xiaohongshu.com") && pathParts[0] === "explore") {
+    if (
+      urlObj.hostname.includes("xiaohongshu.com") &&
+      pathParts[0] === "explore"
+    ) {
       return pathParts[1] || "";
     }
 
     // xiaohongshu.com/discovery/item/笔记ID
-    if (urlObj.hostname.includes("xiaohongshu.com") && pathParts[0] === "discovery" && pathParts[1] === "item") {
+    if (
+      urlObj.hostname.includes("xiaohongshu.com") &&
+      pathParts[0] === "discovery" &&
+      pathParts[1] === "item"
+    ) {
       return pathParts[2] || "";
     }
 
     // xiaohongshu.com/user/profile/作者ID/笔记ID
-    if (urlObj.hostname.includes("xiaohongshu.com") && pathParts[0] === "user" && pathParts[1] === "profile") {
+    if (
+      urlObj.hostname.includes("xiaohongshu.com") &&
+      pathParts[0] === "user" &&
+      pathParts[1] === "profile"
+    ) {
       // pathParts[2] 是作者ID，pathParts[3] 是笔记ID
       return pathParts[3] || "";
     }
@@ -145,17 +156,28 @@ function extractShareIdFromUrl(url) {
     }
 
     // xiaohongshu.com/explore/笔记ID
-    if (urlObj.hostname.includes("xiaohongshu.com") && pathParts[0] === "explore") {
+    if (
+      urlObj.hostname.includes("xiaohongshu.com") &&
+      pathParts[0] === "explore"
+    ) {
       return pathParts[1] || null;
     }
 
     // xiaohongshu.com/discovery/item/笔记ID
-    if (urlObj.hostname.includes("xiaohongshu.com") && pathParts[0] === "discovery" && pathParts[1] === "item") {
+    if (
+      urlObj.hostname.includes("xiaohongshu.com") &&
+      pathParts[0] === "discovery" &&
+      pathParts[1] === "item"
+    ) {
       return pathParts[2] || null;
     }
 
     // xiaohongshu.com/user/profile/作者ID/笔记ID
-    if (urlObj.hostname.includes("xiaohongshu.com") && pathParts[0] === "user" && pathParts[1] === "profile") {
+    if (
+      urlObj.hostname.includes("xiaohongshu.com") &&
+      pathParts[0] === "user" &&
+      pathParts[1] === "profile"
+    ) {
       return pathParts[3] || null;
     }
   } catch {
@@ -212,9 +234,9 @@ export async function parse(url, debug = false) {
   }
 
   // 检测 Cookie 是否可能无效/过期，如果是则清除后重试
-  if (!data && isCookieLikelyInvalid('xiaohongshu', html, null)) {
+  if (!data && isCookieLikelyInvalid("xiaohongshu", html, null)) {
     log("  ⚠️ Cookie 可能无效或已过期，正在清除并重新尝试...");
-    await clearCookie('xiaohongshu');
+    await clearCookie("xiaohongshu");
     // 重置请求头（去掉 Cookie）
     XHS_HEADERS = { ...XHS_HEADERS_BASE };
     // 重新获取页面
@@ -560,12 +582,14 @@ async function buildResult(note, shareId) {
     }
   } else if (mediaType === "livephoto") {
     // 实况图：图片列表 + 实况视频URL列表
+    // 注意：可能是「实况图+静态图」混合，imageList 中每项都有 isLivePhoto 标志
+    // http://xhslink.com/o/1YCJtCHOnmf 这个只有一个是动图，其它的是静态图
     result.imageUrls = imageList.map((i) => i.full);
     result.imageThumbs = imageList.map((i) => i.thumb);
-    result.imageList = imageList;
+    result.imageList = imageList; // 包含每张图片的 isLivePhoto 和 videoUrl
     result.imageCount = imageList.length;
 
-    // 提取实况视频URL列表
+    // 提取实况视频URL列表（仅包含有视频的项，索引可能与 imageUrls 不对应）
     const livePhotoUrls = imageList
       .filter((img) => img.isLivePhoto && img.videoUrl)
       .map((img) => img.videoUrl);
@@ -610,6 +634,22 @@ function extractCoverUrl(note) {
   return null;
 }
 
+/**
+ * 提取图片 URL 列表
+ *
+ * 返回数组中每项包含：
+ * - thumb: 缩略图 URL
+ * - full: 大图 URL
+ * - videoUrl: 实况图视频 URL（非实况图为 null）
+ * - isLivePhoto: 是否为实况图
+ *
+ * 注意：小红书支持「实况图+静态图」混合的作品，即部分图片有实况视频，部分没有。
+ * 例如 3 张图片中只有第 2 张是实况图：
+ * - imageList[0] = { thumb, full, videoUrl: null, isLivePhoto: false }
+ * - imageList[1] = { thumb, full, videoUrl: 'xxx.mp4', isLivePhoto: true }
+ * - imageList[2] = { thumb, full, videoUrl: null, isLivePhoto: false }
+ * 前端需要根据 isLivePhoto 来判断是否显示 MP4 下载按钮。
+ */
 function extractImageUrls(note) {
   const imageList = note.imageList || note.images || [];
   if (!Array.isArray(imageList)) return [];
@@ -626,7 +666,7 @@ function extractImageUrls(note) {
         isLivePhoto: false,
       };
 
-      // 提取 Live Photo 视频 URL
+      // 提取 Live Photo 视频 URL（仅当该图片标记为 livePhoto 时）
       if (img.livePhoto === true && img.stream) {
         const videoStream =
           img.stream.h264?.[0] || img.stream.h265?.[0] || img.stream.av1?.[0];

@@ -104,25 +104,45 @@ class XiaohongshuParser with HttpParserMixin {
       throw const XiaohongshuParseException('无法提取笔记数据');
     }
     log('  ✓ noteId: ${note['noteId'] ?? note['id'] ?? 'unknown'}');
-    log('  ✓ title: ${(note['title'] ?? note['desc'] ?? '').toString().substring(0, (note['title'] ?? note['desc'] ?? '').toString().length.clamp(0, 50))}');
+    log(
+      '  ✓ title: ${(note['title'] ?? note['desc'] ?? '').toString().substring(0, (note['title'] ?? note['desc'] ?? '').toString().length.clamp(0, 50))}',
+    );
     final hasVideo = note['video'] != null && note['video'] is Map;
-    log('  ✓ type: ${hasVideo ? 'video' : note['imageList'] != null ? 'image' : 'unknown'}');
+    log(
+      '  ✓ type: ${hasVideo
+          ? 'video'
+          : note['imageList'] != null
+          ? 'image'
+          : 'unknown'}',
+    );
 
     final result = await _buildResult(note, shareId: shareId);
 
     log('→ 构建结果:');
-    log('  type: ${result.videoUrl.isNotEmpty ? 'video' : result.imageUrls.isNotEmpty ? 'image' : 'unknown'}');
+    log(
+      '  type: ${result.videoUrl.isNotEmpty
+          ? 'video'
+          : result.imageUrls.isNotEmpty
+          ? 'image'
+          : 'unknown'}',
+    );
     log('  imageCount: ${result.imageUrls.length}');
     if (result.videoUrl.isNotEmpty) {
-      log('  videoUrl: ${result.videoUrl.substring(0, result.videoUrl.length.clamp(0, 120))}...');
+      log(
+        '  videoUrl: ${result.videoUrl.substring(0, result.videoUrl.length.clamp(0, 120))}...',
+      );
     }
     if (result.videoUrlNoWatermark != null) {
-      log('  videoUrlNoWatermark: ${result.videoUrlNoWatermark!.substring(0, result.videoUrlNoWatermark!.length.clamp(0, 120))}...');
+      log(
+        '  videoUrlNoWatermark: ${result.videoUrlNoWatermark!.substring(0, result.videoUrlNoWatermark!.length.clamp(0, 120))}...',
+      );
     }
     if (result.imageUrls.isNotEmpty) {
       log('  imageUrls[0]: ${result.imageUrls[0]}');
       for (var i = 0; i < result.imageUrls.length; i++) {
-        final thumb = result.imageThumbUrls.length > i ? result.imageThumbUrls[i] : result.imageUrls[i];
+        final thumb = result.imageThumbUrls.length > i
+            ? result.imageThumbUrls[i]
+            : result.imageUrls[i];
         final full = result.imageUrls[i];
         logDebug('  图片 ${i + 1}: thumb: $thumb');
         logDebug('  图片 ${i + 1}: full:  $full');
@@ -133,19 +153,23 @@ class XiaohongshuParser with HttpParserMixin {
   }
 
   /// 从 URL 中提取 shareId
-  /// 
+  ///
   /// 支持格式：
   /// - 短链接: xhslink.com/o/xxxxx
   /// - 长链接: xiaohongshu.com/explore/xxxxx
   String? _extractShareId(String url) {
     // 短链接格式
-    final shortMatch = RegExp(r'xhslink\.com/o/([A-Za-z0-9_-]+)').firstMatch(url);
+    final shortMatch = RegExp(
+      r'xhslink\.com/o/([A-Za-z0-9_-]+)',
+    ).firstMatch(url);
     if (shortMatch != null) return shortMatch.group(1);
-    
+
     // 长链接格式: /explore/xxxxx 或 /discovery/item/xxxxx
-    final longMatch = RegExp(r'xiaohongshu\.com/(?:explore|discovery/item)/([a-z0-9]+)').firstMatch(url);
+    final longMatch = RegExp(
+      r'xiaohongshu\.com/(?:explore|discovery/item)/([a-z0-9]+)',
+    ).firstMatch(url);
     if (longMatch != null) return longMatch.group(1);
-    
+
     return null;
   }
 
@@ -161,7 +185,10 @@ class XiaohongshuParser with HttpParserMixin {
       }
     }
 
-    return (html: request.body, finalUrl: request.request?.url.toString() ?? url);
+    return (
+      html: request.body,
+      finalUrl: request.request?.url.toString() ?? url,
+    );
   }
 
   /// 从 HTML 中提取 __INITIAL_STATE__
@@ -185,22 +212,22 @@ class XiaohongshuParser with HttpParserMixin {
       r'window\.__INITIAL_STATE__\s*=\s*(\{[\s\S]*?\})(?:;|\s*</script>)',
       cleanUndefined: true,
     );
-    
+
     // 保存原始 JSON 字符串
     if (result.rawJson.isNotEmpty) {
       _saveRawJson(result.rawJson, prefix: 'initial_state');
     }
-    
+
     return result.data;
   }
 
   /// 保存原始 JSON 字符串到下载目录（仅桌面平台）
   void _saveRawJson(String jsonStr, {required String prefix}) {
     if (!Platform.isWindows && !Platform.isMacOS && !Platform.isLinux) return;
-    
+
     try {
       final timestamp = DateTime.now().toIso8601String().replaceAll(':', '-');
-      
+
       String downloadDir;
       if (Platform.isWindows) {
         // 优先使用 F:\Downloads\TikTok，如果不存在则使用用户目录
@@ -208,8 +235,12 @@ class XiaohongshuParser with HttpParserMixin {
         if (fDir.existsSync()) {
           downloadDir = 'F:\\\\Downloads\\\\TikTok';
         } else {
-          final home = Platform.environment['USERPROFILE'] ?? Platform.environment['HOME'];
-          downloadDir = home != null ? '$home\\Downloads\\TikTok' : 'F:\\\\Downloads\\\\TikTok';
+          final home =
+              Platform.environment['USERPROFILE'] ??
+              Platform.environment['HOME'];
+          downloadDir = home != null
+              ? '$home\\Downloads\\TikTok'
+              : 'F:\\\\Downloads\\\\TikTok';
         }
       } else {
         final home = Platform.environment['HOME'];
@@ -219,10 +250,12 @@ class XiaohongshuParser with HttpParserMixin {
       final dir = Directory(downloadDir);
       dir.createSync(recursive: true);
 
-      final file = File('${dir.path}${Platform.pathSeparator}xhs_${prefix}_$timestamp.json');
+      final file = File(
+        '${dir.path}${Platform.pathSeparator}xhs_${prefix}_$timestamp.json',
+      );
       file.writeAsStringSync(jsonStr, encoding: utf8);
       final size = file.lengthSync();
-      log('  已保存原始 $prefix: ${file.path} (${size} bytes)');
+      log('  已保存原始 $prefix: ${file.path} ($size bytes)');
     } catch (e, stack) {
       log('  保存原始数据失败: $e');
       log('  错误堆栈: $stack');
@@ -281,14 +314,15 @@ class XiaohongshuParser with HttpParserMixin {
 
   /// 尝试从 SSR 渲染的 HTML 中提取数据
   Map<String, dynamic>? _extractSsrData(String html) {
-    final pattern = '<script[^>]*id=["\']ssr-data["\'][^>]*>([\\s\\S]*?)</script>';
+    final pattern =
+        '<script[^>]*id=["\']ssr-data["\'][^>]*>([\\s\\S]*?)</script>';
     final match = RegExp(pattern).firstMatch(html);
     if (match == null) return null;
 
     final jsonStr = match.group(1)!;
     // 保存原始 JSON 字符串
     _saveRawJson(jsonStr, prefix: 'ssr_data');
-    
+
     try {
       return jsonDecode(jsonStr) as Map<String, dynamic>;
     } catch (_) {
@@ -331,7 +365,7 @@ class XiaohongshuParser with HttpParserMixin {
   }
 
   /// 构建无水印视频 URL（通过替换 CDN 域名实现）
-  /// 
+  ///
   /// 原理：将视频 CDN 域名从火山引擎(hs)替换为华为云(hw)，可能获得无水印版本
   /// - 有水印: sns-video-hs.xhscdn.com (火山引擎)
   /// - 无水印: sns-video-hw.xhscdn.com (华为云)
@@ -345,7 +379,10 @@ class XiaohongshuParser with HttpParserMixin {
 
       // 将视频 CDN 域名中的 -hs- 替换为 -hw- (火山引擎->华为云)
       // 例如: sns-video-hs.xhscdn.com -> sns-video-hw.xhscdn.com
-      final newHost = host.replaceFirst(RegExp(r'sns-video-([a-z]+)'), 'sns-video-hw');
+      final newHost = host.replaceFirst(
+        RegExp(r'sns-video-([a-z]+)'),
+        'sns-video-hw',
+      );
       final newUri = uri.replace(host: newHost);
 
       return newUri.toString();
@@ -355,7 +392,10 @@ class XiaohongshuParser with HttpParserMixin {
   }
 
   /// 构建统一的结果对象
-  Future<VideoInfo> _buildResult(Map<String, dynamic> note, {String? shareId}) async {
+  Future<VideoInfo> _buildResult(
+    Map<String, dynamic> note, {
+    String? shareId,
+  }) async {
     final id = note['noteId']?.toString() ?? note['id']?.toString() ?? '';
     final title = note['title']?.toString() ?? '';
     final desc = note['desc']?.toString() ?? '';
@@ -373,15 +413,21 @@ class XiaohongshuParser with HttpParserMixin {
     final isLivePhoto = videoInfo?.isLivePhoto ?? false;
     log('  hasVideoStream: $hasVideoStream, isLivePhoto: $isLivePhoto');
 
-    final displayTitle = title.isNotEmpty ? title : desc.substring(0, desc.length.clamp(0, 50));
+    final displayTitle = title.isNotEmpty
+        ? title
+        : desc.substring(0, desc.length.clamp(0, 50));
 
     // 构建无水印 URL（仅对普通视频）
     String? noWatermarkUrl;
     if (videoInfo?.videoUrl.isNotEmpty == true && !isLivePhoto) {
       noWatermarkUrl = _buildNoWatermarkVideoUrl(videoInfo!.videoUrl);
       if (noWatermarkUrl != null) {
-        log('  原始URL: ${videoInfo.videoUrl.substring(0, videoInfo.videoUrl.length.clamp(0, 120))}...');
-        log('  无水印URL: ${noWatermarkUrl.substring(0, noWatermarkUrl.length.clamp(0, 120))}...');
+        log(
+          '  原始URL: ${videoInfo.videoUrl.substring(0, videoInfo.videoUrl.length.clamp(0, 120))}...',
+        );
+        log(
+          '  无水印URL: ${noWatermarkUrl.substring(0, noWatermarkUrl.length.clamp(0, 120))}...',
+        );
       }
     }
 
@@ -495,79 +541,81 @@ class XiaohongshuParser with HttpParserMixin {
     final imageList = note['imageList'] ?? note['images'];
     if (imageList is! List) return [];
 
-    return imageList.map((img) {
-      if (img is! Map) return null;
+    return imageList
+        .map((img) {
+          if (img is! Map) return null;
 
-      String? thumbUrl;
-      String? fullOrigUrl;
-      String? fullNoWaterUrl;
+          String? thumbUrl;
+          String? fullOrigUrl;
+          String? fullNoWaterUrl;
 
-      final infoList = img['infoList'];
-      if (infoList is List && infoList.isNotEmpty) {
-        final dftScenes = ['WB_DFT', 'H5_DTL'];
-        for (final scene in dftScenes) {
-          final match = infoList.cast<Map<String, dynamic>>().firstWhere(
-            (i) => i['imageScene'] == scene && i['url'] is String,
-            orElse: () => {},
-          );
-          if (match.isNotEmpty) {
-            fullOrigUrl = match['url'];
-            break;
+          final infoList = img['infoList'];
+          if (infoList is List && infoList.isNotEmpty) {
+            final dftScenes = ['WB_DFT', 'H5_DTL'];
+            for (final scene in dftScenes) {
+              final match = infoList.cast<Map<String, dynamic>>().firstWhere(
+                (i) => i['imageScene'] == scene && i['url'] is String,
+                orElse: () => {},
+              );
+              if (match.isNotEmpty) {
+                fullOrigUrl = match['url'];
+                break;
+              }
+            }
+            if (fullOrigUrl == null) {
+              final dftMatch = infoList.cast<Map<String, dynamic>>().firstWhere(
+                (i) =>
+                    (i['imageScene'] as String?)?.contains('DFT') == true &&
+                    i['url'] is String,
+                orElse: () => {},
+              );
+              if (dftMatch.isNotEmpty) {
+                fullOrigUrl = dftMatch['url'];
+              }
+            }
+
+            final prvScenes = ['WB_PRV', 'H5_PRV'];
+            for (final scene in prvScenes) {
+              final match = infoList.cast<Map<String, dynamic>>().firstWhere(
+                (i) => i['imageScene'] == scene && i['url'] is String,
+                orElse: () => {},
+              );
+              if (match.isNotEmpty) {
+                thumbUrl = match['url'];
+                break;
+              }
+            }
           }
-        }
-        if (fullOrigUrl == null) {
-          final dftMatch = infoList.cast<Map<String, dynamic>>().firstWhere(
-            (i) => (i['imageScene'] as String?)?.contains('DFT') == true && i['url'] is String,
-            orElse: () => {},
-          );
-          if (dftMatch.isNotEmpty) {
-            fullOrigUrl = dftMatch['url'];
+
+          if (fullOrigUrl == null) {
+            if (img['urlDefault'] is String) {
+              fullOrigUrl = img['urlDefault'];
+            } else if (img['url'] is String) {
+              fullOrigUrl = img['url'];
+            }
           }
-        }
 
-        final prvScenes = ['WB_PRV', 'H5_PRV'];
-        for (final scene in prvScenes) {
-          final match = infoList.cast<Map<String, dynamic>>().firstWhere(
-            (i) => i['imageScene'] == scene && i['url'] is String,
-            orElse: () => {},
-          );
-          if (match.isNotEmpty) {
-            thumbUrl = match['url'];
-            break;
+          if (thumbUrl == null) {
+            if (img['urlPre'] is String) {
+              thumbUrl = img['urlPre'];
+            } else if (img['urlDefault'] is String) {
+              thumbUrl = img['urlDefault'];
+            }
           }
-        }
-      }
 
-      if (fullOrigUrl == null) {
-        if (img['urlDefault'] is String) {
-          fullOrigUrl = img['urlDefault'];
-        } else if (img['url'] is String) {
-          fullOrigUrl = img['url'];
-        }
-      }
+          if (fullOrigUrl != null) {
+            fullNoWaterUrl = _buildNoWatermarkUrl(fullOrigUrl);
+          }
 
-      if (thumbUrl == null) {
-        if (img['urlPre'] is String) {
-          thumbUrl = img['urlPre'];
-        } else if (img['urlDefault'] is String) {
-          thumbUrl = img['urlDefault'];
-        }
-      }
+          final fullUrl = fullNoWaterUrl ?? fullOrigUrl;
+          final thumb = thumbUrl ?? fullUrl;
 
-      if (fullOrigUrl != null) {
-        fullNoWaterUrl = _buildNoWatermarkUrl(fullOrigUrl);
-      }
+          if (fullUrl == null && thumb == null) return null;
 
-      final fullUrl = fullNoWaterUrl ?? fullOrigUrl;
-      final thumb = thumbUrl ?? fullUrl;
-
-      if (fullUrl == null && thumb == null) return null;
-
-      return {
-        'thumb': thumb ?? fullUrl!,
-        'full': fullUrl ?? thumb!,
-      };
-    }).whereType<Map<String, String>>().toList();
+          return {'thumb': thumb ?? fullUrl!, 'full': fullUrl ?? thumb!};
+        })
+        .whereType<Map<String, String>>()
+        .toList();
   }
 
   /// 构建无水印图片 URL - 小红书特有
@@ -580,7 +628,8 @@ class XiaohongshuParser with HttpParserMixin {
       final lastPart = pathParts.last;
       final fileId = lastPart.split('!').first;
 
-      if (fileId.isEmpty || !RegExp(r'^[a-z0-9]+$', caseSensitive: false).hasMatch(fileId)) {
+      if (fileId.isEmpty ||
+          !RegExp(r'^[a-z0-9]+$', caseSensitive: false).hasMatch(fileId)) {
         return null;
       }
 
@@ -600,17 +649,29 @@ class XiaohongshuParser with HttpParserMixin {
   }
 
   /// 提取实况图视频 URL 列表 - 小红书特有
+  /// 返回与 imageList 索引对应的列表，非实况图的项为空字符串
   List<String> _extractLivePhotoUrls(Map<String, dynamic> note) {
     final imageList = note['imageList'] ?? note['images'];
     if (imageList is! List) return [];
 
     final urls = <String>[];
     for (final img in imageList) {
-      if (img is! Map) continue;
-      if (img['livePhoto'] != true) continue;
+      if (img is! Map) {
+        urls.add('');
+        continue;
+      }
+
+      // 检查是否为实况图
+      if (img['livePhoto'] != true) {
+        urls.add('');
+        continue;
+      }
 
       final stream = img['stream'];
-      if (stream is! Map) continue;
+      if (stream is! Map) {
+        urls.add('');
+        continue;
+      }
 
       final formats = ['h264', 'h265', 'hevc', 'av1'];
       String? videoUrl;
@@ -619,14 +680,20 @@ class XiaohongshuParser with HttpParserMixin {
         if (streams is List && streams.isNotEmpty) {
           final first = streams.first;
           if (first is Map) {
-            videoUrl = first['masterUrl']?.toString() ?? first['url']?.toString();
+            videoUrl =
+                first['masterUrl']?.toString() ?? first['url']?.toString();
             if (videoUrl != null) break;
           }
         }
       }
+
       if (videoUrl != null) {
         urls.add(videoUrl);
-        log('  实况图视频: ${videoUrl.substring(videoUrl.lastIndexOf('/') + 1)}');
+        log(
+          '  实况图视频 ${urls.length}: ${videoUrl.substring(videoUrl.lastIndexOf('/') + 1)}',
+        );
+      } else {
+        urls.add('');
       }
     }
     return urls;
@@ -637,12 +704,14 @@ class XiaohongshuParser with HttpParserMixin {
     final video = note['video'];
     if (video is! Map) {
       final livePhotoUrls = _extractLivePhotoUrls(note);
-      if (livePhotoUrls.isNotEmpty) {
-        log('  检测到 ${livePhotoUrls.length} 张实况图');
+      // 过滤出非空的实况图视频 URL
+      final nonEmptyUrls = livePhotoUrls.where((u) => u.isNotEmpty).toList();
+      if (nonEmptyUrls.isNotEmpty) {
+        log('  检测到 ${nonEmptyUrls.length} 张实况图');
         return _VideoInfoResult(
-          videoUrl: livePhotoUrls.first,
+          videoUrl: nonEmptyUrls.first,
           isLivePhoto: true,
-          livePhotoUrls: livePhotoUrls,
+          livePhotoUrls: livePhotoUrls, // 保留与 imageUrls 索引对应的完整列表
         );
       }
       log('  无 video 字段');
@@ -695,18 +764,21 @@ class XiaohongshuParser with HttpParserMixin {
 
         final url = s['masterUrl']?.toString() ?? s['url']?.toString();
         if (url != null) {
-          candidateUrls.add(_VideoStream(
-            url: url,
-            bitrate: bitrate,
-            size: (s['size'] as num?)?.toInt(),
-            width: (s['width'] as num?)?.toInt(),
-            height: (s['height'] as num?)?.toInt(),
-            codec: format.key,
-          ));
+          candidateUrls.add(
+            _VideoStream(
+              url: url,
+              bitrate: bitrate,
+              size: (s['size'] as num?)?.toInt(),
+              width: (s['width'] as num?)?.toInt(),
+              height: (s['height'] as num?)?.toInt(),
+              codec: format.key,
+            ),
+          );
         }
       }
 
-      final url = bestStream['masterUrl']?.toString() ?? bestStream['url']?.toString();
+      final url =
+          bestStream['masterUrl']?.toString() ?? bestStream['url']?.toString();
       if (url != null) {
         bestVideoUrl = url;
         bestWidth ??= (bestStream['width'] as num?)?.toInt();
@@ -741,7 +813,9 @@ class XiaohongshuParser with HttpParserMixin {
 
     if (!isAvailable) {
       log('    默认URL不可用，尝试切换CDN...');
-      final cdnVariants = _generateCdnVariants([_VideoStream(url: bestUrl, bitrate: 0, codec: 'h264')]);
+      final cdnVariants = _generateCdnVariants([
+        _VideoStream(url: bestUrl, bitrate: 0, codec: 'h264'),
+      ]);
       for (final variant in cdnVariants) {
         final size = await UrlUtils.verifyUrlAndGetSize(
           variant.url,
@@ -752,7 +826,9 @@ class XiaohongshuParser with HttpParserMixin {
           },
         );
         if (size > 0) {
-          log('    找到可用CDN: ${variant.url.substring(0, variant.url.length.clamp(0, 60))}... (${(size / 1024 / 1024).toStringAsFixed(2)}MB)');
+          log(
+            '    找到可用CDN: ${variant.url.substring(0, variant.url.length.clamp(0, 60))}... (${(size / 1024 / 1024).toStringAsFixed(2)}MB)',
+          );
           bestUrl = variant.url;
           break;
         }
@@ -763,10 +839,13 @@ class XiaohongshuParser with HttpParserMixin {
 
     if (candidateUrls.isNotEmpty) {
       logDebug('  视频流信息:');
-      final sorted = [...candidateUrls]..sort((a, b) => (b.size ?? 0) - (a.size ?? 0));
+      final sorted = [...candidateUrls]
+        ..sort((a, b) => (b.size ?? 0) - (a.size ?? 0));
       for (var i = 0; i < sorted.length.clamp(0, 5); i++) {
         final c = sorted[i];
-        final sizeMB = c.size != null ? '${(c.size! / 1024 / 1024).toStringAsFixed(2)}MB' : 'unknown';
+        final sizeMB = c.size != null
+            ? '${(c.size! / 1024 / 1024).toStringAsFixed(2)}MB'
+            : 'unknown';
         log('    ${c.codec}: ${c.width}x${c.height}, ${c.bitrate}bps, $sizeMB');
         log('      ${c.url.substring(0, c.url.length.clamp(0, 120))}...');
       }
@@ -792,13 +871,15 @@ class XiaohongshuParser with HttpParserMixin {
 
       for (final domain in _cdnDomains) {
         if (domain != currentDomain) {
-          variants.add(_VideoStream(
-            url: 'https://$domain$path',
-            bitrate: c.bitrate,
-            codec: c.codec,
-            width: c.width,
-            height: c.height,
-          ));
+          variants.add(
+            _VideoStream(
+              url: 'https://$domain$path',
+              bitrate: c.bitrate,
+              codec: c.codec,
+              width: c.width,
+              height: c.height,
+            ),
+          );
         }
       }
     }

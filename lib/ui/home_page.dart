@@ -363,15 +363,14 @@ class _HomePageState extends State<HomePage> {
       final downloader = (Platform.isAndroid || Platform.isIOS)
           ? MobileDownloader()
           : DesktopDownloader();
-      _vlog(
-        '下载器=${downloader.runtimeType}, 目录=${_settings.downloadDir}',
-      );
+      _vlog('下载器=${downloader.runtimeType}, 目录=${_settings.downloadDir}');
       final path = await downloader.downloadVideo(
         info,
         directory: _settings.downloadDir,
         onProgress: (received, total) {
           if (!mounted) return;
-          if (info.mediaType == MediaType.image || info.mediaType == MediaType.livePhoto) {
+          if (info.mediaType == MediaType.image ||
+              info.mediaType == MediaType.livePhoto) {
             // 图文或实况图：received = 当前张数/个数， total = 总数
             if (total != null && total > 0) {
               final p = received / total;
@@ -797,7 +796,8 @@ class _HomePageState extends State<HomePage> {
                   style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
                 ),
                 // 封面图/缩略图：图文作品或实况图显示缩略图，普通视频显示封面
-                if (info.mediaType != MediaType.video && info.imageUrls.isNotEmpty)
+                if (info.mediaType != MediaType.video &&
+                    info.imageUrls.isNotEmpty)
                   _buildThumbnailGrid(info),
                 // 普通视频显示封面
                 if (info.mediaType == MediaType.video && info.coverUrl != null)
@@ -815,16 +815,18 @@ class _HomePageState extends State<HomePage> {
                     padding: const EdgeInsets.only(top: 8),
                     child: switch (info.mediaType) {
                       MediaType.image => LinearProgressIndicator(
-                          value: _downloadProgress,
-                          semanticsLabel:
-                              '已下载 ${((_downloadProgress ?? 0) * info.imageUrls.length).round()} / ${info.imageUrls.length} 张',
-                        ),
+                        value: _downloadProgress,
+                        semanticsLabel:
+                            '已下载 ${((_downloadProgress ?? 0) * info.imageUrls.length).round()} / ${info.imageUrls.length} 张',
+                      ),
                       MediaType.livePhoto => LinearProgressIndicator(
-                          value: _downloadProgress,
-                          semanticsLabel:
-                              '已下载 ${((_downloadProgress ?? 0) * info.livePhotoUrls.length).round()} / ${info.livePhotoUrls.length} 个',
-                        ),
-                      MediaType.video => LinearProgressIndicator(value: _downloadProgress),
+                        value: _downloadProgress,
+                        semanticsLabel:
+                            '已下载 ${((_downloadProgress ?? 0) * info.livePhotoUrls.length).round()} / ${info.livePhotoUrls.length} 个',
+                      ),
+                      MediaType.video => LinearProgressIndicator(
+                        value: _downloadProgress,
+                      ),
                     },
                   ),
               ],
@@ -844,7 +846,8 @@ class _HomePageState extends State<HomePage> {
         : info.imageUrls;
     if (imageUrls.isEmpty) return const SizedBox.shrink();
 
-    final isLivePhoto = info.mediaType == MediaType.livePhoto;
+    final isLivePhotoType = info.mediaType == MediaType.livePhoto;
+    final livePhotoUrls = info.livePhotoUrls;
     final itemCount = imageUrls.length;
 
     // 固定缩略图尺寸（统一卡片高度为120）
@@ -884,6 +887,10 @@ class _HomePageState extends State<HomePage> {
               separatorBuilder: (context, index) => const SizedBox(width: 6),
               itemBuilder: (context, index) {
                 final thumbUrl = imageThumbUrls[index];
+                // 判断当前图片是否为实况图
+                final hasLivePhoto = isLivePhotoType &&
+                    index < livePhotoUrls.length &&
+                    livePhotoUrls[index].isNotEmpty;
                 final isDownloading =
                     _singleLivePhotoDownloading[index] == true;
                 final progress = _singleLivePhotoProgress[index];
@@ -901,7 +908,9 @@ class _HomePageState extends State<HomePage> {
                           thumbUrl,
                           fit: BoxFit.cover,
                           headers: thumbUrl.contains('xhscdn.com')
-                              ? const {'Referer': 'https://www.xiaohongshu.com/'}
+                              ? const {
+                                  'Referer': 'https://www.xiaohongshu.com/',
+                                }
                               : null,
                           loadingBuilder: (context, child, loadingProgress) {
                             if (loadingProgress == null) return child;
@@ -930,8 +939,8 @@ class _HomePageState extends State<HomePage> {
                         ),
                       ),
                     ),
-                    // Live Photo 标识（右上角）
-                    if (isLivePhoto)
+                    // Live Photo 标识（右上角）- 仅显示在实况图上
+                    if (hasLivePhoto)
                       Positioned(
                         top: 4,
                         right: 4,
@@ -975,7 +984,7 @@ class _HomePageState extends State<HomePage> {
                         child: ElevatedButton(
                           onPressed: isDownloading || isDone
                               ? null
-                              : () => isLivePhoto
+                              : () => hasLivePhoto
                                     ? _downloadSingleLivePhoto(index)
                                     : _downloadSingleImage(index),
                           style: ElevatedButton.styleFrom(
@@ -1010,15 +1019,13 @@ class _HomePageState extends State<HomePage> {
                               : Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    Icon(
-                                      isLivePhoto
-                                          ? Icons.download
-                                          : Icons.download,
+                                    const Icon(
+                                      Icons.download,
                                       size: 12,
                                     ),
                                     const SizedBox(width: 2),
                                     Text(
-                                      isLivePhoto ? 'MP4' : '图片',
+                                      hasLivePhoto ? 'MP4' : '图片',
                                       style: const TextStyle(fontSize: 10),
                                     ),
                                   ],
@@ -1144,79 +1151,82 @@ class _HomePageState extends State<HomePage> {
 
     return switch (info.mediaType) {
       MediaType.image => Row(
-          children: [
-            Text(
-              '图文作品  ${info.imageUrls.length} 张图片',
-              style: const TextStyle(fontSize: 13),
-            ),
-            const Spacer(),
-            if (info.musicUrl != null) ...[
-              OutlinedButton.icon(
-                onPressed: _downloadingMusic ? null : _downloadMusicOnly,
-                icon: _downloadingMusic
-                    ? const SizedBox(
-                        width: 14,
-                        height: 14,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.deepPurple,
-                        ),
-                      )
-                    : const Icon(Icons.music_note, size: 16),
-                label: Text(_downloadingMusic ? '下载中…' : '下载音乐'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.deepPurple,
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  visualDensity: VisualDensity.compact,
+        children: [
+          Text(
+            '图文作品  ${info.imageUrls.length} 张图片',
+            style: const TextStyle(fontSize: 13),
+          ),
+          const Spacer(),
+          if (info.musicUrl != null) ...[
+            OutlinedButton.icon(
+              onPressed: _downloadingMusic ? null : _downloadMusicOnly,
+              icon: _downloadingMusic
+                  ? const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.deepPurple,
+                      ),
+                    )
+                  : const Icon(Icons.music_note, size: 16),
+              label: Text(_downloadingMusic ? '下载中…' : '下载音乐'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.deepPurple,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
                 ),
+                visualDensity: VisualDensity.compact,
               ),
-              const SizedBox(width: 8),
-            ],
-            doneLabel,
-            if (doneLabel is! SizedBox) const SizedBox(width: 8),
-            downloadBtn,
+            ),
+            const SizedBox(width: 8),
           ],
-        ),
+          doneLabel,
+          if (doneLabel is! SizedBox) const SizedBox(width: 8),
+          downloadBtn,
+        ],
+      ),
       MediaType.livePhoto => Row(
-          children: [
-            Text(
-              '实况图  ${info.livePhotoUrls.length} 个',
-              style: const TextStyle(fontSize: 13),
-            ),
-            const Spacer(),
-            doneLabel,
-            const SizedBox(width: 8),
-            downloadBtn,
-          ],
-        ),
+        children: [
+          Text(
+            '实况图  ${info.livePhotoUrls.length} 个',
+            style: const TextStyle(fontSize: 13),
+          ),
+          const Spacer(),
+          doneLabel,
+          const SizedBox(width: 8),
+          downloadBtn,
+        ],
+      ),
       MediaType.video => Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                color: Colors.blue.shade50,
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.videocam, size: 12, color: Colors.blue.shade700),
-                  const SizedBox(width: 4),
-                  Text(
-                    '视频',
-                    style: TextStyle(fontSize: 11, color: Colors.blue.shade700),
-                  ),
-                ],
-              ),
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: Colors.blue.shade50,
+              borderRadius: BorderRadius.circular(4),
             ),
-            const SizedBox(width: 8),
-            _buildResolutionInfoLabel(info),
-            const Spacer(),
-            doneLabel,
-            const SizedBox(width: 8),
-            downloadBtn,
-          ],
-        ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.videocam, size: 12, color: Colors.blue.shade700),
+                const SizedBox(width: 4),
+                Text(
+                  '视频',
+                  style: TextStyle(fontSize: 11, color: Colors.blue.shade700),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          _buildResolutionInfoLabel(info),
+          const Spacer(),
+          doneLabel,
+          const SizedBox(width: 8),
+          downloadBtn,
+        ],
+      ),
     };
   }
 
@@ -1288,131 +1298,140 @@ class _HomePageState extends State<HomePage> {
 
     return switch (info.mediaType) {
       MediaType.image => Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              children: [
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Text(
+                '图文作品  ${info.imageUrls.length} 张图片',
+                style: const TextStyle(fontSize: 13),
+              ),
+              if (_downloadProgress == 1.0) ...const [
+                Spacer(),
+                Icon(Icons.check_circle, color: Colors.green, size: 18),
+                SizedBox(width: 4),
                 Text(
-                  '图文作品  ${info.imageUrls.length} 张图片',
-                  style: const TextStyle(fontSize: 13),
+                  '下载完成',
+                  style: TextStyle(color: Colors.green, fontSize: 13),
                 ),
-                if (_downloadProgress == 1.0) ...const [
-                  Spacer(),
-                  Icon(Icons.check_circle, color: Colors.green, size: 18),
-                  SizedBox(width: 4),
-                  Text(
-                    '下载完成',
-                    style: TextStyle(color: Colors.green, fontSize: 13),
-                  ),
-                ],
               ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: FilledButton.icon(
-                    onPressed: _downloading ? null : _download,
-                    icon: _downloading
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          )
-                        : const Icon(Icons.download, size: 18),
-                    label: Text(_downloading ? '下载中…' : '下载图片'),
-                  ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: _downloading ? null : _download,
+                  icon: _downloading
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.download, size: 18),
+                  label: Text(_downloading ? '下载中…' : '下载图片'),
                 ),
-                if (info.musicUrl != null) ...[
-                  const SizedBox(width: 8),
-                  OutlinedButton.icon(
-                    onPressed: _downloadingMusic ? null : _downloadMusicOnly,
-                    icon: _downloadingMusic
-                        ? const SizedBox(
-                            width: 14,
-                            height: 14,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.deepPurple,
-                            ),
-                          )
-                        : const Icon(Icons.music_note, size: 16),
-                    label: Text(_downloadingMusic ? '…' : '音乐'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.deepPurple,
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                      visualDensity: VisualDensity.compact,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ],
-        ),
-      MediaType.livePhoto => Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              children: [
-                Text(
-                  '实况图  ${info.livePhotoUrls.length} 个',
-                  style: const TextStyle(fontSize: 13),
-                ),
-                if (_downloadProgress == 1.0) ...const [
-                  Spacer(),
-                  Icon(Icons.check_circle, color: Colors.green, size: 18),
-                  SizedBox(width: 4),
-                  Text(
-                    '下载完成',
-                    style: TextStyle(color: Colors.green, fontSize: 13),
-                  ),
-                ],
-              ],
-            ),
-            const SizedBox(height: 8),
-            downloadBtn,
-          ],
-        ),
-      MediaType.video => Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: Colors.blue.shade50,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.videocam, size: 12, color: Colors.blue.shade700),
-                      const SizedBox(width: 4),
-                      Text(
-                        '视频',
-                        style: TextStyle(fontSize: 11, color: Colors.blue.shade700),
-                      ),
-                    ],
-                  ),
-                ),
+              ),
+              if (info.musicUrl != null) ...[
                 const SizedBox(width: 8),
-                _buildResolutionInfoLabel(info),
-                if (_downloadProgress == 1.0) ...const [
-                  Spacer(),
-                  Icon(Icons.check_circle, color: Colors.green, size: 18),
-                  SizedBox(width: 4),
-                  Text('下载完成', style: TextStyle(color: Colors.green, fontSize: 13)),
-                ],
+                OutlinedButton.icon(
+                  onPressed: _downloadingMusic ? null : _downloadMusicOnly,
+                  icon: _downloadingMusic
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.deepPurple,
+                          ),
+                        )
+                      : const Icon(Icons.music_note, size: 16),
+                  label: Text(_downloadingMusic ? '…' : '音乐'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.deepPurple,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 12,
+                    ),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                ),
               ],
-            ),
-            const SizedBox(height: 8),
-            downloadBtn,
-          ],
-        ),
+            ],
+          ),
+        ],
+      ),
+      MediaType.livePhoto => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Text(
+                '实况图  ${info.livePhotoUrls.length} 个',
+                style: const TextStyle(fontSize: 13),
+              ),
+              if (_downloadProgress == 1.0) ...const [
+                Spacer(),
+                Icon(Icons.check_circle, color: Colors.green, size: 18),
+                SizedBox(width: 4),
+                Text(
+                  '下载完成',
+                  style: TextStyle(color: Colors.green, fontSize: 13),
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(height: 8),
+          downloadBtn,
+        ],
+      ),
+      MediaType.video => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.videocam, size: 12, color: Colors.blue.shade700),
+                    const SizedBox(width: 4),
+                    Text(
+                      '视频',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.blue.shade700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              _buildResolutionInfoLabel(info),
+              if (_downloadProgress == 1.0) ...const [
+                Spacer(),
+                Icon(Icons.check_circle, color: Colors.green, size: 18),
+                SizedBox(width: 4),
+                Text(
+                  '下载完成',
+                  style: TextStyle(color: Colors.green, fontSize: 13),
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(height: 8),
+          downloadBtn,
+        ],
+      ),
     };
   }
 
@@ -1625,6 +1644,27 @@ class _HomePageState extends State<HomePage> {
           }
         });
 
+        final listView = ListView.builder(
+          controller: _logScrollCtrl,
+          itemCount: _log.entries.length,
+          itemBuilder: (_, i) {
+            final e = _log.entries[i];
+            return Text(
+              e.toString(),
+              style: TextStyle(
+                fontFamily: 'monospace',
+                fontSize: Platform.isAndroid ? 10 : 11,
+                height: 1.4,
+                color: switch (e.level) {
+                  LogLevel.error => const Color(0xFFFF6B6B),
+                  LogLevel.warn => const Color(0xFFFFD93D),
+                  LogLevel.info => const Color(0xFFB0BEC5),
+                },
+              ),
+            );
+          },
+        );
+
         return Container(
           decoration: BoxDecoration(
             color: const Color(0xFF1E1E1E),
@@ -1632,26 +1672,21 @@ class _HomePageState extends State<HomePage> {
           ),
           padding: const EdgeInsets.all(8),
           child: SelectionArea(
-            child: ListView.builder(
-              controller: _logScrollCtrl,
-              itemCount: _log.entries.length,
-              itemBuilder: (_, i) {
-                final e = _log.entries[i];
-                return Text(
-                  e.toString(),
-                  style: TextStyle(
-                    fontFamily: 'monospace',
-                    fontSize: Platform.isAndroid ? 10 : 11,
-                    height: 1.4,
-                    color: switch (e.level) {
-                      LogLevel.error => const Color(0xFFFF6B6B),
-                      LogLevel.warn => const Color(0xFFFFD93D),
-                      LogLevel.info => const Color(0xFFB0BEC5),
-                    },
-                  ),
-                );
-              },
-            ),
+            // Windows 平台显示滚动条
+            child: Platform.isWindows
+                ? ScrollbarTheme(
+                    data: ScrollbarThemeData(
+                      thumbColor: WidgetStateProperty.all(Colors.grey.shade500),
+                      thickness: const WidgetStatePropertyAll(4.0),
+                      radius: const Radius.circular(4),
+                    ),
+                    child: Scrollbar(
+                      controller: _logScrollCtrl,
+                      thumbVisibility: true,
+                      child: listView,
+                    ),
+                  )
+                : listView,
           ),
         );
       },

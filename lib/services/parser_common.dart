@@ -86,6 +86,15 @@ class VideoInfo {
   final String? musicAuthor;
 
   /// 实况图视频 URL 列表（小红书 Live Photo）
+  ///
+  /// 索引与 [imageUrls] 对应，非实况图的项为空字符串。
+  ///
+  /// 注意：小红书支持「实况图+静态图」混合的作品，即部分图片有实况视频，部分没有。
+  /// 例如 3 张图片中只有第 2 张是实况图：
+  /// - imageUrls = [img1, img2, img3]
+  /// - livePhotoUrls = ['', video2, '']
+  /// UI 需要根据 livePhotoUrls[i].isNotEmpty 来判断是否显示 MP4 下载按钮。
+  /// // http://xhslink.com/o/1YCJtCHOnmf 这个只有一个是动图，其它的是静态图
   final List<String> livePhotoUrls;
 
   /// 媒体类型
@@ -153,7 +162,7 @@ class UrlUtils {
   UrlUtils._(); // 私有构造函数，防止实例化
 
   /// 从文本中提取 URL
-  /// 
+  ///
   /// 使用 [UrlExtractor] 实现，支持更多中文标点符号
   /// 未找到时返回原字符串
   static String extractUrl(String text) {
@@ -255,7 +264,7 @@ class JsonExtractor {
   }
 
   /// 使用正则表达式提取并解析 JSON（适用于简单的 JSON 结构）
-  /// 
+  ///
   /// 返回一个 record，包含原始 JSON 字符串和解析后的 Map
   /// - rawJson: 提取的原始 JSON 字符串（cleanUndefined 处理后的）
   /// - data: 解析后的 Map，解析失败时为 null
@@ -316,7 +325,7 @@ class JsonExtractor {
 // ==================== HTTP 解析器 Mixin ====================
 
 /// HTTP 解析器 Mixin - 提供通用的 HTTP 功能和日志功能
-/// 
+///
 /// 使用方式：
 /// ```dart
 /// class MyParser with HttpParserMixin {
@@ -330,10 +339,7 @@ mixin HttpParserMixin {
   late final String _logPrefix;
 
   /// 初始化 mixin
-  void initHttpParser({
-    http.Client? client,
-    required String logPrefix,
-  }) {
+  void initHttpParser({http.Client? client, required String logPrefix}) {
     _httpClient = client ?? http.Client();
     _logPrefix = logPrefix;
   }
