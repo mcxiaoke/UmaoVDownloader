@@ -8,7 +8,13 @@
   </head>
   <body>
     <header>
-      <h1 onclick="location.reload()" style="cursor:pointer" title="点击刷新页面">Umao VDownloader</h1>
+      <h1
+        onclick="location.reload()"
+        style="cursor: pointer"
+        title="点击刷新页面"
+      >
+        Umao VDownloader
+      </h1>
       <p>粘贴抖音/小红书分享链接，一键解析下载（无水印）</p>
     </header>
 
@@ -29,7 +35,13 @@
     <footer>仅供个人学习使用，请勿用于侵权行为</footer>
 
     <div class="kookie-bar">
-      <button id="kookieBtn" class="kookie-btn" title="设置 Cookie 以获取高清内容">🍪 Cookie 设置</button>
+      <button
+        id="kookieBtn"
+        class="kookie-btn"
+        title="设置 Cookie 以获取高清内容"
+      >
+        🍪 Cookie 设置
+      </button>
     </div>
 
     <!-- Cookie 设置弹窗 -->
@@ -41,7 +53,8 @@
         </div>
         <div class="modal-body">
           <p class="kookie-hint">
-            设置 Cookie 后可获取高清原图和视频。Cookie 仅存储在本地服务器，不会上传到其他位置。
+            设置 Cookie 后可获取高清原图和视频。Cookie
+            仅存储在本地服务器，不会上传到其他位置。
             <a href="#" id="kookieHelpLink">如何获取 Cookie？</a>
           </p>
 
@@ -51,32 +64,51 @@
           </div>
 
           <div class="kookie-tab-content active" id="tab-xhs">
-            <textarea id="xhsKookieInput" placeholder="请粘贴小红书的 Cookie 字符串...&#10;支持格式：name=value; name2=value2&#10;或 Netscape HTTP Cookie File 格式（从浏览器扩展导出）"></textarea>
+            <textarea
+              id="xhsKookieInput"
+              placeholder="请粘贴小红书的 Cookie 字符串...&#10;支持格式：name=value; name2=value2&#10;或 Netscape HTTP Cookie File 格式（从浏览器扩展导出）"
+            ></textarea>
             <div class="kookie-status" id="xhsKookieStatus"></div>
           </div>
 
           <div class="kookie-tab-content" id="tab-douyin">
-            <textarea id="douyinKookieInput" placeholder="请粘贴抖音的 Cookie 字符串...&#10;支持格式：name=value; name2=value2&#10;或 Netscape HTTP Cookie File 格式（从浏览器扩展导出）"></textarea>
+            <textarea
+              id="douyinKookieInput"
+              placeholder="请粘贴抖音的 Cookie 字符串...&#10;支持格式：name=value; name2=value2&#10;或 Netscape HTTP Cookie File 格式（从浏览器扩展导出）"
+            ></textarea>
             <div class="kookie-status" id="douyinKookieStatus"></div>
           </div>
 
-          <div class="kookie-help" id="kookieHelp" style="display:none;">
+          <div class="kookie-help" id="kookieHelp" style="display: none">
             <h4>如何获取 Cookie：</h4>
             <h5>方法 1：使用浏览器扩展（推荐）</h5>
             <ol>
-              <li>安装 Cookie 导出扩展（如 "Get cookies.txt" 或 "Cookie-Editor"）</li>
-              <li>在浏览器中打开 <strong>小红书</strong> 或 <strong>抖音</strong> 网站并登录</li>
+              <li>
+                安装 Cookie 导出扩展（如 "Get cookies.txt" 或 "Cookie-Editor"）
+              </li>
+              <li>
+                在浏览器中打开 <strong>小红书</strong> 或
+                <strong>抖音</strong> 网站并登录
+              </li>
               <li>点击扩展图标，选择导出/复制 Cookie</li>
               <li>直接粘贴到上面的输入框（支持 Netscape 格式自动转换）</li>
             </ol>
             <h5>方法 2：手动从开发者工具复制</h5>
             <ol>
-              <li>在浏览器中打开 <strong>小红书</strong> 或 <strong>抖音</strong> 网站并登录</li>
-              <li>按 <kbd>F12</kbd> 打开开发者工具，切换到 Network（网络）标签</li>
+              <li>
+                在浏览器中打开 <strong>小红书</strong> 或
+                <strong>抖音</strong> 网站并登录
+              </li>
+              <li>
+                按 <kbd>F12</kbd> 打开开发者工具，切换到 Network（网络）标签
+              </li>
               <li>刷新页面，点击任意一个请求</li>
               <li>在右侧找到 Headers（请求头），复制 Cookie 字段的值</li>
             </ol>
-            <p>提示：支持两种格式：1) <code>name=value; name2=value2</code>  2) Netscape HTTP Cookie File 格式</p>
+            <p>
+              提示：支持两种格式：1) <code>name=value; name2=value2</code> 2)
+              Netscape HTTP Cookie File 格式
+            </p>
           </div>
         </div>
         <div class="modal-footer">
@@ -108,15 +140,21 @@
 
       function renderVideo(info) {
         const ext = ".mp4";
-        const safeName = info.title
+        const idPart = info.shareId || info.itemId || info.id || "";
+        const titlePart = info.title
           .replace(/[\\/:"*?<>|]/g, "_")
-          .substring(0, 60);
+          .substring(0, 50);
+        const safeName = idPart ? `${idPart}_${titlePart}` : titlePart;
 
         // 构建下载按钮文字：下载视频 + 文件大小 + 时长 + 码率 + 分辨率
         const width = info.width ?? "?";
         const height = info.height ?? "?";
-        const sizeMB = info.videoSize ? (info.videoSize / 1024 / 1024).toFixed(1) : null;
-        const bitrate = info.videoBitrate ? Math.round(info.videoBitrate / 1000) : null; // kb/s
+        const sizeMB = info.videoSize
+          ? (info.videoSize / 1024 / 1024).toFixed(1)
+          : null;
+        const bitrate = info.videoBitrate
+          ? Math.round(info.videoBitrate / 1000)
+          : null; // kb/s
         const duration = info.duration ? `${info.duration}s` : null; // 时长(秒)
 
         let btnText = "↓ 下载视频";
@@ -126,6 +164,8 @@
         if (width !== "?" && height !== "?") btnText += ` ${width}×${height}`;
 
         const qualityBtn = `<a class="btn-dl primary full-width" href="${dlUrl(info.videoUrl, `${safeName}${ext}`)}" download>${btnText}</a>`;
+
+        const directLinkBtn = `<a class="btn-dl secondary full-width" href="${info.videoUrl}" target="_blank" rel="noreferrer" title="提示：右键另存为的文件名无法控制，如需自定义文件名请使用上面的下载按钮">新标签页打开视频（右键另存为） ↗</a>`;
 
         const coverProxyUrl = info.coverUrl
           ? `download?url=${encodeURIComponent(info.coverUrl)}&name=cover.jpg`
@@ -138,41 +178,44 @@
         <div class="info-title">${escHtml(info.title || info.shareId || "")}</div>
         <div class="info-meta">${escHtml(metaInfo)}</div>
         ${coverProxyUrl ? `<img class="video-cover" src="${coverProxyUrl}" loading="lazy" style="margin-top:0.6rem;" />` : ""}
-        <div class="quality-btns video-quality-list" style="margin-top:0.9rem;">${qualityBtn}</div>
+        <div class="action-btns">
+          ${qualityBtn}
+          ${directLinkBtn}
+        </div>
       `;
       }
 
       function renderImages(info) {
-        const safeName = info.title
+        const idPart = info.shareId || info.itemId || info.id || "";
+        const titlePart = info.title
           .replace(/[\\/:"*?<>|]/g, "_")
-          .substring(0, 40);
+          .substring(0, 30);
+        const safeName = idPart ? `${idPart}_${titlePart}` : titlePart;
 
         // 使用后端返回的缩略图和大图
-        const imageList = info.imageList || [];      // 完整图片对象数组 {thumb, full, videoUrl, isLivePhoto}
-        const imageUrls = info.imageUrls || [];      // 大图（下载用）
-        const imageThumbs = info.imageThumbs || [];  // 小图（列表显示用）
+        const imageList = info.imageList || []; // 完整图片对象数组 {thumb, full, videoUrl, isLivePhoto}
+        const imageUrls = info.imageUrls || []; // 大图（下载用）
+        const imageThumbs = info.imageThumbs || []; // 小图（列表显示用）
 
         const items = imageUrls
-          .map(
-            (url, i) => {
-              const imgData = imageList[i] || {};
-              const videoBtn = imgData.isLivePhoto && imgData.videoUrl
+          .map((url, i) => {
+            const imgData = imageList[i] || {};
+            const videoBtn =
+              imgData.isLivePhoto && imgData.videoUrl
                 ? `<button class="img-video-btn" data-video="${imgData.videoUrl}" data-idx="${i}" title="下载 Live Photo 视频">🎬 MP4</button>`
-                : '';
-              return `
+                : "";
+            return `
         <div class="image-item">
           <img src="${`download?url=${encodeURIComponent(imageThumbs[i] || url)}&name=thumb_${i}.webp`}" loading="lazy" data-full="${url}" />
           <button class="img-dl-btn" data-url="${url}" data-idx="${i}">${isMobile ? "↓ JPG" : "↓ WebP"}</button>
           ${videoBtn}
         </div>
       `;
-            },
-          )
+          })
           .join("");
 
         const musicBtn = info.musicUrl
-          ? `<a class="btn-dl" style="margin-top:1rem;display:block;text-align:center"
-              href="${dlUrl(info.musicUrl, `${safeName}_music.mp3`)}" download>
+          ? `<a class="btn-dl secondary full-width" href="${dlUrl(info.musicUrl, `${safeName}_music.mp3`)}" download>
               ♪ 下载背景音乐${info.musicTitle ? " · " + escHtml(info.musicTitle.substring(0, 20)) : ""}
            </a>`
           : "";
@@ -185,8 +228,10 @@
         <div class="info-title">${escHtml(info.title)}</div>
         <div class="info-meta">${escHtml(metaInfo)}</div>
         <div class="image-grid">${items}</div>
-        <button class="btn-dl-all" id="zipBtn">📦 打包下载全部 WebP（${info.imageCount} 张）</button>
-        ${musicBtn}
+        <div class="action-btns">
+          <button class="btn-dl primary full-width" id="zipBtn">📦 打包下载全部 WebP（${info.imageCount} 张）</button>
+          ${musicBtn}
+        </div>
       `;
 
         result.querySelectorAll(".img-dl-btn").forEach((dlBtn) => {
@@ -264,11 +309,10 @@
       // 从任意文本中提取第一个支持的链接（支持分享文案夹带 URL）
       function extractUrl(text) {
         // 抖音链接：支持 v.douyin.com/xxxxx、www.douyin.com/video/xxxxx、iesdouyin.com/share/xxxxx 等
-        const douyinMatch = text.match(
-          /https?:\/\/(?:v\.|www\.)?douyin\.com\/[A-Za-z0-9_-]+(?:\/[^\s，,。]*)?/,
-        ) || text.match(
-          /https?:\/\/[^\s]*iesdouyin\.com\/[^\s，,。]+/,
-        );
+        const douyinMatch =
+          text.match(
+            /https?:\/\/(?:v\.|www\.)?douyin\.com\/[A-Za-z0-9_-]+(?:\/[^\s，,。]*)?/,
+          ) || text.match(/https?:\/\/[^\s]*iesdouyin\.com\/[^\s，,。]+/);
         if (douyinMatch) return douyinMatch[0].replace(/[，。、\s]+$/, "");
 
         // 小红书链接：支持多种格式
@@ -276,11 +320,11 @@
         // - www.xiaohongshu.com/explore/xxxxx
         // - www.xiaohongshu.com/discovery/item/xxxxx
         // - www.xiaohongshu.com/user/profile/作者ID/笔记ID
-        const xhsMatch = text.match(
-          /https?:\/\/(?:www\.)?xhslink\.com\/[^\s，,。]+/,
-        ) || text.match(
-          /https?:\/\/[^\s]*xiaohongshu\.com\/(?:explore|discovery|user)\/[^\s，,。]+/,
-        );
+        const xhsMatch =
+          text.match(/https?:\/\/(?:www\.)?xhslink\.com\/[^\s，,。]+/) ||
+          text.match(
+            /https?:\/\/[^\s]*xiaohongshu\.com\/(?:explore|discovery|user)\/[^\s，,。]+/,
+          );
         if (xhsMatch) return xhsMatch[0].replace(/[，。、\s]+$/, "");
 
         return null;
@@ -449,17 +493,22 @@
           kookieTabs.forEach((t) => t.classList.remove("active"));
           tab.classList.add("active");
 
-          document.querySelectorAll(".kookie-tab-content").forEach((content) => {
-            content.classList.remove("active");
-          });
-          document.getElementById(`tab-${tab.dataset.tab}`).classList.add("active");
+          document
+            .querySelectorAll(".kookie-tab-content")
+            .forEach((content) => {
+              content.classList.remove("active");
+            });
+          document
+            .getElementById(`tab-${tab.dataset.tab}`)
+            .classList.add("active");
         });
       });
 
       // 显示/隐藏帮助
       kookieHelpLink.addEventListener("click", (e) => {
         e.preventDefault();
-        kookieHelp.style.display = kookieHelp.style.display === "none" ? "block" : "none";
+        kookieHelp.style.display =
+          kookieHelp.style.display === "none" ? "block" : "none";
       });
 
       // 加载 Cookie 状态
@@ -512,10 +561,18 @@
           const data = await resp.json();
 
           if (resp.ok) {
-            xhsKookieStatus.textContent = xhsKookie ? "✓ 小红书 Cookie 已保存" : "";
-            xhsKookieStatus.className = xhsKookie ? "kookie-status success" : "kookie-status";
-            douyinKookieStatus.textContent = douyinKookie ? "✓ 抖音 Cookie 已保存" : "";
-            douyinKookieStatus.className = douyinKookie ? "kookie-status success" : "kookie-status";
+            xhsKookieStatus.textContent = xhsKookie
+              ? "✓ 小红书 Cookie 已保存"
+              : "";
+            xhsKookieStatus.className = xhsKookie
+              ? "kookie-status success"
+              : "kookie-status";
+            douyinKookieStatus.textContent = douyinKookie
+              ? "✓ 抖音 Cookie 已保存"
+              : "";
+            douyinKookieStatus.className = douyinKookie
+              ? "kookie-status success"
+              : "kookie-status";
 
             // 清空输入框（因为服务器返回的是脱敏值）
             xhsKookieInput.value = "";

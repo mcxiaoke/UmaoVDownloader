@@ -124,9 +124,10 @@ header p {
 .video-cover {
   width: 100%;
   max-height: 280px;
-  object-fit: cover;
+  object-fit: contain;
   border-radius: 8px;
   display: block;
+  background-color: #f0f0f0;
 }
 .info-title {
   margin-top: 0.8rem;
@@ -140,23 +141,7 @@ header p {
   font-size: 0.82rem;
   color: #777;
 }
-.quality-btns {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  margin-top: 0.9rem;
-}
-/* 视频质量列表：垂直排列，每行一个 */
-.video-quality-list {
-  flex-direction: column;
-  align-items: stretch;
-}
-.video-quality-list .btn-dl {
-  text-align: center;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+
 .btn-dl {
   padding: 0.5rem 1rem;
   border: 1.5px solid #1976d2;
@@ -179,10 +164,28 @@ header p {
 .btn-dl.primary:hover {
   background: #1565c0;
 }
+.btn-dl.secondary {
+  background: transparent;
+  color: #666;
+  border-color: #d0d7de;
+  font-size: 0.85rem;
+}
+.btn-dl.secondary:hover {
+  background: #f3f4f6;
+  border-color: #9ca3af;
+}
 .btn-dl.full-width {
   display: block;
   width: 100%;
   text-align: center;
+}
+
+/* 操作按钮容器：视频和图文作品统一使用 */
+.action-btns {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.9rem;
 }
 
 /* 图文结果 - 自适应网格 */
@@ -278,22 +281,6 @@ header p {
     opacity: 1;
   }
 }
-
-.btn-dl-all {
-  display: block;
-  width: 100%;
-  margin-top: 0.9rem;
-  padding: 0.6rem;
-  background: #1976d2;
-  color: #fff;
-  border: none;
-  border-radius: 8px;
-  font-size: 0.95rem;
-  cursor: pointer;
-  transition: background 0.2s;
-}
-.btn-dl-all:hover {
-  background: #1565c0;
 }
 
 footer {
