@@ -28,13 +28,13 @@ header {
   margin-bottom: 2rem;
 }
 header h1 {
-  font-size: 1.8rem;
+  font-size: 1.6rem;
   color: #1565c0;
 }
 header p {
   color: #666;
-  margin-top: 0.4rem;
-  font-size: 0.9rem;
+  margin-top: 0.5rem;
+  font-size: 1rem;
 }
 
 .card {
@@ -44,6 +44,7 @@ header p {
   padding: 1rem;
   width: 100%;
   max-width: 640px;
+  margin-bottom: 1.5rem;
 }
 
 @media (min-width: 480px) {
@@ -77,7 +78,7 @@ header p {
 }
 .input-row input {
   flex: 1;
-  padding: 0.65rem 0.9rem;
+  padding: 0.5rem 1rem;
   border: 1.5px solid #d0d7de;
   border-radius: 8px;
   font-size: 1rem;
@@ -85,10 +86,10 @@ header p {
   transition: border-color 0.2s;
 }
 .input-row input:focus {
-  border-color: #1976d2;
+  border-color: #1565c0;
 }
 .input-row button {
-  padding: 0.65rem 1.2rem;
+  padding: 0.5rem 1rem;
   background: #1976d2;
   color: #fff;
   border: none;
@@ -107,17 +108,17 @@ header p {
 }
 
 #status {
-  margin-top: 0.8rem;
-  font-size: 0.88rem;
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
   color: #555;
   min-height: 1.2em;
 }
 #status.error {
-  color: #c62828;
+  color: #e53935;
 }
 
 #result {
-  margin-top: 1.2rem;
+  margin-top: 1rem;
 }
 
 /* 视频结果 */
@@ -130,15 +131,15 @@ header p {
   background-color: #f0f0f0;
 }
 .info-title {
-  margin-top: 0.8rem;
+  margin-top: 1rem;
   font-size: 1rem;
   font-weight: 600;
   line-height: 1.5;
   word-break: break-word;
 }
 .info-meta {
-  margin-top: 0.3rem;
-  font-size: 0.82rem;
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
   color: #777;
 }
 
@@ -148,7 +149,7 @@ header p {
   border-radius: 6px;
   color: #1976d2;
   background: #fff;
-  font-size: 0.9rem;
+  font-size: 1rem;
   cursor: pointer;
   text-decoration: none;
   transition: all 0.15s;
@@ -168,7 +169,11 @@ header p {
   background: transparent;
   color: #666;
   border-color: #d0d7de;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
+}
+.btn-dl.small {
+  font-size: 0.8rem;
+  padding: 0.4rem 0.6rem;
 }
 .btn-dl.secondary:hover {
   background: #f3f4f6;
@@ -185,19 +190,19 @@ header p {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-  margin-top: 0.9rem;
+  margin-top: 1rem;
 }
 
 /* 图文结果 - 自适应网格 */
 .image-grid {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.4rem;
-  margin-top: 0.9rem;
+  gap: 0.5rem;
+  margin-top: 1rem;
 }
 .image-grid .image-item {
   /* 小屏幕：固定2列 */
-  width: calc(50% - 0.2rem);
+  width: calc(50% - 0.5rem);
   flex: 0 0 auto;
 }
 
@@ -205,8 +210,8 @@ header p {
 @media (min-width: 480px) {
   .image-grid {
     display: grid;
-    gap: 0.6rem;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 0.5rem;
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
   }
   .image-grid .image-item {
     width: auto;
@@ -228,14 +233,14 @@ header p {
 /* 图片下载按钮 */
 .image-item .img-dl-btn {
   position: absolute;
-  bottom: 8px;
-  left: 8px;
+  bottom: 0.5rem;
+  left: 0.5rem;
   background: rgba(25, 118, 210, 0.9);
   color: #fff;
   border: none;
   border-radius: 6px;
-  padding: 6px 10px;
-  font-size: 0.75rem;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.8rem;
   cursor: pointer;
   opacity: 0;
   transition:
@@ -252,14 +257,14 @@ header p {
 /* Live Photo 视频下载按钮 */
 .image-item .img-video-btn {
   position: absolute;
-  bottom: 8px;
-  right: 8px;
+  bottom: 0.5rem;
+  right: 0.5rem;
   background: rgba(255, 107, 107, 0.9);
   color: #fff;
   border: none;
   border-radius: 6px;
-  padding: 6px 10px;
-  font-size: 0.75rem;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.8rem;
   cursor: pointer;
   opacity: 0;
   transition:
@@ -284,25 +289,26 @@ header p {
 }
 
 footer {
-  margin-top: 2.5rem;
-  font-size: 0.78rem;
+  margin-top: 2rem;
+  padding-bottom: 1rem;
+  font-size: 0.8rem;
   color: #aaa;
 }
 
 /* Cookie 底部栏 */
 .kookie-bar {
   text-align: center;
-  padding: 1rem 0 2rem;
+  padding: 1rem 0;
 }
 
 /* Cookie 设置按钮 */
 .kookie-btn {
-  padding: 0.4rem 0.9rem;
+  padding: 0.4rem 1rem;
   background: transparent;
   border: 1.5px solid #1976d2;
   color: #1976d2;
   border-radius: 20px;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   cursor: pointer;
   transition: all 0.2s;
 }
@@ -344,7 +350,7 @@ footer {
   border-bottom: 1px solid #e5e7eb;
 }
 .modal-header h3 {
-  font-size: 1.1rem;
+  font-size: 1.2rem;
   color: #1a1a2e;
 }
 .modal-close {
@@ -373,43 +379,38 @@ footer {
 }
 .modal-footer {
   display: flex;
-  gap: 0.6rem;
+  gap: 0.5rem;
   justify-content: flex-end;
-  padding: 1rem 1.2rem;
+  padding: 1rem;
   border-top: 1px solid #e5e7eb;
   background: #f9fafb;
 }
+.btn {
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
 .btn-primary {
-  padding: 0.55rem 1.2rem;
   background: #1976d2;
   color: #fff;
   border: none;
-  border-radius: 8px;
-  font-size: 0.9rem;
-  cursor: pointer;
-  transition: background 0.2s;
 }
 .btn-primary:hover {
   background: #1565c0;
 }
 .btn-secondary {
-  padding: 0.55rem 1.2rem;
   background: transparent;
   color: #666;
   border: 1.5px solid #d0d7de;
-  border-radius: 8px;
-  font-size: 0.9rem;
-  cursor: pointer;
-  transition: all 0.2s;
 }
-.btn-secondary:hover {
-  background: #f3f4f6;
-  border-color: #9ca3af;
-}
+
+
 
 /* Cookie 弹窗专用样式 */
 .kookie-hint {
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   color: #666;
   line-height: 1.6;
   margin-bottom: 1rem;
@@ -424,15 +425,15 @@ footer {
 
 .kookie-tabs {
   display: flex;
-  gap: 0.4rem;
+  gap: 0.5rem;
   margin-bottom: 1rem;
   border-bottom: 2px solid #e5e7eb;
 }
 .kookie-tab {
-  padding: 0.6rem 1.2rem;
+  padding: 0.5rem 1rem;
   background: none;
   border: none;
-  font-size: 0.9rem;
+  font-size: 1rem;
   color: #666;
   cursor: pointer;
   border-bottom: 2px solid transparent;
@@ -461,7 +462,7 @@ footer {
   padding: 0.8rem;
   border: 1.5px solid #d0d7de;
   border-radius: 8px;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   font-family: monospace;
   resize: vertical;
   outline: none;
@@ -487,7 +488,7 @@ footer {
   padding: 1rem;
   background: #f3f4f6;
   border-radius: 8px;
-  font-size: 0.82rem;
+  font-size: 0.8rem;
   line-height: 1.6;
 }
 .kookie-help h4 {
@@ -495,11 +496,11 @@ footer {
   color: #1a1a2e;
 }
 .kookie-help ol {
-  margin-left: 1.2rem;
+  margin-left: 1rem;
   margin-bottom: 0.5rem;
 }
 .kookie-help li {
-  margin-bottom: 0.3rem;
+  margin-bottom: 0.5rem;
 }
 .kookie-help code {
   background: #e5e7eb;
@@ -510,7 +511,7 @@ footer {
 .kookie-help kbd {
   background: #fff;
   border: 1px solid #d0d7de;
-  padding: 0.1rem 0.4rem;
+  padding: 0.1rem 0.3rem;
   border-radius: 4px;
   font-size: 0.8rem;
   box-shadow: 0 1px 0 rgba(0, 0, 0, 0.1);

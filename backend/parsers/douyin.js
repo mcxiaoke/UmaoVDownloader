@@ -192,6 +192,7 @@ export async function parse(url, debug = false) {
     info.imageThumbs = info.imageList.map(i => i.thumb);
     info.imageCount = info.imageList.length;
     info.musicTitle = item.music?.title ?? null;
+    info.musicAuthor = item.music?.author ?? null;
     info.musicUrl = extractMusicUrl(item);
     log(`  type: image, imageCount: ${info.imageCount}`);
     if (info.imageUrls.length > 0) {

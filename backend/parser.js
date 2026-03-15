@@ -29,5 +29,6 @@ export { parse } from "./parsers/index.js";
  * @property {string[]|undefined} imageUrls - 图文专有：图片URL数组
  * @property {number|undefined} imageCount - 图文专有：图片数量
  * @property {string|null|undefined} musicTitle - 图文专有：背景音乐标题
+ * @property {string|null|undefined} musicAuthor - 图文专有：背景音乐作者
  * @property {string|null|undefined} musicUrl - 图文专有：背景音乐URL
  */
