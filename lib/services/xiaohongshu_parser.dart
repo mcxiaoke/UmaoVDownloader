@@ -91,12 +91,15 @@ class XiaohongshuParser with HttpParserMixin {
 
     log('→ 提取笔记数据...');
     final note = _extractNoteData(data);
-    if (note == null) {
+    if (note == null || note.isEmpty) {
       throw const XiaohongshuParseException('无法提取笔记数据');
+    }
+    final noteId = note['noteId'] ?? note['id'];
+    if (noteId == null) {
+      throw const XiaohongshuParseException('笔记数据无效，可能是链接已失效');
     }
     // 保存 note 数据用于调试
     _saveDebugJson(note, 'note_data', shareId: shareId);
-    final noteId = note['noteId'] ?? note['id'] ?? 'unknown';
     final title = (note['title'] ?? note['desc'] ?? '').toString().trim();
     final hasVideo = note['video'] != null && note['video'] is Map;
     final type = hasVideo
@@ -116,6 +119,11 @@ class XiaohongshuParser with HttpParserMixin {
         ? 'image'
         : 'unknown';
     log('→ 构建结果: type=$resultType, imageCount=${result.imageUrls.length}');
+
+    // 验证结果有效性：既没有视频也没有图片，说明解析失败
+    if (result.videoUrl.isEmpty && result.imageUrls.isEmpty) {
+      throw const XiaohongshuParseException('无法获取有效的媒体内容，可能是链接无效或已被删除');
+    }
     // URL 只在详细日志模式下打印
     if (result.videoUrl.isNotEmpty) {
       logDebug('  videoUrl: ${result.videoUrl}');

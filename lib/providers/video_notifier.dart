@@ -46,11 +46,8 @@ class VideoNotifier extends Notifier<VideoState> {
   // ─── 便捷 getter ───────────────────────────────────────────────────────
 
   LogService get _log => ref.read(logServiceProvider);
-  bool get _verbose => ref.read(settingsServiceProvider).verboseLog;
 
-  void _vlog(String msg) {
-    if (_verbose) _log.info(msg);
-  }
+  void _vlog(String msg) => AppLogger.debug(msg);
 
   // ─── 状态更新方法 ───────────────────────────────────────────────────────
 

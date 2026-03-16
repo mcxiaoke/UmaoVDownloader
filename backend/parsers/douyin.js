@@ -89,7 +89,6 @@ export async function parse(url, debug = false) {
   await initHeaders();
 
   log(`开始解析: ${url}`);
-  log(`短ID: ${currentShortId}`);
 
   const extracted = extractUrl(url);
   log(`提取URL: ${extracted}`);
@@ -104,10 +103,7 @@ export async function parse(url, debug = false) {
   if (!awemeId) {
     throw new Error(`无法从链接提取视频 ID，最终 URL: ${finalUrl}`);
   }
-  log(`  awemeId: ${awemeId}`);
-
   const isNote = finalUrl.includes("/note/");
-  log(`  类型: ${isNote ? "图文(note)" : "视频(video)"}`);
 
   // 若页面不含数据，重新请求 share 页
   let html = rawHtml;
@@ -142,21 +138,25 @@ export async function parse(url, debug = false) {
   if (!routerData) {
     throw new Error("未找到 _ROUTER_DATA");
   }
-  log("  ✓ 提取成功");
+  log("  ✓ 数据提取成功");
 
-  log("→ 提取视频/图文数据...");
   const item = extractItem(routerData);
-  if (!item) {
+  if (!item || Object.keys(item).length === 0) {
     throw new Error("作品不存在或已被删除");
   }
-  log(`  ✓ title: ${(item.desc || "").substring(0, 50)}`);
+
+  const itemId = item.aweme_id;
+  if (!itemId) {
+    throw new Error("作品数据无效，可能是链接已失效");
+  }
 
   // 保存提取的item数据供调试
   saveDebugJson(item, "item_data");
 
   // 使用统一的类型检测函数
   const mediaType = detectMediaType(item);
-  log(`  ✓ 内容类型: ${mediaType}`);
+  const title = (item.desc || "").trim();
+  log(`  ✓ awemeId: ${itemId}, title: ${title.substring(0, 30) || "<无标题>"}, type: ${mediaType}`);
 
   // 提取作者信息
   const author = item.author ?? {};
@@ -169,7 +169,6 @@ export async function parse(url, debug = false) {
   const createTime = item.create_time ?? null;
 
   // 构建基础信息
-  const itemId = item.aweme_id ?? awemeId;
   const info = {
     type: mediaType,
     platform: "douyin",
@@ -192,8 +191,6 @@ export async function parse(url, debug = false) {
     shareCount: statistics.share_count ?? null,
   };
 
-  log("→ 构建结果:");
-
   // 根据类型填充详细内容
   if (mediaType === "image") {
     // 统一图片结构：返回完整的 imageList（含 thumb 和 full）
@@ -204,9 +201,15 @@ export async function parse(url, debug = false) {
     info.musicTitle = item.music?.title ?? null;
     info.musicAuthor = item.music?.author ?? null;
     info.musicUrl = extractMusicUrl(item);
-    log(`  type: image, imageCount: ${info.imageCount}`);
+
+    log(`→ 构建结果: type=image, imageCount=${info.imageCount}`);
+
     if (info.imageUrls.length > 0) {
       log(`  imageUrls[0]: ${info.imageUrls[0]}`);
+      for (let i = 0; i < info.imageUrls.length; i++) {
+        log(`thumb${i + 1}=${info.imageThumbs[i]}`);
+        log(`full${i + 1}=${info.imageUrls[i]}`);
+      }
     }
     if (info.musicUrl) {
       log(`  musicUrl: ${info.musicUrl}`);
@@ -227,10 +230,14 @@ export async function parse(url, debug = false) {
     info.duration = item.video?.duration
       ? Math.round(item.video.duration / 1000)
       : null;
-    log(
-      `  type: video, quality: ${info.quality || "none"}, size: ${info.videoSize || "unknown"}, duration: ${info.duration || "unknown"}s`,
-    );
+
+    log(`→ 构建结果: type=video, quality=${info.quality || "none"}, duration=${info.duration || "unknown"}s`);
     log(`  videoUrl: ${info.videoUrl || "none"}`);
+  }
+
+  // 验证结果有效性
+  if (!info.videoUrl && (!info.imageUrls || info.imageUrls.length === 0)) {
+    throw new Error("无法获取有效的媒体内容，可能是链接无效或已被删除");
   }
 
   return info;
@@ -253,16 +260,11 @@ function detectMediaType(item) {
   if (awemeType != null) {
     const typeNum = Number(awemeType);
     if (MEDIA_TYPES.image.includes(typeNum)) {
-      log(`  aweme_type=${typeNum} 判定为图文`);
       return "image";
     }
     if (MEDIA_TYPES.video.includes(typeNum)) {
-      log(`  aweme_type=${typeNum} 判定为视频`);
       return "video";
     }
-    log(`  未知 aweme_type=${typeNum}，进入兜底判断`);
-  } else {
-    log(`  无 aweme_type，进入兜底判断`);
   }
 
   // 2. 兜底：综合特征判断
@@ -271,14 +273,12 @@ function detectMediaType(item) {
 
   // 特征 1：images 字段存在且非空 → 图文
   if (Array.isArray(images) && images.length > 0) {
-    log(`  images 字段存在且非空，判定为图文`);
     return "image";
   }
 
   // 特征 2：video.play_addr.uri 以 http 开头 → 图文（实况图/音频）
   const playUri = video?.play_addr?.uri;
   if (typeof playUri === "string" && playUri.startsWith("http")) {
-    log(`  video.play_addr.uri 为 URL 格式，判定为图文`);
     return "image";
   }
 
@@ -287,7 +287,6 @@ function detectMediaType(item) {
   if ((duration == null || duration === 0) && !Array.isArray(images)) {
     const bitRate = video?.bit_rate;
     if (!Array.isArray(bitRate) || bitRate.length === 0) {
-      log(`  duration=0 且无码率信息，判定为图文`);
       return "image";
     }
   }
@@ -433,26 +432,57 @@ function extractImageUrls(item) {
  */
 function extractImageList(item) {
   const images = item.images;
+  const imgBitrate = item.img_bitrate;
   if (!Array.isArray(images) || images.length === 0) return [];
+
+  // 构建 uri -> 缩略图映射 (从 img_bitrate)
+  const thumbMap = {};
+  if (Array.isArray(imgBitrate)) {
+    // 优先找 480p 的缩略图
+    let targetGear = imgBitrate.find(
+      (gear) => gear.name === "gear_480p",
+    )?.images;
+    // 如果没有 480p，取第一个 gear
+    targetGear = targetGear ?? imgBitrate[0]?.images;
+
+    if (Array.isArray(targetGear)) {
+      for (const img of targetGear) {
+        const uri = img.uri;
+        const urlList = img.url_list;
+        if (!uri || !Array.isArray(urlList) || urlList.length === 0) continue;
+        // 找 shrink 缩略图
+        const shrinkUrl = urlList.find((u) => u.includes("tplv-dy-shrink"));
+        if (shrinkUrl) {
+          thumbMap[uri] = shrinkUrl;
+        }
+      }
+    }
+  }
 
   return images
     .map((img, idx) => {
-      const urls = img.url_list ?? [];
+      const uri = img.uri;
+      const urlList = img.url_list ?? [];
+      const downloadUrlList = img.download_url_list ?? [];
 
-      // 找大图（无水印优先）：tplv-dy-lqen-new 且无 water
-      const full =
-        urls.find(
+      let full = null;
+      let thumb = null;
+
+      // 1. 大图优先级：lqen-new（无水印）> download_url_list（带水印高清）> aweme-images > fallback
+      full =
+        urlList.find(
           (u) => u.includes("tplv-dy-lqen-new") && !u.includes("-water"),
         ) ??
-        urls.find((u) => u.includes("tplv-dy-aweme-images")) ??
-        urls[0] ??
+        (downloadUrlList.length > 0 ? downloadUrlList[0] : null) ??
+        urlList.find((u) => u.includes("tplv-dy-aweme-images")) ??
+        urlList[0] ??
         null;
 
-      // 找缩略图：带 200x200 或类似的尺寸标记
-      const thumb =
-        urls.find((u) => u.includes("200x200") || u.includes("thumb")) ??
-        urls.find((u) => u.includes("tplv-dy-aweme-images")) ??
-        full;
+      // 2. 缩略图：从 thumbMap 获取
+      if (uri && thumbMap[uri]) {
+        thumb = thumbMap[uri];
+      }
+      thumb = thumb || full;
 
       if (!full) {
         log(`  图片 ${idx + 1}: 无可用 URL`);
@@ -571,7 +601,6 @@ async function saveDebugJson(data, prefix) {
     await fs.writeFile(filePath, JSON.stringify(data, null, 2));
     log(`  调试 JSON 已保存: ${filePath}`);
   } catch (e) {
-    // 保存失败不影响主流程
-    log(`  保存调试 JSON 失败: ${e.message}`);
+    log(`  保存调试 JSON 失败: ${e}`);
   }
 }

@@ -131,11 +131,19 @@ class DouyinParser with HttpParserMixin {
 
   /// 主入口：传入任意抖音链接，返回视频信息
   Future<VideoInfo> parse(String url) async {
+    log('开始解析: $url');
+
     final extracted = UrlUtils.extractUrl(url);
+    logDebug('提取URL: $extracted');
 
     // 从原始缓存短链 ID
     final shareId = _extractShareId(extracted);
+    log('  shareId: $shareId');
+
+    log('→ 请求页面...');
     final realUrl = await _resolveUrl(extracted);
+    logDebug('  最终URL: $realUrl');
+
     final query = Uri.parse(realUrl).hasQuery
         ? '?${Uri.parse(realUrl).query}'
         : '';
@@ -190,24 +198,72 @@ class DouyinParser with HttpParserMixin {
       throw DouyinParseException('分享页请求失败，状态码: ${response.statusCode}');
     }
     final html = response.body;
+    log('  HTML长度: ${html.length} bytes');
 
     if (_looksLikeWafChallenge(html)) {
       logDebug('命中风控挑战页: $shareUrl');
       throw const DouyinParseException('触发风控挑战页，请更换网络后重试');
     }
 
+    log('→ 提取 _ROUTER_DATA...');
     final item = _extractItemFromRouterData(html);
-    if (item != null) {
-      // 保存 item 数据用于调试
-      _saveDebugJson(item, 'item_data', shareId: shareId);
-      return _buildFromRouterItem(
-        item,
-        fallbackVideoId: videoId,
-        shareId: shareId,
-      );
+    if (item == null || item.isEmpty) {
+      throw const DouyinParseException('作品不存在或已被删除');
+    }
+    log('  ✓ 数据提取成功');
+
+    // 检查 aweme_id 是否存在
+    final awemeId = item['aweme_id'];
+    if (awemeId == null) {
+      throw const DouyinParseException('作品数据无效，可能是链接已失效');
+    }
+    // 保存 item 数据用于调试（仅在数据有效时保存）
+    _saveDebugJson(item, 'item_data', shareId: shareId);
+
+    final title = item['desc']?.toString().trim();
+    final mediaType = AwemeTypeHelper.detectType(item);
+    final typeStr = mediaType == DouyinMediaType.image
+        ? 'image'
+        : mediaType == DouyinMediaType.video
+            ? 'video'
+            : 'unknown';
+    log('  ✓ awemeId: $awemeId, title: ${title == null || title.isEmpty ? "<无标题>" : title}, type: $typeStr');
+
+    final result = _buildFromRouterItem(
+      item,
+      fallbackVideoId: videoId,
+      shareId: shareId,
+    );
+
+    final resultType = result.videoUrl.isNotEmpty
+        ? 'video'
+        : result.imageUrls.isNotEmpty
+            ? 'image'
+            : 'unknown';
+    log('→ 构建结果: type=$resultType, imageCount=${result.imageUrls.length}');
+
+    // 验证结果有效性
+    if (result.videoUrl.isEmpty && result.imageUrls.isEmpty) {
+      throw const DouyinParseException('无法获取有效的媒体内容，可能是链接无效或已被删除');
     }
 
-    throw const DouyinParseException('作品不存在或已被删除');
+    // URL 只在详细日志模式下打印
+    if (result.videoUrl.isNotEmpty) {
+      logDebug('  videoUrl: ${result.videoUrl}');
+    }
+    if (result.imageUrls.isNotEmpty) {
+      logDebug('  imageUrls[0]: ${result.imageUrls[0]}');
+      for (var i = 0; i < result.imageUrls.length; i++) {
+        final thumb = result.imageThumbUrls.length > i
+            ? result.imageThumbUrls[i]
+            : result.imageUrls[i];
+        final full = result.imageUrls[i];
+        logDebug('thumb${i + 1}=$thumb');
+        logDebug('full${i + 1}=$full');
+      }
+    }
+
+    return result;
   }
 
   bool _looksLikeWafChallenge(String html) {
@@ -337,53 +393,94 @@ class DouyinParser with HttpParserMixin {
     String? coverUrl,
   ) {
     final images = item['images'];
+    final imgBitrate = item['img_bitrate'];
     final imageUrls = <String>[];
     final imageThumbUrls = <String>[];
 
-    if (images is List) {
-      for (final img in images) {
-        if (img is! Map) continue;
-        final urlList = img['url_list'];
-        if (urlList is! List || urlList.isEmpty) continue;
-
-        // 找大图：优先 lqen-new（无水印）> aweme-images
-        String? fullUrl;
-        for (final u in urlList) {
-          final s = u.toString();
-          if (s.contains('tplv-dy-lqen-new') && !s.contains('-water')) {
-            fullUrl = s;
-            break;
-          }
+    // 构建 uri -> 缩略图映射 (从 img_bitrate)
+    final thumbMap = <String, String>{};
+    if (imgBitrate is List) {
+      // 优先找 480p 的缩略图，其次 960p
+      List<dynamic>? targetGear;
+      for (final gear in imgBitrate) {
+        if (gear is! Map) continue;
+        final name = gear['name']?.toString() ?? '';
+        if (name == 'gear_480p') {
+          targetGear = gear['images'] as List<dynamic>?;
+          break;
         }
-        fullUrl ??= urlList
-            .map((e) => e.toString())
-            .firstWhere(
-              (u) => u.contains('tplv-dy-aweme-images'),
-              orElse: () => urlList.first.toString(),
-            );
+      }
+      targetGear ??= (imgBitrate.first as Map?)?['images'] as List<dynamic>?;
 
-        // 找缩略图：优先 shrink:480 > shrink:960
-        String? thumbUrl;
-        for (final u in urlList) {
-          final s = u.toString();
-          if (s.contains('tplv-dy-shrink:480')) {
-            thumbUrl = s;
-            break;
-          }
-        }
-        if (thumbUrl == null) {
+      if (targetGear != null) {
+        for (final img in targetGear) {
+          if (img is! Map) continue;
+          final uri = img['uri']?.toString();
+          final urlList = img['url_list'];
+          if (uri == null || urlList is! List || urlList.isEmpty) continue;
+          // 找 shrink 缩略图
           for (final u in urlList) {
             final s = u.toString();
-            if (s.contains('tplv-dy-shrink:960')) {
-              thumbUrl = s;
+            if (s.contains('tplv-dy-shrink')) {
+              thumbMap[uri] = s;
               break;
             }
           }
         }
+      }
+    }
+
+    if (images is List) {
+      for (final img in images) {
+        if (img is! Map) continue;
+        final uri = img['uri']?.toString();
+        final urlList = img['url_list'];
+        final downloadUrlList = img['download_url_list'];
+
+        String? fullUrl;
+        String? thumbUrl;
+
+        // 1. 大图优先级：lqen-new（无水印）> download_url_list（带水印高清）> aweme-images
+        if (urlList is List && urlList.isNotEmpty) {
+          for (final u in urlList) {
+            final s = u.toString();
+            if (s.contains('tplv-dy-lqen-new') && !s.contains('-water')) {
+              fullUrl = s;
+              break;
+            }
+          }
+          fullUrl ??= urlList
+              .map((e) => e.toString())
+              .firstWhere(
+                (u) => u.contains('tplv-dy-aweme-images'),
+                orElse: () => '',
+              );
+        }
+
+        // 如果没找到，用 download_url_list（带水印高清图）
+        if (fullUrl == null || fullUrl.isEmpty) {
+          if (downloadUrlList is List && downloadUrlList.isNotEmpty) {
+            fullUrl = downloadUrlList.first.toString();
+          }
+        }
+
+        // 最后 fallback
+        if (fullUrl == null || fullUrl.isEmpty) {
+          if (urlList is List && urlList.isNotEmpty) {
+            fullUrl = urlList.first.toString();
+          }
+        }
+
+        // 2. 缩略图：从 thumbMap 获取
+        if (uri != null && thumbMap.containsKey(uri)) {
+          thumbUrl = thumbMap[uri];
+        }
         thumbUrl ??= fullUrl;
 
-        imageUrls.add(fullUrl);
-        imageThumbUrls.add(thumbUrl);
+        if (fullUrl != null && fullUrl.isNotEmpty) {
+          imageUrls.add(fullUrl);
+          imageThumbUrls.add(thumbUrl ?? fullUrl);
+        }
       }
     }
 

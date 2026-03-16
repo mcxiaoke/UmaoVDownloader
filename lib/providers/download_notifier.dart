@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/downloader/base_downloader.dart';
 import '../services/downloader/desktop_downloader.dart';
 import '../services/downloader/mobile_downloader.dart';
+import '../services/app_logger.dart';
 import '../services/log_service.dart';
 import '../services/parser_common.dart';
 import '../services/settings_service.dart';
@@ -42,13 +43,10 @@ class DownloadNotifier extends Notifier<DownloadState> {
 
   LogService get _log => ref.read(logServiceProvider);
   SettingsService get _settings => ref.read(settingsServiceProvider);
-  bool get _verbose => _settings.verboseLog;
 
   VideoState get _videoState => ref.read(videoNotifierProvider);
 
-  void _vlog(String msg) {
-    if (_verbose) _log.info(msg);
-  }
+  void _vlog(String msg) => AppLogger.debug(msg);
 
   /// 当前视频信息
   VideoInfo? get videoInfo => _videoState.videoInfo;
@@ -350,7 +348,7 @@ class DownloadNotifier extends Notifier<DownloadState> {
 
         state = state.copyWithDownloadProgress(p, verboseBucket: bucket);
 
-        if (_verbose && state.lastVerboseProgressBucket != bucket) {
+        if (AppLogger.isVerbose && state.lastVerboseProgressBucket != bucket) {
           final type = info.mediaType == MediaType.image ? '图文' : '实况图';
           _vlog('$type下载进度 ${(p * 100).toStringAsFixed(0)}% ($received/$total)');
         }
@@ -364,7 +362,7 @@ class DownloadNotifier extends Notifier<DownloadState> {
 
         state = state.copyWithDownloadProgress(p, verboseBucket: bucket);
 
-        if (_verbose && state.lastVerboseProgressBucket != bucket) {
+        if (AppLogger.isVerbose && state.lastVerboseProgressBucket != bucket) {
           _vlog('视频下载进度 ${(p * 100).toStringAsFixed(0)}% ($received/$t)');
         }
       }
@@ -386,7 +384,7 @@ class DownloadNotifier extends Notifier<DownloadState> {
 
       state = state.copyWithLiveVideoProgress(p, verboseBucket: bucket);
 
-      if (_verbose && state.lastVerboseProgressBucket != bucket) {
+      if (AppLogger.isVerbose && state.lastVerboseProgressBucket != bucket) {
         _vlog('动图视频下载进度 ${(p * 100).toStringAsFixed(0)}% ($received/$total)');
       }
     }
