@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 
 import 'parser_common.dart';
+import '../constants/app_constants.dart';
 
 /// 视频流信息 - 小红书特有
 class _VideoStream {
@@ -45,14 +46,12 @@ class _VideoInfoResult {
 ///
 /// 流程：分享链接 → 跟随重定向 → 提取 __INITIAL_STATE__ → 解析笔记数据
 class XiaohongshuParser with HttpParserMixin {
-  static const _timeout = Duration(seconds: 15);
-  static const _mobileUserAgent =
-      'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) '
-      'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1';
+  static const _timeout = kNetworkTimeout;
+  static const _mobileUserAgent = kUserAgentMobileSafari;
 
   static const _headers = {
     'User-Agent': _mobileUserAgent,
-    'Referer': 'https://www.xiaohongshu.com/',
+    'Referer': kRefererXiaohongshu,
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
     'Accept-Language': 'zh-CN,zh;q=0.9',
   };

@@ -6,6 +6,7 @@ import 'package:umao_vdownloader/main.dart';
 import 'package:umao_vdownloader/providers/providers.dart';
 import 'package:umao_vdownloader/services/log_service.dart';
 import 'package:umao_vdownloader/services/settings_service.dart';
+import 'package:umao_vdownloader/constants/app_constants.dart';
 
 // Mock 日志服务，避免文件系统操作
 class MockLogService extends LogService {
@@ -24,8 +25,8 @@ void main() {
   // 设置 SharedPreferences 的 mock 初始值，避免平台通道调用
   setUpAll(() {
     SharedPreferences.setMockInitialValues({
-      'download_dir': '/mock/download/dir',
-      'verbose_log': false,
+      kSettingKeyDownloadDir: '/mock/download/dir',
+      kSettingKeyVerboseLog: false,
     });
   });
 

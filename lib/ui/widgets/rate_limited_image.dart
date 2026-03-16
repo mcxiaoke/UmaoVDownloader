@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../constants/app_constants.dart';
 
 /// 图片加载并发限制器
 /// 限制同时加载的图片数量，避免大量并发请求
@@ -9,7 +10,8 @@ class ImageLoadLimiter {
 
   int _activeCount = 0;
   final List<void Function()> _queue = [];
-  static const int _maxConcurrent = 4; // 最大并发数
+  // 最大并发数，使用统一常量管理
+  static const int _maxConcurrent = kImageLoadingMaxConcurrent;
 
   void request(void Function() load) {
     if (_activeCount < _maxConcurrent) {

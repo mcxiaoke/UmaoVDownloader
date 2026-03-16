@@ -21,6 +21,7 @@ import 'package:umao_vdownloader/services/parser_common.dart';
 import 'package:umao_vdownloader/services/douyin_parser.dart';
 import 'package:umao_vdownloader/services/downloader/base_downloader.dart';
 import 'package:umao_vdownloader/services/url_extractor.dart';
+import 'package:umao_vdownloader/constants/app_constants.dart';
 
 // ── 内联下载器（以当前目录为默认，UA 与桌面端一致）─────────────────────────
 class _CliDownloader extends BaseDownloader {

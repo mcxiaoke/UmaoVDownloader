@@ -13,15 +13,13 @@ import '../services/app_logger.dart';
 import '../services/log_service.dart';
 import '../services/parser_common.dart';
 import '../services/settings_service.dart';
+import '../constants/app_constants.dart';
 import 'widgets/directory_row.dart';
 import 'widgets/download_actions.dart';
 import 'widgets/input_row.dart';
 import 'widgets/log_panel.dart';
 import 'widgets/thumbnail_grid.dart';
 import 'widgets/video_cover.dart';
-
-/// GitHub 项目地址
-const String kGitHubUrl = 'https://github.com/mcxiaoke/UmaoVDownloader';
 
 /// 主页
 ///

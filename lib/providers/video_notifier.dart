@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 
 import '../services/app_logger.dart';
 import '../services/downloader/base_downloader.dart';
+import '../constants/app_constants.dart';
 import '../services/log_service.dart';
 import '../services/parser_common.dart';
 import '../services/parser_facade.dart';

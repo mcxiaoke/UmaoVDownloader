@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import '../constants/app_constants.dart';
+
 /// 无参回调类型（兼容 Flutter VoidCallback）
 typedef VoidCallback = void Function();
 
@@ -33,7 +35,7 @@ enum LogLevel { debug, info, warn, error }
 /// 全局日志服务：维护内存列表，同时追加写入日志文件。
 /// 实现 Listenable 接口以支持 Flutter UI 绑定。
 class LogService implements Listenable {
-  static const _maxInMemory = 500;
+  static const _maxInMemory = kLogMaxInMemory;
 
   final List<LogEntry> entries = [];
   final List<VoidCallback> _listeners = [];

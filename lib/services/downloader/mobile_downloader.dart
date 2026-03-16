@@ -5,6 +5,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import 'base_downloader.dart';
+import '../../constants/app_constants.dart';
 
 /// 用户永久拒绝存储权限时抛出此异常（仅 Android 9 及以下可能触发）
 class StoragePermissionDeniedException implements Exception {
@@ -56,7 +57,7 @@ class MobileDownloader extends BaseDownloader {
     // Android：音乐固定保存到 Music/umaovd
     // /storage/emulated/0/Music/umaovd
     if (Platform.isAndroid) {
-      return '/storage/emulated/0/Music/umaovd';
+      return kAndroidDefaultMusicDir;
     }
     // iOS 使用默认目录
     return getDefaultDirectory();
@@ -110,7 +111,7 @@ class MobileDownloader extends BaseDownloader {
   /// 通知 Android MediaStore 扫描新文件，使其出现在相册等媒体库中
   Future<void> _scanMediaFile(String path) async {
     try {
-      const channel = MethodChannel('org.umao.tkdownloader/media');
+      const channel = MethodChannel(kMethodChannelMedia);
       await channel.invokeMethod('scanFile', {'path': path});
     } catch (_) {}
   }

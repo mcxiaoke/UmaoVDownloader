@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 
 import 'app_logger.dart';
 import 'parser_common.dart';
+import '../constants/app_constants.dart';
 
 /// 抖音作品类型枚举
 enum DouyinMediaType {
@@ -16,10 +17,10 @@ enum DouyinMediaType {
 /// aweme_type 类型判断工具 - 抖音特有
 class AwemeTypeHelper {
   /// 视频类型 aweme_type 值列表
-  static const videoTypes = {0, 4, 51, 55, 58, 61, 109, 201};
+  static const videoTypes = kDouyinVideoTypes;
 
   /// 图文类型 aweme_type 值列表
-  static const imageTypes = {2, 68, 150};
+  static const imageTypes = kDouyinImageTypes;
 
   /// 根据 aweme_type 判断是否为视频
   static bool isVideo(dynamic awemeType) {
@@ -114,15 +115,13 @@ class AwemeTypeHelper {
 /// 不依赖任何需要 Cookie / Token 的 API，直接从页面内嵌 JSON 中解析。
 class DouyinParser with HttpParserMixin {
   // 分享页必须用手机 UA，否则服务端返回 SPA 壳而非真实数据
-  static const _mobileUA =
-      'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) '
-      'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
+  static const _mobileUA = kUserAgentMobileSafari;
 
-  static const _referer = 'https://www.douyin.com/';
+  static const _referer = kRefererDouyin;
 
   // 无水印播放接口模板
-  static const _playBase = 'https://aweme.snssdk.com/aweme/v1/play/';
-  static const _routerDataMarker = 'window._ROUTER_DATA = ';
+  static const _playBase = kDouyinPlayBaseUrl;
+  static const _routerDataMarker = kDouyinRouterDataMarker;
 
   /// [httpClient] 可传入 mock client 方便单元测试
   DouyinParser({http.Client? httpClient}) {

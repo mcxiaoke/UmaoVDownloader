@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 
 import 'app_logger.dart';
 import 'url_extractor.dart';
+import '../constants/app_constants.dart';
 
 // ==================== 常量定义 ====================
 
@@ -540,7 +541,7 @@ mixin HttpParserMixin {
   Future<({String html, String finalUrl})> resolveUrlWithHtml(
     String url, {
     Map<String, String>? headers,
-    int maxRedirects = 8,
+    int maxRedirects = kMaxRedirects,
   }) async {
     final uri = Uri.parse(url);
     final request = await _httpClient.get(uri, headers: headers);
@@ -569,7 +570,7 @@ mixin HttpParserMixin {
     String url, {
     required String userAgent,
     String? referer,
-    int maxRedirects = 8,
+    int maxRedirects = kMaxRedirects,
   }) async {
     var currentUri = Uri.parse(url);
     final ioClient = HttpClient();

@@ -6,42 +6,11 @@ import 'package:http/http.dart' as http;
 import '../../utils/filename_utils.dart';
 import '../parser_common.dart';
 import 'video_downloader.dart';
+import '../../constants/app_constants.dart';
 
 /// 公共 UA 常量（供所有平台下载器引用）
 
-/// iPhone Safari UA（默认推荐，兼容性最好）
-const kUaIphoneSafari =
-    'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) '
-    'AppleWebKit/605.1.15 (KHTML, like Gecko) '
-    'Version/16.6 Mobile/15E148 Safari/604.1';
 
-const kUaEdge =
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-    'AppleWebKit/537.36 (KHTML, like Gecko) '
-    'Chrome/145.0.0.0 Safari/537.36 Edg/145.0.0.0';
-
-const kUaIosWechat =
-    'Mozilla/5.0 (iPhone; CPU iPhone OS 18_6_2 like Mac OS X) '
-    'AppleWebKit/605.1.15 (KHTML, like Gecko) '
-    'Mobile/15E148 MicroMessenger/8.0.69(0x28004553) '
-    'NetType/WIFI Language/zh_CN';
-
-const kUaAndroidWechat =
-    'Mozilla/5.0 (Linux; Android 16; 23127PN0CC Build/BP2A.250605.031.A3; wv) '
-    'AppleWebKit/537.36 (KHTML, like Gecko) '
-    'Version/4.0 Chrome/142.0.7444.173 Mobile Safari/537.36 '
-    'XWEB/1420273 MMWEBSDK/20260201 MMWEBID/3396 '
-    'MicroMessenger/8.0.69.3040(0x28004553) WeChat/arm64 '
-    'Weixin NetType/WIFI Language/zh_CN ABI/arm64';
-
-/// 抖音 iOS App 自身 UA（aweme 是抖音内部代号，CDN 对自家 App 放行策略最宽松）
-const kUaIosDouyin =
-    'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) '
-    'AppleWebKit/605.1.15 (KHTML, like Gecko) '
-    'Mobile/15E148 aweme_36.7.0 Region/CN AppTheme/light '
-    'NetType/WIFI JsSdk/2.0 Channel/App ByteLocale/zh '
-    'ByteFullLocale/zh-Hans-CN WKWebView/1 Bullet/1 aweme/36.7.0 '
-    'BytedanceWebview/d8a21c6 AnnieX/1 Forest/1 ReqTrigger/renderEngine';
 
 /// 各平台下载器的抽象基类。
 ///
@@ -172,7 +141,7 @@ abstract class BaseDownloader implements VideoDownloader {
     void Function(int received, int? total)? onProgress,
     void Function(String message)? onLog,
   ) async {
-    const chunkTimeout = Duration(seconds: 30);
+    const chunkTimeout = kDownloadChunkTimeout;
     final client = http.Client();
     try {
       for (int lineIdx = 0; lineIdx < cdnUrls.length; lineIdx++) {
@@ -219,7 +188,7 @@ abstract class BaseDownloader implements VideoDownloader {
 
           // Content-Length < 10 KB 一定是错误响应（如解析出音乐 URL 被当成视频地址）
           // 换 UA / 换 CDN 均无效，直接抛异常告知用户
-          if (total != null && total < 10 * 1024) {
+          if (total != null && total < kMinVideoFileSizeBytes) {
             await streamed.stream.drain<void>();
             if (await partFile.exists()) await partFile.delete();
             throw Exception('Content-Length 异常（$total 字节），视频地址可能解析有误，请重新解析后再试');
