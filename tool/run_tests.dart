@@ -295,7 +295,6 @@ Future<void> main(List<String> args) async {
     final media = parseCacheFile(file.path);
     if (media == null) continue;
 
-    final fileName = path.basename(file.path);
     final platformIcon = media.platform == 'douyin' ? '🎵' : '📕';
     print('$platformIcon ${media.id}');
 

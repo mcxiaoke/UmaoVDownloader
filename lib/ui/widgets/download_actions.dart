@@ -34,7 +34,9 @@ class DownloadActionsWide extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // 动图视频数量
-    final liveVideoCount = videoInfo.livePhotoUrls.where((u) => u.isNotEmpty).length;
+    final liveVideoCount = videoInfo.livePhotoUrls
+        .where((u) => u.isNotEmpty)
+        .length;
     // 图片数量（用于按钮文字）
     final imageCount = videoInfo.imageUrls.length;
 
@@ -71,131 +73,125 @@ class DownloadActionsWide extends StatelessWidget {
           )
         : const SizedBox.shrink();
 
-    // 动图视频下载完成标签
-    final liveVideoDoneLabel = liveVideoProgress == 1.0
-        ? const Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.check_circle, color: Colors.green, size: 18),
-              SizedBox(width: 4),
-              Text('视频完成', style: TextStyle(color: Colors.green, fontSize: 13)),
-            ],
-          )
-        : const SizedBox.shrink();
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         switch (videoInfo.mediaType) {
           MediaType.image => Row(
-              children: [
-                Text(
-                  '图文作品  $imageCount 张图片',
-                  style: const TextStyle(fontSize: 13),
-                ),
-                const Spacer(),
-                doneLabel,
-                if (doneLabel is! SizedBox) const SizedBox(width: 8),
-                if (videoInfo.musicUrl != null) ...[
-                  OutlinedButton.icon(
-                    onPressed: downloadingMusic ? null : onDownloadMusic,
-                    icon: downloadingMusic
-                        ? const SizedBox(
-                            width: 14,
-                            height: 14,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.deepPurple,
-                            ),
-                          )
-                        : const Icon(Icons.music_note, size: 16),
-                    label: Text(downloadingMusic ? '下载中…' : '下载音乐'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.deepPurple,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
-                      ),
-                      visualDensity: VisualDensity.compact,
+            children: [
+              Text(
+                '图文作品  $imageCount 张图片',
+                style: const TextStyle(fontSize: 13),
+              ),
+              doneLabel,
+              const Spacer(),
+              if (videoInfo.musicUrl != null) ...[
+                OutlinedButton.icon(
+                  onPressed: downloadingMusic ? null : onDownloadMusic,
+                  icon: downloadingMusic
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.deepPurple,
+                          ),
+                        )
+                      : const Icon(Icons.music_note, size: 16),
+                  label: Text(downloadingMusic ? '下载中…' : '下载音乐'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.deepPurple,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                ],
-                downloadBtn,
-              ],
-            ),
-          MediaType.livePhoto => Row(
-              children: [
-                Text(
-                  '实况图  $imageCount 张',
-                  style: const TextStyle(fontSize: 13),
-                ),
-                const Spacer(),
-                doneLabel,
-                if (doneLabel is! SizedBox) const SizedBox(width: 8),
-                // 动图视频按钮（仅当有动图时显示）
-                if (liveVideoCount > 0) ...[
-                  liveVideoDoneLabel,
-                  if (liveVideoDoneLabel is! SizedBox) const SizedBox(width: 8),
-                  OutlinedButton.icon(
-                    onPressed: downloadingLiveVideos ? null : onDownloadLiveVideos,
-                    icon: downloadingLiveVideos
-                        ? const SizedBox(
-                            width: 14,
-                            height: 14,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.orange,
-                            ),
-                          )
-                        : const Icon(Icons.videocam, size: 16),
-                    label: Text(
-                      downloadingLiveVideos
-                          ? '下载中…'
-                          : '下载视频($liveVideoCount)',
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.orange.shade800,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
-                      ),
-                      visualDensity: VisualDensity.compact,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                ],
-                downloadBtn,
-              ],
-            ),
-          MediaType.video => Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: Colors.blue.shade50,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.videocam, size: 12, color: Colors.blue.shade700),
-                      const SizedBox(width: 4),
-                      Text(
-                        '视频',
-                        style: TextStyle(fontSize: 11, color: Colors.blue.shade700),
-                      ),
-                    ],
+                    visualDensity: VisualDensity.compact,
                   ),
                 ),
                 const SizedBox(width: 8),
-                _buildResolutionInfoLabel(),
-                const Spacer(),
-                doneLabel,
-                if (doneLabel is! SizedBox) const SizedBox(width: 8),
-                downloadBtn,
               ],
-            ),
+              downloadBtn,
+            ],
+          ),
+          MediaType.livePhoto => Row(
+            children: [
+              Text('实况图  $imageCount 张', style: const TextStyle(fontSize: 13)),
+              doneLabel,
+              const Spacer(),
+              // 动图视频按钮（仅当有动图时显示）
+              if (liveVideoCount > 0)
+                OutlinedButton.icon(
+                  onPressed: downloadingLiveVideos
+                      ? null
+                      : onDownloadLiveVideos,
+                  icon: downloadingLiveVideos
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.orange,
+                          ),
+                        )
+                      : const Icon(Icons.videocam, size: 16),
+                  label: Text(
+                    downloadingLiveVideos ? '下载中…' : '下载视频($liveVideoCount)',
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.orange.shade800,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                ),
+              const SizedBox(width: 8),
+              downloadBtn,
+            ],
+          ),
+          MediaType.video => Row(
+            children: [
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.shade50,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.videocam,
+                          size: 12,
+                          color: Colors.blue.shade700,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          '视频',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.blue.shade700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  _buildResolutionInfoLabel(),
+                ],
+              ),
+              doneLabel,
+              const Spacer(),
+              downloadBtn,
+            ],
+          ),
         },
         // 统一的进度条区域
         _buildProgressSection(imageCount),
@@ -205,9 +201,10 @@ class DownloadActionsWide extends StatelessWidget {
 
   /// 构建进度条区域
   Widget _buildProgressSection(int imageCount) {
-    final showDownloadProgress = downloading ||
-        (downloadProgress != null && downloadProgress! < 1.0);
-    final showLiveVideoProgress = downloadingLiveVideos ||
+    final showDownloadProgress =
+        downloading || (downloadProgress != null && downloadProgress! < 1.0);
+    final showLiveVideoProgress =
+        downloadingLiveVideos ||
         (liveVideoProgress != null && liveVideoProgress! < 1.0);
 
     if (!showDownloadProgress && !showLiveVideoProgress) {
@@ -231,7 +228,10 @@ class DownloadActionsWide extends StatelessWidget {
                     padding: const EdgeInsets.only(top: 2),
                     child: Text(
                       '${(downloadProgress! * imageCount).round()}/$imageCount',
-                      style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey.shade600,
+                      ),
                     ),
                   ),
               ],
@@ -326,7 +326,9 @@ class DownloadActionsNarrow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // 动图视频数量
-    final liveVideoCount = videoInfo.livePhotoUrls.where((u) => u.isNotEmpty).length;
+    final liveVideoCount = videoInfo.livePhotoUrls
+        .where((u) => u.isNotEmpty)
+        .length;
     // 图片数量
     final imageCount = videoInfo.imageUrls.length;
 
@@ -357,32 +359,31 @@ class DownloadActionsNarrow extends StatelessWidget {
       children: [
         switch (videoInfo.mediaType) {
           MediaType.image => Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Row(
-                  children: [
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Text(
+                    '图文作品  $imageCount 张图片',
+                    style: const TextStyle(fontSize: 13),
+                  ),
+                  if (downloadProgress == 1.0) ...const [
+                    Spacer(),
+                    Icon(Icons.check_circle, color: Colors.green, size: 18),
+                    SizedBox(width: 4),
                     Text(
-                      '图文作品  $imageCount 张图片',
-                      style: const TextStyle(fontSize: 13),
+                      '下载完成',
+                      style: TextStyle(color: Colors.green, fontSize: 13),
                     ),
-                    if (downloadProgress == 1.0) ...const [
-                      Spacer(),
-                      Icon(Icons.check_circle, color: Colors.green, size: 18),
-                      SizedBox(width: 4),
-                      Text(
-                        '下载完成',
-                        style: TextStyle(color: Colors.green, fontSize: 13),
-                      ),
-                    ],
                   ],
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(child: downloadBtn),
-                    if (videoInfo.musicUrl != null) ...[
-                      const SizedBox(width: 8),
-                      OutlinedButton.icon(
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  if (videoInfo.musicUrl != null) ...[
+                    Expanded(
+                      child: OutlinedButton.icon(
                         onPressed: downloadingMusic ? null : onDownloadMusic,
                         icon: downloadingMusic
                             ? const SizedBox(
@@ -404,125 +405,141 @@ class DownloadActionsNarrow extends StatelessWidget {
                           visualDensity: VisualDensity.compact,
                         ),
                       ),
-                    ],
-                  ],
-                ),
-              ],
-            ),
-          MediaType.livePhoto => Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Row(
-                  children: [
-                    Text(
-                      '实况图  $imageCount 张',
-                      style: const TextStyle(fontSize: 13),
                     ),
-                    if (downloadProgress == 1.0) ...const [
-                      Spacer(),
-                      Icon(Icons.check_circle, color: Colors.green, size: 18),
-                      SizedBox(width: 4),
-                      Text(
-                        '下载完成',
-                        style: TextStyle(color: Colors.green, fontSize: 13),
-                      ),
-                    ],
+                    const SizedBox(width: 8),
                   ],
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    // 图片按钮
+                  Expanded(child: downloadBtn),
+                ],
+              ),
+            ],
+          ),
+          MediaType.livePhoto => Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Text(
+                    '实况图  $imageCount 张',
+                    style: const TextStyle(fontSize: 13),
+                  ),
+                  if (downloadProgress == 1.0) ...const [
+                    Spacer(),
+                    Icon(Icons.check_circle, color: Colors.green, size: 18),
+                    SizedBox(width: 4),
+                    Text(
+                      '下载完成',
+                      style: TextStyle(color: Colors.green, fontSize: 13),
+                    ),
+                  ],
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  // 动图视频按钮
+                  if (liveVideoCount > 0) ...[
                     Expanded(
-                      child: FilledButton.icon(
-                        onPressed: downloading ? null : onDownload,
-                        icon: downloading
+                      child: OutlinedButton.icon(
+                        onPressed: downloadingLiveVideos
+                            ? null
+                            : onDownloadLiveVideos,
+                        icon: downloadingLiveVideos
                             ? const SizedBox(
-                                width: 16,
-                                height: 16,
+                                width: 14,
+                                height: 14,
                                 child: CircularProgressIndicator(
                                   strokeWidth: 2,
-                                  color: Colors.white,
+                                  color: Colors.orange,
                                 ),
                               )
-                            : const Icon(Icons.download, size: 18),
-                        label: Text(downloading ? '下载中…' : downloadLabel),
-                      ),
-                    ),
-                    // 动图视频按钮
-                    if (liveVideoCount > 0) ...[
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: downloadingLiveVideos ? null : onDownloadLiveVideos,
-                          icon: downloadingLiveVideos
-                              ? const SizedBox(
-                                  width: 14,
-                                  height: 14,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Colors.orange,
-                                  ),
-                                )
-                              : const Icon(Icons.videocam, size: 16),
-                          label: Text(downloadingLiveVideos ? '下载中…' : '视频($liveVideoCount)'),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.orange.shade800,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 12,
-                            ),
+                            : const Icon(Icons.videocam, size: 16),
+                        label: Text(
+                          downloadingLiveVideos
+                              ? '下载中…'
+                              : '视频($liveVideoCount)',
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.orange.shade800,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 12,
                           ),
                         ),
                       ),
-                    ],
-                  ],
-                ),
-              ],
-            ),
-          MediaType.video => Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: Colors.blue.shade50,
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.videocam, size: 12, color: Colors.blue.shade700),
-                          const SizedBox(width: 4),
-                          Text(
-                            '视频',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: Colors.blue.shade700,
-                            ),
-                          ),
-                        ],
-                      ),
                     ),
                     const SizedBox(width: 8),
-                    _buildResolutionInfoLabel(),
-                    if (downloadProgress == 1.0) ...const [
-                      Spacer(),
-                      Icon(Icons.check_circle, color: Colors.green, size: 18),
-                      SizedBox(width: 4),
-                      Text(
-                        '下载完成',
-                        style: TextStyle(color: Colors.green, fontSize: 13),
-                      ),
-                    ],
                   ],
-                ),
-                const SizedBox(height: 8),
-                downloadBtn,
-              ],
-            ),
+                  // 图片按钮
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: downloading ? null : onDownload,
+                      icon: downloading
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Icon(Icons.download, size: 18),
+                      label: Text(downloading ? '下载中…' : downloadLabel),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          MediaType.video => Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.shade50,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.videocam,
+                          size: 12,
+                          color: Colors.blue.shade700,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          '视频',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.blue.shade700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  _buildResolutionInfoLabel(),
+                  if (downloadProgress == 1.0) ...const [
+                    Spacer(),
+                    Icon(Icons.check_circle, color: Colors.green, size: 18),
+                    SizedBox(width: 4),
+                    Text(
+                      '下载完成',
+                      style: TextStyle(color: Colors.green, fontSize: 13),
+                    ),
+                  ],
+                ],
+              ),
+              const SizedBox(height: 8),
+              downloadBtn,
+            ],
+          ),
         },
         // 统一的进度条区域
         _buildProgressSection(imageCount),
@@ -532,9 +549,10 @@ class DownloadActionsNarrow extends StatelessWidget {
 
   /// 构建进度条区域
   Widget _buildProgressSection(int imageCount) {
-    final showDownloadProgress = downloading ||
-        (downloadProgress != null && downloadProgress! < 1.0);
-    final showLiveVideoProgress = downloadingLiveVideos ||
+    final showDownloadProgress =
+        downloading || (downloadProgress != null && downloadProgress! < 1.0);
+    final showLiveVideoProgress =
+        downloadingLiveVideos ||
         (liveVideoProgress != null && liveVideoProgress! < 1.0);
 
     if (!showDownloadProgress && !showLiveVideoProgress) {
@@ -558,7 +576,10 @@ class DownloadActionsNarrow extends StatelessWidget {
                     padding: const EdgeInsets.only(top: 2),
                     child: Text(
                       '${(downloadProgress! * imageCount).round()}/$imageCount',
-                      style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey.shade600,
+                      ),
                     ),
                   ),
               ],

@@ -6,34 +6,6 @@ import 'xiaohongshu_parser.dart';
 /// 用于接收解析过程中的日志信息
 typedef ParserLog = void Function(String message);
 
-/// 支持的视频平台类型枚举
-///
-/// 用于标识不同的短视频平台，支持抖音和小红书
-enum ParserPlatform {
-  douyin, // 抖音平台
-  xiaohongshu, // 小红书平台
-  unknown; // 未知平台
-
-  /// 根据URL判断平台类型
-  ///
-  /// [url] 视频分享链接
-  /// 返回对应的平台类型
-  static ParserPlatform fromUrl(String url) {
-    // 检测抖音域名
-    if (url.contains('douyin.com') || url.contains('iesdouyin.com')) {
-      return ParserPlatform.douyin;
-    }
-
-    // 检测小红书域名
-    if (url.contains('xiaohongshu.com') || url.contains('xhslink.com')) {
-      return ParserPlatform.xiaohongshu;
-    }
-
-    // 未识别的平台
-    return ParserPlatform.unknown;
-  }
-}
-
 /// 解析器门面类
 ///
 /// 提供统一的视频解析接口，支持抖音和小红书平台。

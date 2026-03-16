@@ -9,6 +9,7 @@ import '../../services/downloader/base_downloader.dart';
 import '../../services/downloader/desktop_downloader.dart';
 import '../../services/downloader/mobile_downloader.dart';
 import '../../services/settings_service.dart';
+import '../../utils/filename_utils.dart';
 
 /// 下载逻辑 Mixin
 mixin DownloaderMixin<T extends StatefulWidget> on State<T> {
@@ -31,6 +32,7 @@ mixin DownloaderMixin<T extends StatefulWidget> on State<T> {
   set liveVideoProgress(double? value);
   Map<int, double> get singleProgress;
   Map<int, bool> get singleDownloading;
+  Map<int, bool> get singleDone;
 
   // 当前视频信息
   VideoInfo? get videoInfo;
@@ -45,25 +47,6 @@ mixin DownloaderMixin<T extends StatefulWidget> on State<T> {
     if (verbose) log.info(msg);
   }
 
-  /// 清理文件名
-  String sanitizeFilename(String name, {int maxLen = 20}) {
-    var result = name.replaceAll(
-      RegExp(
-        r'[^\u4e00-\u9fff'
-        r'\u3400-\u4dbf'
-        r'\u3000-\u303f'
-        r'\uff01-\uffe6'
-        r'a-zA-Z0-9'
-        r' .,_\-!?()'
-        r']',
-      ),
-      '',
-    );
-    result = result.replaceAll(RegExp(r'\s+'), ' ').trim();
-    if (result.length > maxLen) result = result.substring(0, maxLen).trim();
-    return result.isEmpty ? 'file' : result;
-  }
-
   /// 下载单个 Live Photo 视频
   Future<void> downloadSingleLivePhoto(int index) async {
     final info = videoInfo;
@@ -73,7 +56,8 @@ mixin DownloaderMixin<T extends StatefulWidget> on State<T> {
     final url = info.livePhotoUrls[index];
     final prefix = info.shareId ?? info.itemId;
     final cleanTitle = sanitizeFilename(info.title);
-    final filename = '${prefix}_${cleanTitle}_${index + 1}';
+    final platformPrefix = info.platform.filePrefix;
+    final filename = '$platformPrefix${prefix}_${cleanTitle}_${index + 1}';
 
     setState(() {
       singleDownloading[index] = true;
@@ -99,14 +83,21 @@ mixin DownloaderMixin<T extends StatefulWidget> on State<T> {
       );
       log.info('实况视频 ${index + 1} 下载完成：$path');
       if (mounted) {
-        setState(() => singleProgress[index] = 1.0);
+        setState(() {
+          singleProgress[index] = 1.0;
+          singleDownloading.remove(index); // 立即停止转圈
+          singleDone[index] = true; // 标记完成
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('实况视频 ${index + 1} 已保存'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
         // 2秒后清除进度状态
         Future.delayed(const Duration(seconds: 2), () {
           if (mounted) {
-            setState(() {
-              singleProgress.remove(index);
-              singleDownloading.remove(index);
-            });
+            setState(() => singleProgress.remove(index));
           }
         });
       }
@@ -123,6 +114,15 @@ mixin DownloaderMixin<T extends StatefulWidget> on State<T> {
         singleProgress.remove(index);
         singleDownloading.remove(index);
       });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('实况视频 ${index + 1} 下载失败'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
     }
   }
 
@@ -135,7 +135,8 @@ mixin DownloaderMixin<T extends StatefulWidget> on State<T> {
     final url = info.imageUrls[index];
     final prefix = info.shareId ?? info.itemId;
     final cleanTitle = sanitizeFilename(info.title);
-    final filename = '${prefix}_${cleanTitle}_${index + 1}';
+    final platformPrefix = info.platform.filePrefix;
+    final filename = '$platformPrefix${prefix}_${cleanTitle}_${index + 1}';
 
     setState(() {
       singleDownloading[index] = true;
@@ -161,15 +162,17 @@ mixin DownloaderMixin<T extends StatefulWidget> on State<T> {
       );
       log.info('图片 ${index + 1} 下载完成：$path');
       if (mounted) {
-        setState(() => singleProgress[index] = 1.0);
-        Future.delayed(const Duration(seconds: 2), () {
-          if (mounted) {
-            setState(() {
-              singleProgress.remove(index);
-              singleDownloading.remove(index);
-            });
-          }
+        setState(() {
+          singleProgress[index] = 1.0;
+          singleDownloading.remove(index); // 立即停止转圈
+          singleDone[index] = true; // 标记完成
         });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('图片 ${index + 1} 已保存'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
       }
     } on StoragePermissionDeniedException {
       log.error('存储权限被永久拒绝，请到系统设置中手动开启');
@@ -184,6 +187,15 @@ mixin DownloaderMixin<T extends StatefulWidget> on State<T> {
         singleProgress.remove(index);
         singleDownloading.remove(index);
       });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('图片 ${index + 1} 下载失败'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
     }
   }
 
@@ -247,7 +259,10 @@ mixin DownloaderMixin<T extends StatefulWidget> on State<T> {
       );
       log.info('下载完成：$path');
       setState(() => downloadProgress = 1.0);
-      onDownloadComplete();
+      // 批量下载显示目录，单个文件显示文件路径
+      final isBatch = info.mediaType == MediaType.image || 
+                      info.mediaType == MediaType.livePhoto;
+      onDownloadComplete(isBatch ? settings.downloadDir : path);
     } on StoragePermissionDeniedException {
       log.error('存储权限被永久拒绝，请到系统设置中手动开启');
       setState(() => downloadProgress = null);
@@ -255,13 +270,22 @@ mixin DownloaderMixin<T extends StatefulWidget> on State<T> {
     } catch (e) {
       log.error('下载失败：$e');
       setState(() => downloadProgress = null);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('下载失败'),
+            backgroundColor: Colors.red,
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
     } finally {
       setState(() => downloading = false);
     }
   }
 
   /// 下载完成回调（子类可重写）
-  void onDownloadComplete() {}
+  void onDownloadComplete(String path) {}
 
   /// 单独下载背景音乐
   Future<void> downloadMusicOnly() async {
@@ -277,13 +301,14 @@ mixin DownloaderMixin<T extends StatefulWidget> on State<T> {
 
       final prefix = info.shareId ?? info.itemId;
       final cleanTitle = sanitizeFilename(info.title);
+      final platformPrefix = info.platform.filePrefix;
       String filename;
       if (info.musicAuthor != null && info.musicTitle != null) {
         final cleanAuthor = sanitizeFilename(info.musicAuthor!, maxLen: 50);
         final cleanMusicTitle = sanitizeFilename(info.musicTitle!, maxLen: 50);
-        filename = '${prefix}_$cleanAuthor - $cleanMusicTitle';
+        filename = '$platformPrefix${prefix}_$cleanAuthor - $cleanMusicTitle';
       } else {
-        filename = '${prefix}_${cleanTitle}_bgm';
+        filename = '$platformPrefix${prefix}_${cleanTitle}_bgm';
       }
 
       final path = await downloader.downloadMusicFile(
@@ -300,6 +325,15 @@ mixin DownloaderMixin<T extends StatefulWidget> on State<T> {
       if (mounted) showPermissionDialog();
     } catch (e) {
       log.error('背景音乐下载失败：$e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('背景音乐下载失败'),
+            backgroundColor: Colors.red,
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
     } finally {
       setState(() => downloadingMusic = false);
     }
@@ -356,6 +390,15 @@ mixin DownloaderMixin<T extends StatefulWidget> on State<T> {
     } catch (e) {
       log.error('动图视频下载失败：$e');
       setState(() => liveVideoProgress = null);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('动图视频下载失败'),
+            backgroundColor: Colors.red,
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
     } finally {
       setState(() => downloadingLiveVideos = false);
     }

@@ -38,7 +38,8 @@ class InputRow extends StatelessWidget {
         isDense: true,
         contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       ),
-      maxLines: 1,
+      maxLines: 2,
+      minLines: 1,
       onSubmitted: (_) => onParse(),
     );
 

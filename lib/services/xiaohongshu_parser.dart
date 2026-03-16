@@ -57,15 +57,6 @@ class XiaohongshuParser with HttpParserMixin {
     'Accept-Language': 'zh-CN,zh;q=0.9',
   };
 
-  // CDN 域名列表（用于视频切换）- 小红书特有
-  static const _cdnDomains = [
-    'sns-video-hw.xhscdn.com', // 华为云
-    'sns-video-hs.xhscdn.com', // 火山引擎
-    'sns-video-al.xhscdn.com', // 阿里云
-    'sns-video-qn.xhscdn.com', // 七牛
-    'sns-video-bd.xhscdn.com', // 百度云
-  ];
-
   XiaohongshuParser({http.Client? client}) {
     initHttpParser(client: client, logPrefix: '[XHS]');
   }
@@ -189,16 +180,7 @@ class XiaohongshuParser with HttpParserMixin {
 
   /// 从 HTML 中提取 __INITIAL_STATE__
   Map<String, dynamic>? _extractInitialState(String html) {
-    // 方法1: 优先使用 JSON 解析
-    final jsonResult = _extractInitialStateJson(html);
-    if (jsonResult != null) {
-      log('  使用 JSON 解析成功');
-      return jsonResult;
-    }
-
-    // 方法2: 回退到手动提取
-    log('  JSON 解析失败，回退到手动提取');
-    return _extractInitialStateLegacy(html);
+    return _extractInitialStateJson(html);
   }
 
   /// 使用 JSON 解析提取 __INITIAL_STATE__
@@ -256,56 +238,6 @@ class XiaohongshuParser with HttpParserMixin {
       log('  保存原始数据失败: $e');
       log('  错误堆栈: $stack');
     }
-  }
-
-  /// 备用方案：手动提取 + 处理边界情况
-  Map<String, dynamic>? _extractInitialStateLegacy(String html) {
-    final marker = 'window.__INITIAL_STATE__ = ';
-    final start = html.indexOf(marker);
-    if (start < 0) return null;
-
-    final jsonStart = start + marker.length;
-    var depth = 0;
-    var inString = false;
-    var escaped = false;
-
-    for (var i = jsonStart; i < html.length; i++) {
-      final ch = html[i];
-      if (escaped) {
-        escaped = false;
-        continue;
-      }
-      if (ch == r'\') {
-        escaped = true;
-        continue;
-      }
-      if (ch == '"' && html[i - 1] != r'\') {
-        inString = !inString;
-        continue;
-      }
-      if (inString) {
-        continue;
-      }
-
-      if (ch == '{' || ch == '[') {
-        depth++;
-      } else if (ch == '}' || ch == ']') {
-        depth--;
-        if (depth == 0) {
-          final jsonStr = html.substring(jsonStart, i + 1);
-          // 保存原始 JSON 字符串
-          _saveRawJson(jsonStr, prefix: 'initial_state_legacy');
-          try {
-            final cleanStr = JsonExtractor.cleanUndefined(jsonStr);
-            return jsonDecode('{"data": $cleanStr}') as Map<String, dynamic>;
-          } catch (e) {
-            log('备用解析失败: $e');
-            return null;
-          }
-        }
-      }
-    }
-    return null;
   }
 
   /// 尝试从 SSR 渲染的 HTML 中提取数据
@@ -405,9 +337,10 @@ class XiaohongshuParser with HttpParserMixin {
     log('  hasVideoField: $hasVideoField');
 
     final videoInfo = await _extractVideoInfo(note);
-    final hasVideoStream = videoInfo != null && videoInfo.videoUrl.isNotEmpty;
     final isLivePhoto = videoInfo?.isLivePhoto ?? false;
-    log('  hasVideoStream: $hasVideoStream, isLivePhoto: $isLivePhoto');
+    log(
+      '  hasVideoStream: ${videoInfo?.videoUrl.isNotEmpty ?? false}, isLivePhoto: $isLivePhoto',
+    );
 
     final displayTitle = title.isNotEmpty
         ? title
@@ -423,108 +356,72 @@ class XiaohongshuParser with HttpParserMixin {
       }
     }
 
-    // 提取作者信息
-    final author = _extractAuthorInfo(note);
-
-    // 提取统计信息
-    final stats = _extractInteractInfo(note);
-
+    // 确定媒体类型
+    final MediaType mediaType;
     if (isLivePhoto) {
-      return VideoInfo(
-        itemId: id,
-        title: displayTitle,
-        videoFileId: id,
-        videoUrl: videoInfo?.videoUrl ?? '',
-        videoUrlNoWatermark: null, // 实况图不使用无水印 URL
-        mediaType: MediaType.livePhoto,
-        coverUrl: coverUrl,
-        shareId: shareId,
-        width: videoInfo?.width ?? note['width'] as int?,
-        height: videoInfo?.height ?? note['height'] as int?,
-        imageUrls: imageUrls,
-        imageThumbUrls: imageThumbUrls,
-        livePhotoUrls: videoInfo?.livePhotoUrls ?? const [],
-        // 作者信息
-        authorId: author.id,
-        authorName: author.name,
-        authorAvatar: author.avatar,
-        // 统计信息
-        createTime: stats.createTime,
-        likeCount: stats.likeCount,
-        collectCount: stats.collectCount,
-        commentCount: stats.commentCount,
-        shareCount: stats.shareCount,
-      );
+      mediaType = MediaType.livePhoto;
     } else if (hasVideoField) {
-      return VideoInfo(
-        itemId: id,
-        title: displayTitle,
-        videoFileId: id,
-        videoUrl: videoInfo?.videoUrl ?? '',
-        videoUrlNoWatermark: noWatermarkUrl,
-        mediaType: MediaType.video,
-        coverUrl: coverUrl,
-        shareId: shareId,
-        width: videoInfo?.width ?? note['width'] as int?,
-        height: videoInfo?.height ?? note['height'] as int?,
-        imageUrls: imageUrls,
-        imageThumbUrls: imageThumbUrls,
-        // 作者信息
-        authorId: author.id,
-        authorName: author.name,
-        authorAvatar: author.avatar,
-        // 统计信息
-        createTime: stats.createTime,
-        likeCount: stats.likeCount,
-        collectCount: stats.collectCount,
-        commentCount: stats.commentCount,
-        shareCount: stats.shareCount,
-      );
+      mediaType = MediaType.video;
     } else if (imageUrls.isNotEmpty) {
-      return VideoInfo(
-        itemId: id,
-        title: displayTitle,
-        videoFileId: '',
-        videoUrl: '',
-        videoUrlNoWatermark: null,
-        mediaType: MediaType.image,
-        coverUrl: coverUrl,
-        shareId: shareId,
-        width: note['width'] as int?,
-        height: note['height'] as int?,
-        imageUrls: imageUrls,
-        imageThumbUrls: imageThumbUrls,
-        // 作者信息
-        authorId: author.id,
-        authorName: author.name,
-        authorAvatar: author.avatar,
-        // 统计信息
-        createTime: stats.createTime,
-        likeCount: stats.likeCount,
-        collectCount: stats.collectCount,
-        commentCount: stats.commentCount,
-        shareCount: stats.shareCount,
-      );
+      mediaType = MediaType.image;
+    } else {
+      mediaType = MediaType.video; // 默认
     }
+
+    return _createVideoInfo(
+      id: id,
+      title: displayTitle,
+      note: note,
+      shareId: shareId,
+      coverUrl: coverUrl,
+      imageUrls: imageUrls,
+      imageThumbUrls: imageThumbUrls,
+      mediaType: mediaType,
+      videoUrl: videoInfo?.videoUrl ?? '',
+      videoUrlNoWatermark: noWatermarkUrl,
+      width: videoInfo?.width ?? note['width'] as int?,
+      height: videoInfo?.height ?? note['height'] as int?,
+      livePhotoUrls: videoInfo?.livePhotoUrls ?? const [],
+    );
+  }
+
+  /// 创建 VideoInfo 对象（统一构造）
+  VideoInfo _createVideoInfo({
+    required String id,
+    required String title,
+    required Map<String, dynamic> note,
+    String? shareId,
+    String? coverUrl,
+    required List<String> imageUrls,
+    required List<String> imageThumbUrls,
+    required MediaType mediaType,
+    required String videoUrl,
+    String? videoUrlNoWatermark,
+    int? width,
+    int? height,
+    List<String> livePhotoUrls = const [],
+  }) {
+    final author = _extractAuthorInfo(note);
+    final stats = _extractInteractInfo(note);
 
     return VideoInfo(
       itemId: id,
-      title: displayTitle,
-      videoFileId: '',
-      videoUrl: '',
-      videoUrlNoWatermark: null,
-      mediaType: MediaType.video,
+      title: title,
+      videoFileId: mediaType == MediaType.image ? '' : id,
+      videoUrl: videoUrl,
+      videoUrlNoWatermark: videoUrlNoWatermark,
+      mediaType: mediaType,
+      platform: ParserPlatform.xiaohongshu,
       coverUrl: coverUrl,
       shareId: shareId,
-      width: note['width'] as int?,
-      height: note['height'] as int?,
+      width: width,
+      height: height,
       imageUrls: imageUrls,
       imageThumbUrls: imageThumbUrls,
-      // 作者信息
+      livePhotoUrls: livePhotoUrls,
       authorId: author.id,
       authorName: author.name,
       authorAvatar: author.avatar,
-      // 统计信息
       createTime: stats.createTime,
       likeCount: stats.likeCount,
       collectCount: stats.collectCount,
@@ -534,7 +431,9 @@ class XiaohongshuParser with HttpParserMixin {
   }
 
   /// 提取作者信息
-  ({String? id, String? name, String? avatar}) _extractAuthorInfo(Map<String, dynamic> note) {
+  ({String? id, String? name, String? avatar}) _extractAuthorInfo(
+    Map<String, dynamic> note,
+  ) {
     final user = note['user'];
     if (user is! Map) return (id: null, name: null, avatar: null);
 
@@ -546,9 +445,14 @@ class XiaohongshuParser with HttpParserMixin {
   }
 
   /// 提取互动统计信息
-  ({int? createTime, int? likeCount, int? collectCount, int? commentCount, int? shareCount}) _extractInteractInfo(
-    Map<String, dynamic> note,
-  ) {
+  ({
+    int? createTime,
+    int? likeCount,
+    int? collectCount,
+    int? commentCount,
+    int? shareCount,
+  })
+  _extractInteractInfo(Map<String, dynamic> note) {
     // 发布时间（毫秒）
     final createTimeRaw = note['time'];
     final createTime = createTimeRaw is int
@@ -557,7 +461,13 @@ class XiaohongshuParser with HttpParserMixin {
 
     final interact = note['interactInfo'];
     if (interact is! Map) {
-      return (createTime: createTime, likeCount: null, collectCount: null, commentCount: null, shareCount: null);
+      return (
+        createTime: createTime,
+        likeCount: null,
+        collectCount: null,
+        commentCount: null,
+        shareCount: null,
+      );
     }
 
     return (
@@ -882,40 +792,6 @@ class XiaohongshuParser with HttpParserMixin {
 
     var bestUrl = bestVideoUrl;
 
-    log('  验证视频URL可用性...');
-    final isAvailable = await UrlUtils.verifyUrlAvailable(
-      bestUrl,
-      client: httpClient,
-      headers: {
-        'User-Agent': _mobileUserAgent,
-        'Referer': 'https://www.xiaohongshu.com/',
-      },
-    );
-
-    if (!isAvailable) {
-      log('    默认URL不可用，尝试切换CDN...');
-      final cdnVariants = _generateCdnVariants([
-        _VideoStream(url: bestUrl, bitrate: 0, codec: 'h264'),
-      ]);
-      for (final variant in cdnVariants) {
-        final size = await UrlUtils.verifyUrlAndGetSize(
-          variant.url,
-          client: httpClient,
-          headers: {
-            'User-Agent': _mobileUserAgent,
-            'Referer': 'https://www.xiaohongshu.com/',
-          },
-        );
-        if (size > 0) {
-          logDebug('    找到可用CDN: ${variant.url} (${(size / 1024 / 1024).toStringAsFixed(2)}MB)');
-          bestUrl = variant.url;
-          break;
-        }
-      }
-    } else {
-      logDebug('    默认URL可用');
-    }
-
     if (candidateUrls.isNotEmpty) {
       logDebug('  视频流信息:');
       final sorted = [...candidateUrls]
@@ -935,35 +811,6 @@ class XiaohongshuParser with HttpParserMixin {
       width: bestWidth,
       height: bestHeight,
     );
-  }
-
-  /// 生成不同CDN域名的变体URL - 小红书特有
-  List<_VideoStream> _generateCdnVariants(List<_VideoStream> candidates) {
-    final variants = <_VideoStream>[];
-
-    for (final c in candidates) {
-      final match = RegExp(r'https://([^/]+)(/.*)').firstMatch(c.url);
-      if (match == null) continue;
-
-      final currentDomain = match.group(1)!;
-      final path = match.group(2)!;
-
-      for (final domain in _cdnDomains) {
-        if (domain != currentDomain) {
-          variants.add(
-            _VideoStream(
-              url: 'https://$domain$path',
-              bitrate: c.bitrate,
-              codec: c.codec,
-              width: c.width,
-              height: c.height,
-            ),
-          );
-        }
-      }
-    }
-
-    return variants;
   }
 
   /// 释放资源

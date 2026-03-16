@@ -1,24 +1,26 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 /// 视频封面组件（普通视频）
 class VideoCover extends StatelessWidget {
   final String coverUrl;
 
-  const VideoCover({
-    super.key,
-    required this.coverUrl,
-  });
+  const VideoCover({super.key, required this.coverUrl});
 
   @override
   Widget build(BuildContext context) {
+    // 大屏设备封面高度加大50%
+    final isDesktop =
+        Platform.isWindows || Platform.isMacOS || Platform.isLinux;
+    final maxHeight = isDesktop ? 300.0 : 200.0;
+
     return Padding(
       padding: const EdgeInsets.only(top: 12),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(8),
         child: ConstrainedBox(
-          constraints: const BoxConstraints(
-            maxHeight: 120, // 统一卡片高度
-          ),
+          constraints: BoxConstraints(maxHeight: maxHeight),
           child: AspectRatio(
             aspectRatio: 16 / 9,
             child: Stack(

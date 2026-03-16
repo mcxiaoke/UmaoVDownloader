@@ -84,7 +84,22 @@ class LogService implements Listenable {
         LogLevel.error => 1000,
       },
     );
+    // Debug 模式下也打印到控制台
+    if (_isDebugMode) {
+      // ignore: avoid_print
+      print(entry.toString());
+    }
     _notifyListeners();
+  }
+
+  /// 检测是否为调试模式
+  static bool get _isDebugMode {
+    bool isDebug = false;
+    assert(() {
+      isDebug = true;
+      return true;
+    }());
+    return isDebug || !bool.fromEnvironment('dart.vm.product');
   }
 
   // Listenable 接口实现

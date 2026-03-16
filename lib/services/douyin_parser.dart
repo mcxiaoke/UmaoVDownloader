@@ -249,18 +249,27 @@ class DouyinParser with HttpParserMixin {
         : '作品_$id';
 
     final mediaType = AwemeTypeHelper.detectType(item);
-
-    // 提取作者信息
     final author = _extractAuthorInfo(item);
-
-    // 提取统计信息
     final stats = _extractStatistics(item);
+    final coverUrl = _extractCoverUrl(item);
 
     return switch (mediaType) {
-      DouyinMediaType.image => _buildImagePost(item, id, title, shareId, author, stats),
-      DouyinMediaType.video => _buildVideoPost(item, id, title, shareId, author, stats),
-      DouyinMediaType.unknown => _buildVideoPost(item, id, title, shareId, author, stats),
+      DouyinMediaType.image => _buildImagePost(
+          item, id, title, shareId, author, stats, coverUrl),
+      DouyinMediaType.video || DouyinMediaType.unknown => _buildVideoPost(
+          item, id, title, shareId, author, stats, coverUrl),
     };
+  }
+
+  /// 提取封面 URL
+  String? _extractCoverUrl(Map<String, dynamic> item) {
+    final video = item['video'];
+    if (video is! Map) return null;
+    final cover = video['cover'];
+    if (cover is! Map) return null;
+    final urlList = cover['url_list'];
+    if (urlList is! List || urlList.isEmpty) return null;
+    return urlList.first?.toString();
   }
 
   /// 提取作者信息
@@ -323,6 +332,7 @@ class DouyinParser with HttpParserMixin {
     String? shareId,
     ({String? id, String? name, String? avatar}) author,
     ({int? createTime, int? likeCount, int? collectCount, int? commentCount, int? shareCount}) stats,
+    String? coverUrl,
   ) {
     final images = item['images'];
     final imageUrls = <String>[];
@@ -376,6 +386,37 @@ class DouyinParser with HttpParserMixin {
     }
 
     // 提取背景音乐
+    final (:musicUrl, :musicTitle, :musicAuthor) = _extractMusicInfo(item);
+
+    return VideoInfo(
+      itemId: id,
+      title: title,
+      videoFileId: '',
+      videoUrl: '',
+      mediaType: MediaType.image,
+      platform: ParserPlatform.douyin,
+      coverUrl: coverUrl,
+      shareId: shareId,
+      imageUrls: imageUrls,
+      imageThumbUrls: imageThumbUrls,
+      musicUrl: musicUrl,
+      musicTitle: musicTitle,
+      musicAuthor: musicAuthor,
+      authorId: author.id,
+      authorName: author.name,
+      authorAvatar: author.avatar,
+      createTime: stats.createTime,
+      likeCount: stats.likeCount,
+      collectCount: stats.collectCount,
+      commentCount: stats.commentCount,
+      shareCount: stats.shareCount,
+    );
+  }
+
+  /// 提取背景音乐信息
+  ({String? musicUrl, String? musicTitle, String? musicAuthor}) _extractMusicInfo(
+    Map<String, dynamic> item,
+  ) {
     String? musicUrl;
     String? musicTitle;
     String? musicAuthor;
@@ -406,42 +447,7 @@ class DouyinParser with HttpParserMixin {
       }
     }
 
-    // 提取封面
-    String? coverUrl;
-    if (video is Map) {
-      final cover = video['cover'];
-      if (cover is Map) {
-        final urlList = cover['url_list'];
-        if (urlList is List && urlList.isNotEmpty) {
-          coverUrl = urlList.first?.toString();
-        }
-      }
-    }
-
-    return VideoInfo(
-      itemId: id,
-      title: title,
-      videoFileId: '',
-      videoUrl: '',
-      mediaType: MediaType.image,
-      coverUrl: coverUrl,
-      shareId: shareId,
-      imageUrls: imageUrls,
-      imageThumbUrls: imageThumbUrls,
-      musicUrl: musicUrl,
-      musicTitle: musicTitle,
-      musicAuthor: musicAuthor,
-      // 作者信息
-      authorId: author.id,
-      authorName: author.name,
-      authorAvatar: author.avatar,
-      // 统计信息
-      createTime: stats.createTime,
-      likeCount: stats.likeCount,
-      collectCount: stats.collectCount,
-      commentCount: stats.commentCount,
-      shareCount: stats.shareCount,
-    );
+    return (musicUrl: musicUrl, musicTitle: musicTitle, musicAuthor: musicAuthor);
   }
 
   /// 构建视频作品
@@ -452,9 +458,9 @@ class DouyinParser with HttpParserMixin {
     String? shareId,
     ({String? id, String? name, String? avatar}) author,
     ({int? createTime, int? likeCount, int? collectCount, int? commentCount, int? shareCount}) stats,
+    String? coverUrl,
   ) {
     final video = item['video'];
-    String? coverUrl;
     int? width;
     int? height;
     int? bitrateKbps;
@@ -462,13 +468,6 @@ class DouyinParser with HttpParserMixin {
     String? bestVideoFileId;
 
     if (video is Map) {
-      final cover = video['cover'];
-      if (cover is Map) {
-        final urlList = cover['url_list'];
-        if (urlList is List && urlList.isNotEmpty) {
-          coverUrl = urlList.first?.toString();
-        }
-      }
       width = int.tryParse(video['width']?.toString() ?? '');
       height = int.tryParse(video['height']?.toString() ?? '');
 
@@ -509,16 +508,15 @@ class DouyinParser with HttpParserMixin {
       videoFileId: bestVideoFileId ?? '',
       videoUrl: bestVideoUrl,
       mediaType: MediaType.video,
+      platform: ParserPlatform.douyin,
       coverUrl: coverUrl,
       shareId: shareId,
       width: width,
       height: height,
       bitrateKbps: bitrateKbps,
-      // 作者信息
       authorId: author.id,
       authorName: author.name,
       authorAvatar: author.avatar,
-      // 统计信息
       createTime: stats.createTime,
       likeCount: stats.likeCount,
       collectCount: stats.collectCount,

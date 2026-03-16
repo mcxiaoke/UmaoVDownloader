@@ -56,6 +56,8 @@ mixin ParserMixin<T extends StatefulWidget> on State<T> {
           const SnackBar(
             content: Text('未找到有效的链接，请粘贴抖音/小红书分享文本或链接'),
             duration: Duration(seconds: 3),
+            backgroundColor: Colors.redAccent,
+            behavior: SnackBarBehavior.floating,
           ),
         );
       }
@@ -69,8 +71,10 @@ mixin ParserMixin<T extends StatefulWidget> on State<T> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('仅支持抖音/小红书链接，检测到: ${Uri.parse(url).host}'),
+            content: Text('目前仅支持抖音/小红书链接'),
             duration: const Duration(seconds: 3),
+            backgroundColor: Colors.redAccent,
+            behavior: SnackBarBehavior.floating,
           ),
         );
       }
@@ -81,6 +85,8 @@ mixin ParserMixin<T extends StatefulWidget> on State<T> {
       parsing = true;
       videoInfo = null;
     });
+    // 清除错误状态
+    onParseError('');
     log.info('开始解析：$url');
     vlog('当前平台: ${Platform.operatingSystem}');
     final sw = Stopwatch()..start();
@@ -118,6 +124,9 @@ mixin ParserMixin<T extends StatefulWidget> on State<T> {
       log.error('解析失败：$e');
       vlog('解析异常堆栈: $st');
 
+      // 调用错误回调
+      onParseError(e.toString());
+
       // 向用户显示友好提示
       if (mounted) {
         final friendlyMsg = _getFriendlyErrorMessage(e.toString());
@@ -125,6 +134,8 @@ mixin ParserMixin<T extends StatefulWidget> on State<T> {
           SnackBar(
             content: Text(friendlyMsg),
             duration: const Duration(seconds: 4),
+            backgroundColor: Colors.redAccent,
+            behavior: SnackBarBehavior.floating,
           ),
         );
       }
@@ -141,6 +152,9 @@ mixin ParserMixin<T extends StatefulWidget> on State<T> {
   void onParseSuccess(VideoInfo info) {
     resetDownloadProgress();
   }
+
+  /// 解析失败回调（子类可重写）
+  void onParseError(String error) {}
 
   /// 获取视频文件大小
   Future<void> fetchFileSize(VideoInfo info) async {
@@ -204,7 +218,9 @@ mixin ParserMixin<T extends StatefulWidget> on State<T> {
   /// 将技术错误转换为友好提示
   String _getFriendlyErrorMessage(String error) {
     // 作品不存在/已删除
-    if (error.contains('不存在') || error.contains('已删除') || error.contains('404')) {
+    if (error.contains('不存在') ||
+        error.contains('已删除') ||
+        error.contains('404')) {
       return '作品不存在或已被删除';
     }
     // 访问被拒绝
@@ -220,7 +236,8 @@ mixin ParserMixin<T extends StatefulWidget> on State<T> {
       return '触发风控，请稍后重试或更换网络';
     }
     // 网络错误
-    if (error.contains('SocketException') || error.contains('TimeoutException')) {
+    if (error.contains('SocketException') ||
+        error.contains('TimeoutException')) {
       return '网络连接失败，请检查网络后重试';
     }
     // 解析错误

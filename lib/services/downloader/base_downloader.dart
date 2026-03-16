@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
+import '../../utils/filename_utils.dart';
 import '../parser_common.dart';
 import 'video_downloader.dart';
 
@@ -42,26 +43,26 @@ const kUaIosDouyin =
     'ByteFullLocale/zh-Hans-CN WKWebView/1 Bullet/1 aweme/36.7.0 '
     'BytedanceWebview/d8a21c6 AnnieX/1 Forest/1 ReqTrigger/renderEngine';
 
-  /// 各平台下载器的抽象基类。
-  ///
-  /// 实现了通用的文件命名和带 UA 重试的流式下载循环，
-  /// 子类只需覆写 [downloadUserAgents]、[getDefaultDirectory]
-  /// 并根据需要覆写 [beforeDownload] / [afterDownload]。
-  abstract class BaseDownloader implements VideoDownloader {
-    /// 下载时依次尝试的 UA 列表（优先级从高到低）
-    List<String> get downloadUserAgents;
+/// 各平台下载器的抽象基类。
+///
+/// 实现了通用的文件命名和带 UA 重试的流式下载循环，
+/// 子类只需覆写 [downloadUserAgents]、[getDefaultDirectory]
+/// 并根据需要覆写 [beforeDownload] / [afterDownload]。
+abstract class BaseDownloader implements VideoDownloader {
+  /// 下载时依次尝试的 UA 列表（优先级从高到低）
+  List<String> get downloadUserAgents;
 
-    /// 下载开始前的钩子，用于权限申请等（默认空实现）
-    Future<void> beforeDownload() async {}
+  /// 下载开始前的钩子，用于权限申请等（默认空实现）
+  Future<void> beforeDownload() async {}
 
-    /// 下载成功后的钩子，用于 MediaStore 通知等（默认空实现）
-    Future<void> afterDownload(String filePath) async {}
+  /// 下载成功后的钩子，用于 MediaStore 通知等（默认空实现）
+  Future<void> afterDownload(String filePath) async {}
 
-    /// 获取音乐保存目录（子类可覆写）
-    /// Android 返回 Music/umaovd，其他平台返回默认目录
-    Future<String> getMusicDirectory() async {
-      return await getDefaultDirectory();
-    }
+  /// 获取音乐保存目录（子类可覆写）
+  /// Android 返回 Music/umaovd，其他平台返回默认目录
+  Future<String> getMusicDirectory() async {
+    return await getDefaultDirectory();
+  }
 
   @override
   Future<String> downloadVideo(
@@ -79,32 +80,21 @@ const kUaIosDouyin =
         : await getDefaultDirectory();
 
     final prefix = info.shareId ?? info.itemId;
-    final cleanTitle = _sanitizeFilename(info.title);
+    final cleanTitle = sanitizeFilename(info.title);
+    final platformPrefix = info.platform.filePrefix;
     final baseName = filename != null && filename.isNotEmpty
-        ? _sanitizeFilename(filename)
-        : '${prefix}_$cleanTitle';
+        ? sanitizeFilename(filename)
+        : '$platformPrefix${prefix}_$cleanTitle';
 
     // ── 图文作品：批量下载图片 ──────────────────────────────────
     if (info.mediaType == MediaType.image) {
-      return await _downloadImages(
-        info,
-        dir,
-        baseName,
-        onProgress,
-        onLog,
-      );
+      return await _downloadImages(info, dir, baseName, onProgress, onLog);
     }
 
     // ── 实况图：默认批量下载图片（动图视频只能单独下载）──────────────
     // 原因：实况图可能包含混合的静态图+动图，livePhotoUrls 中会有空字符串
     if (info.mediaType == MediaType.livePhoto) {
-      return await _downloadImages(
-        info,
-        dir,
-        baseName,
-        onProgress,
-        onLog,
-      );
+      return await _downloadImages(info, dir, baseName, onProgress, onLog);
     }
 
     // ── 视频作品 ─────────────────────────────────────────────
@@ -116,8 +106,7 @@ const kUaIosDouyin =
       final stamp =
           '${now.year}${_p2(now.month)}${_p2(now.day)}'
           '_${_p2(now.hour)}${_p2(now.minute)}${_p2(now.second)}';
-      filePath =
-          '$dir${Platform.pathSeparator}${baseName}_video_$stamp.mp4';
+      filePath = '$dir${Platform.pathSeparator}${baseName}_video_$stamp.mp4';
     } else {
       filePath = basePath;
     }
@@ -128,7 +117,8 @@ const kUaIosDouyin =
 
     // 优先尝试无水印 URL，失败时回退到有水印 URL
     final urlsToTry = <String>[];
-    if (info.videoUrlNoWatermark != null && info.videoUrlNoWatermark!.isNotEmpty) {
+    if (info.videoUrlNoWatermark != null &&
+        info.videoUrlNoWatermark!.isNotEmpty) {
       urlsToTry.add(info.videoUrlNoWatermark!);
       onLog?.call('将优先尝试无水印 URL');
     }
@@ -158,7 +148,6 @@ const kUaIosDouyin =
       );
 
       if (success) {
-        onLog?.call('视频下载完成: $filePath (使用 ${isNoWatermark ? "无水印" : "有水印"} URL)');
         return filePath;
       }
 
@@ -183,7 +172,6 @@ const kUaIosDouyin =
     void Function(int received, int? total)? onProgress,
     void Function(String message)? onLog,
   ) async {
-
     const chunkTimeout = Duration(seconds: 30);
     final client = http.Client();
     try {
@@ -244,7 +232,6 @@ const kUaIosDouyin =
 
           final sink = partFile.openWrite();
           int received = 0;
-          int lastLoggedPercent = -1;
           bool streamOk = false;
 
           try {
@@ -252,16 +239,6 @@ const kUaIosDouyin =
               sink.add(chunk);
               received += chunk.length;
               onProgress?.call(received, total);
-              if (total != null && total > 0) {
-                final pct = (received * 100 ~/ total);
-                if (pct >= lastLoggedPercent + 10) {
-                  lastLoggedPercent = pct - pct % 10;
-                  final recvMb = (received / 1024 / 1024).toStringAsFixed(2);
-                  onLog?.call(
-                    '下载进度 $lastLoggedPercent%（$recvMb MB / $totalMb）',
-                  );
-                }
-              }
             }
             streamOk = true;
           } on TimeoutException {
@@ -335,7 +312,7 @@ const kUaIosDouyin =
               resolved.add(loc);
               final lineParam =
                   Uri.parse(candidate).queryParameters['line'] ?? '?';
-              onLog?.call('已获取 CDN 节点 #${lineParam}');
+              onLog?.call('已获取 CDN 节点 #$lineParam');
               continue;
             }
           }
@@ -389,8 +366,6 @@ const kUaIosDouyin =
           imgPath = basePath;
         }
 
-
-
         final partFile = File('$imgPath.part');
         await partFile.parent.create(recursive: true);
 
@@ -439,7 +414,6 @@ const kUaIosDouyin =
     }
 
     if (firstPath.isEmpty) throw Exception('所有图片下载失败');
-    onLog?.call('图片下载完成，共 $total 张');
     return firstPath;
   }
 
@@ -480,14 +454,17 @@ const kUaIosDouyin =
         req.headers[HttpHeaders.userAgentHeader] = ua;
         // 小红书图片CDN需要Referer
         if (url.contains('xhscdn.com')) {
-          req.headers[HttpHeaders.refererHeader] = 'https://www.xiaohongshu.com/';
+          req.headers[HttpHeaders.refererHeader] =
+              'https://www.xiaohongshu.com/';
         }
         final streamed = await client.send(req);
         if (streamed.statusCode >= 300) {
           await streamed.stream.drain<void>();
           continue;
         }
-        final total = streamed.contentLength == -1 ? null : streamed.contentLength;
+        final total = streamed.contentLength == -1
+            ? null
+            : streamed.contentLength;
         final sink = partFile.openWrite();
         int received = 0;
         try {
@@ -517,7 +494,6 @@ const kUaIosDouyin =
 
       await partFile.rename(filePath);
       await afterDownload(filePath);
-      onLog?.call('图片下载完成: $filePath (来源: $url)');
       return filePath;
     } finally {
       client.close();
@@ -560,14 +536,17 @@ const kUaIosDouyin =
         req.headers[HttpHeaders.userAgentHeader] = ua;
         // 小红书图片CDN需要Referer
         if (url.contains('xhscdn.com')) {
-          req.headers[HttpHeaders.refererHeader] = 'https://www.xiaohongshu.com/';
+          req.headers[HttpHeaders.refererHeader] =
+              'https://www.xiaohongshu.com/';
         }
         final streamed = await client.send(req);
         if (streamed.statusCode >= 300) {
           await streamed.stream.drain<void>();
           continue;
         }
-        final total = streamed.contentLength == -1 ? null : streamed.contentLength;
+        final total = streamed.contentLength == -1
+            ? null
+            : streamed.contentLength;
         final sink = partFile.openWrite();
         int received = 0;
         try {
@@ -597,7 +576,6 @@ const kUaIosDouyin =
 
       await partFile.rename(filePath);
       await afterDownload(filePath);
-      onLog?.call('实况视频下载完成: $filename');
       return filePath;
     } finally {
       client.close();
@@ -620,8 +598,9 @@ const kUaIosDouyin =
         ? directory!
         : await getDefaultDirectory();
     final prefix = info.shareId ?? info.itemId;
-    final cleanTitle = _sanitizeFilename(info.title);
-    final baseName = '${prefix}_$cleanTitle';
+    final cleanTitle = sanitizeFilename(info.title);
+    final platformPrefix = info.platform.filePrefix;
+    final baseName = '$platformPrefix${prefix}_$cleanTitle';
     return await _downloadLivePhotos(info, dir, baseName, onProgress, onLog);
   }
 
@@ -672,8 +651,6 @@ const kUaIosDouyin =
           videoPath = basePath;
         }
 
-        onLog?.call('下载实况视频 ${i + 1}/$total…');
-
         final partFile = File('$videoPath.part');
         await partFile.parent.create(recursive: true);
 
@@ -723,34 +700,9 @@ const kUaIosDouyin =
     }
 
     if (firstPath.isEmpty) {
-      onLog?.call('所有实况视频下载失败');
       return '';
     }
-    onLog?.call('实况视频下载完成，共 $successCount/$total 个');
     return firstPath;
-  }
-
-  /// 只保留白名单字符（CJK + ASCII 字母数字 + 常见标点），去除 emoji
-  /// 及其他非常用 Unicode，截断到 [maxLen] 字符（默认 30）。
-  String _sanitizeFilename(String name, {int maxLen = 30}) {
-    // 白名单：CJK 统一汉字 / 扩展 A / CJK 标点 / 全角标点 / ASCII 字母数字与常见标点
-    var result = name.replaceAll(
-      RegExp(
-        r'[^\u4e00-\u9fff' // CJK 统一汉字
-        r'\u3400-\u4dbf' // CJK 扩展 A
-        r'\u3000-\u303f' // CJK 符号与标点（、。《》【】…）
-        r'\uff01-\uffe6' // 全角半角形式（！，。？（）等）
-        r'a-zA-Z0-9' // ASCII 字母数字
-        r' .,_\-!?()'
-        r']',
-      ),
-      '',
-    );
-    // 合并多余空白
-    result = result.replaceAll(RegExp(r'\s+'), ' ').trim();
-    // 截断
-    if (result.length > maxLen) result = result.substring(0, maxLen).trim();
-    return result.isEmpty ? 'video' : result;
   }
 
   String _p2(int n) => n.toString().padLeft(2, '0');
@@ -780,7 +732,7 @@ const kUaIosDouyin =
 
     // 使用音乐专用目录
     final dir = await getMusicDirectory();
-    final baseName = _sanitizeFilename(filename);
+    final baseName = sanitizeFilename(filename);
     final basePath = '$dir${Platform.pathSeparator}$baseName.mp3';
     final String filePath;
     if (File(basePath).existsSync()) {
@@ -809,7 +761,9 @@ const kUaIosDouyin =
           await streamed.stream.drain<void>();
           continue;
         }
-        final total = streamed.contentLength == -1 ? null : streamed.contentLength;
+        final total = streamed.contentLength == -1
+            ? null
+            : streamed.contentLength;
         final sink = partFile.openWrite();
         int received = 0;
         try {
@@ -840,7 +794,6 @@ const kUaIosDouyin =
 
       await partFile.rename(filePath);
       await afterDownload(filePath);
-      onLog?.call('背景音乐下载完成: $filePath');
       return filePath;
     } finally {
       client.close();

@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../services/app_logger.dart';
 import '../services/log_service.dart';
@@ -18,6 +20,12 @@ import 'widgets/log_panel.dart';
 import 'widgets/thumbnail_grid.dart';
 import 'widgets/video_cover.dart';
 
+/// 应用版本号
+const String kAppVersion = '1.0.4';
+
+/// GitHub 项目地址
+const String kGitHubUrl = 'https://github.com/mcxiaoke/UmaoVDownloader';
+
 /// 主页
 class HomePage extends StatefulWidget {
   final LogService log;
@@ -31,9 +39,9 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> with ParserMixin, DownloaderMixin {
   final _inputCtrl = TextEditingController();
-  final _logScrollCtrl = ScrollController();
   final _thumbScrollCtrl = ScrollController();
   final _parserFacade = ParserFacade();
+  bool _screenSizeLogged = false;
 
   // ─── ParserMixin 所需状态 ─────────────────────────────────────
 
@@ -120,6 +128,87 @@ class _HomePageState extends State<HomePage> with ParserMixin, DownloaderMixin {
   @override
   Map<int, bool> get singleDownloading => _singleDownloading;
 
+  final Map<int, bool> _singleDone = {};
+  @override
+  Map<int, bool> get singleDone => _singleDone;
+
+  @override
+  void initState() {
+    super.initState();
+    if (Platform.isAndroid) {
+      _checkStoragePermission();
+    }
+  }
+
+  /// 检查存储权限，未授权则弹窗引导用户授权
+  Future<void> _checkStoragePermission() async {
+    // 延迟一帧执行，确保 context 可用
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) return;
+
+    final sdkInt = await _androidSdkVersion();
+    final permission = sdkInt >= 30
+        ? Permission.manageExternalStorage
+        : Permission.storage;
+
+    final status = await permission.status;
+    if (status.isGranted || status.isLimited) return;
+
+    // 未授权：弹窗引导用户授权
+    _showPermissionRequiredDialog(permission);
+  }
+
+  /// 读取 Android SDK 版本
+  Future<int> _androidSdkVersion() async {
+    try {
+      final result = await Process.run('getprop', ['ro.build.version.sdk']);
+      return int.tryParse((result.stdout as String).trim()) ?? 0;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  /// 显示必须授权的对话框
+  void _showPermissionRequiredDialog(Permission permission) {
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false, // 点击外部不关闭
+      builder: (ctx) => AlertDialog(
+        title: const Text('需要存储权限'),
+        content: const Text('此应用需要存储权限才能保存下载的文件。\n\n请授权后使用。'),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              SystemNavigator.pop(); // 退出应用
+            },
+            child: const Text('退出'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              final result = await permission.request();
+              final recheck = await permission.status;
+              if (result.isGranted || recheck.isGranted || recheck.isLimited) {
+                if (ctx.mounted) Navigator.pop(ctx);
+              } else if (result.isPermanentlyDenied || recheck.isPermanentlyDenied) {
+                // 永久拒绝，引导去设置
+                if (ctx.mounted) {
+                  Navigator.pop(ctx);
+                  openAppSettings();
+                  // 返回后再次检查
+                  Future.delayed(const Duration(milliseconds: 500), () {
+                    if (mounted) _checkStoragePermission();
+                  });
+                }
+              }
+            },
+            child: const Text('授权'),
+          ),
+        ],
+      ),
+    );
+  }
+
   // ─── 回调 ───────────────────────────────────────────────────
 
   @override
@@ -129,6 +218,7 @@ class _HomePageState extends State<HomePage> with ParserMixin, DownloaderMixin {
     _downloadingLiveVideos = false;
     _singleProgress.clear();
     _singleDownloading.clear();
+    _singleDone.clear();
   }
 
   @override
@@ -138,8 +228,16 @@ class _HomePageState extends State<HomePage> with ParserMixin, DownloaderMixin {
   }
 
   @override
-  void onDownloadComplete() {
+  void onDownloadComplete(String path) {
     _inputCtrl.clear();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('已保存到 $path'),
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
   }
 
   // ─── 构建界面 ────────────────────────────────────────────────
@@ -147,68 +245,127 @@ class _HomePageState extends State<HomePage> with ParserMixin, DownloaderMixin {
   @override
   Widget build(BuildContext context) {
     final isAndroid = Platform.isAndroid;
+    if (!_screenSizeLogged) {
+      _screenSizeLogged = true;
+      final mediaQuery = MediaQuery.of(context);
+      final screenWidth = mediaQuery.size.width;
+      final screenHeight = mediaQuery.size.height;
+      final devicePixelRatio = mediaQuery.devicePixelRatio;
+      widget.log.info(
+        '屏幕: ${screenWidth.toStringAsFixed(0)} x ${screenHeight.toStringAsFixed(0)} '
+        '逻辑像素, 设备像素比: ${devicePixelRatio.toStringAsFixed(2)}',
+      );
+    }
     return Scaffold(
-      appBar: AppBar(title: const Text('Umao VDownloader - 短视频下载')),
-      // Android 允许输入法覆盖日志区域
+      appBar: AppBar(
+        title: LayoutBuilder(
+          builder: (context, constraints) {
+            // 小屏用短标题
+            return Text(
+              MediaQuery.of(context).size.width <= 420
+                  ? 'Umao 视频下载'
+                  : 'Umao VDownloader - 短视频下载',
+            );
+          },
+        ),
+        actions: [
+          // 设置按钮
+          IconButton(
+            icon: const Icon(Icons.tune),
+            tooltip: '设置',
+            onPressed: _openLogSettingsPanel,
+          ),
+          // 日志按钮
+          IconButton(
+            icon: const Icon(Icons.article_outlined),
+            tooltip: '查看日志',
+            onPressed: _openLogPanel,
+          ),
+          const SizedBox(width: 8),
+        ],
+      ),
+      // Android 允许输入法覆盖
       resizeToAvoidBottomInset: isAndroid,
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(12, 6, 12, 12),
-          child: _buildUnifiedLayout(),
+          child: _buildMainContent(),
         ),
       ),
     );
   }
 
-  /// 统一布局：自适应多平台
-  Widget _buildUnifiedLayout() {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        // 上面区域自适应，日志占满剩余空间，但日志最小100px
-        final maxContentHeight = constraints.maxHeight - 100 - 8;
+  /// 主内容区
+  Widget _buildMainContent() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // 顶部输入行（固定）
+        InputRow(controller: _inputCtrl, parsing: _parsing, onParse: parse),
+        const SizedBox(height: 10),
+        // 中间结果区域（可滚动）
+        Expanded(
+          child: SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            child: _buildResultCard(),
+          ),
+        ),
+        const SizedBox(height: 10),
+        // 底部目录行（固定）
+        DirectoryRow(
+          settings: widget.settings,
+          onPickDirectory: _pickDirectory,
+          onOpenDirectory: _openDirectory,
+        ),
+      ],
+    );
+  }
 
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // 上面区域：限制最大高度，超出可滚动
-            ConstrainedBox(
-              constraints: BoxConstraints(maxHeight: maxContentHeight),
-              child: SingleChildScrollView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    InputRow(
-                      controller: _inputCtrl,
-                      parsing: _parsing,
-                      onParse: parse,
-                    ),
-                    const SizedBox(height: 10),
-                    _buildResultCard(),
-                    const SizedBox(height: 10),
-                    DirectoryRow(
-                      settings: widget.settings,
-                      onPickDirectory: _pickDirectory,
-                      onOpenDirectory: _openDirectory,
-                    ),
-                  ],
+  /// 打开日志面板
+  Future<void> _openLogPanel() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return Container(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.85,
+          ),
+          decoration: BoxDecoration(
+            color: Theme.of(ctx).scaffoldBackgroundColor,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // 拖拽指示条
+              Container(
+                margin: const EdgeInsets.only(top: 12),
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade400,
+                  borderRadius: BorderRadius.circular(2),
                 ),
               ),
-            ),
-            const SizedBox(height: 8),
-            // 日志区域：占满剩余空间
-            Expanded(
-              child: LogPanel(
-                log: widget.log,
-                settings: widget.settings,
-                scrollController: _logScrollCtrl,
-                onSettingsTap: _openLogSettingsPanel,
-                onCopyTap: _copyLogContent,
-                onClearTap: () => setState(() => widget.log.entries.clear()),
+              // 日志面板
+              Flexible(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+                  child: LogPanel(
+                    log: widget.log,
+                    settings: widget.settings,
+                    scrollController: ScrollController(),
+                    onCopyTap: _copyLogContent,
+                    onClearTap: () =>
+                        setState(() => widget.log.entries.clear()),
+                  ),
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         );
       },
     );
@@ -271,6 +428,7 @@ class _HomePageState extends State<HomePage> with ParserMixin, DownloaderMixin {
                     scrollController: _thumbScrollCtrl,
                     singleProgress: _singleProgress,
                     singleDownloading: _singleDownloading,
+                    singleDone: _singleDone,
                     onDownloadImage: downloadSingleImage,
                     onDownloadLivePhoto: downloadSingleLivePhoto,
                   ),
@@ -355,7 +513,7 @@ class _HomePageState extends State<HomePage> with ParserMixin, DownloaderMixin {
                       dense: true,
                       contentPadding: EdgeInsets.zero,
                       leading: Icon(Icons.tune),
-                      title: Text('日志设置'),
+                      title: Text('设置'),
                     ),
                     SwitchListTile.adaptive(
                       value: verbose,
@@ -367,26 +525,35 @@ class _HomePageState extends State<HomePage> with ParserMixin, DownloaderMixin {
                       },
                       title: const Text('详细日志'),
                     ),
-                    if (widget.log.logFilePath != null)
-                      ListTile(
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                        ),
-                        leading: const Icon(Icons.copy_all),
-                        title: const Text('复制日志路径'),
-                        onTap: () {
-                          Clipboard.setData(
-                            ClipboardData(text: widget.log.logFilePath!),
-                          );
-                          Navigator.of(ctx).pop();
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('日志路径已复制'),
-                              duration: Duration(seconds: 2),
+                    // 分隔线
+                    const Divider(height: 24),
+                    // 关于信息
+                    ListTile(
+                      dense: true,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+                      leading: const Icon(Icons.info_outline),
+                      title: const Text('About'),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const SizedBox(height: 4),
+                          Text('Umao VDownloader v$kAppVersion'),
+                          const Text('mcxiaoke'),
+                          const SizedBox(height: 4),
+                          GestureDetector(
+                            onTap: () => _openUrl(kGitHubUrl),
+                            child: Text(
+                              kGitHubUrl,
+                              style: TextStyle(
+                                color: Theme.of(ctx).primaryColor,
+                                decoration: TextDecoration.underline,
+                              ),
                             ),
-                          );
-                        },
+                          ),
+                          const SizedBox(height: 8),
+                        ],
                       ),
+                    ),
                   ],
                 ),
               ),
@@ -422,6 +589,23 @@ class _HomePageState extends State<HomePage> with ParserMixin, DownloaderMixin {
     }
   }
 
+  /// 打开 URL（桌面用系统浏览器，移动端用 url_launcher）
+  Future<void> _openUrl(String url) async {
+    if (Platform.isWindows) {
+      Process.run('start', [url], runInShell: true);
+    } else if (Platform.isMacOS) {
+      Process.run('open', [url]);
+    } else if (Platform.isLinux) {
+      Process.run('xdg-open', [url]);
+    } else {
+      // 移动端使用 url_launcher
+      final uri = Uri.parse(url);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      }
+    }
+  }
+
   void _copyLogContent() {
     if (widget.log.entries.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -448,7 +632,6 @@ class _HomePageState extends State<HomePage> with ParserMixin, DownloaderMixin {
   @override
   void dispose() {
     _inputCtrl.dispose();
-    _logScrollCtrl.dispose();
     _thumbScrollCtrl.dispose();
     super.dispose();
   }

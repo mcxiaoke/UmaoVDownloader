@@ -111,14 +111,14 @@ class AppLogger {
     }
   }
 
-  /// 检测是否为调试模式（不依赖 Flutter）
+  /// 检测是否为调试模式（使用 assert 技巧）
   static bool get _isDebugMode {
-    // CLI 环境始终输出
-    try {
-      return !bool.fromEnvironment('dart.vm.product');
-    } catch (_) {
+    bool isDebug = false;
+    assert(() {
+      isDebug = true;
       return true;
-    }
+    }());
+    return isDebug || !bool.fromEnvironment('dart.vm.product');
   }
 
   static String _getPrefix(AppLogLevel level) {

@@ -37,6 +37,32 @@ enum MediaType {
   livePhoto, // 实况图/动图
 }
 
+/// 支持的视频平台类型枚举
+enum ParserPlatform {
+  douyin, // 抖音平台
+  xiaohongshu, // 小红书平台
+  unknown, // 未知平台
+  ;
+
+  /// 根据URL判断平台类型
+  static ParserPlatform fromUrl(String url) {
+    if (url.contains('douyin.com') || url.contains('iesdouyin.com')) {
+      return ParserPlatform.douyin;
+    }
+    if (url.contains('xiaohongshu.com') || url.contains('xhslink.com')) {
+      return ParserPlatform.xiaohongshu;
+    }
+    return ParserPlatform.unknown;
+  }
+
+  /// 获取文件名前缀
+  String get filePrefix => switch (this) {
+    ParserPlatform.douyin => 'DY_',
+    ParserPlatform.xiaohongshu => 'XHS_',
+    ParserPlatform.unknown => '',
+  };
+}
+
 // ==================== 数据模型 ====================
 
 /// 解析视频信息的结果 - 统一的数据模型
@@ -44,6 +70,9 @@ class VideoInfo {
   /// 作品ID (抖音: aweme_id, 小红书: noteId)
   final String itemId;
   final String title;
+
+  /// 来源平台
+  final ParserPlatform platform;
 
   /// video_id 参数（用于构造 play URL，如 v0200fg10000xxxxxx）
   final String videoFileId;
@@ -134,6 +163,7 @@ class VideoInfo {
     required this.videoFileId,
     required this.videoUrl,
     required this.mediaType,
+    required this.platform,
     this.videoUrlNoWatermark,
     this.coverUrl,
     this.shareId,
@@ -172,6 +202,7 @@ class VideoInfo {
       videoUrl: videoUrl,
       videoUrlNoWatermark: j['videoUrlNoWatermark']?.toString(),
       mediaType: _parseMediaType(type),
+      platform: _parsePlatform(j['platform']?.toString()),
       coverUrl: j['coverUrl']?.toString(),
       shareId: j['shareId']?.toString(),
       width: int.tryParse(j['width']?.toString() ?? ''),
@@ -209,6 +240,15 @@ class VideoInfo {
       'image' => MediaType.image,
       'livephoto' || 'live_photo' => MediaType.livePhoto,
       _ => MediaType.video,
+    };
+  }
+
+  /// 解析平台类型
+  static ParserPlatform _parsePlatform(String? value) {
+    return switch (value?.toLowerCase()) {
+      'douyin' => ParserPlatform.douyin,
+      'xiaohongshu' => ParserPlatform.xiaohongshu,
+      _ => ParserPlatform.unknown,
     };
   }
 

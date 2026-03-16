@@ -29,7 +29,6 @@ class LogPanel extends StatefulWidget {
   final LogService log;
   final SettingsService settings;
   final ScrollController scrollController;
-  final VoidCallback onSettingsTap;
   final VoidCallback onCopyTap;
   final VoidCallback onClearTap;
 
@@ -38,7 +37,6 @@ class LogPanel extends StatefulWidget {
     required this.log,
     required this.settings,
     required this.scrollController,
-    required this.onSettingsTap,
     required this.onCopyTap,
     required this.onClearTap,
   });
@@ -77,15 +75,6 @@ class _LogPanelState extends State<LogPanel> {
           );
 
           final actions = [
-            TextButton.icon(
-              onPressed: widget.onSettingsTap,
-              icon: const Icon(Icons.tune, size: 17),
-              label: Text(
-                '设置',
-                style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
-              ),
-              style: actionStyle,
-            ),
             TextButton.icon(
               onPressed: widget.onCopyTap,
               icon: const Icon(Icons.content_copy, size: 17),
