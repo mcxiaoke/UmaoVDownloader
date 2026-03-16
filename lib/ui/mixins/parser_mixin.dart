@@ -114,8 +114,20 @@ mixin ParserMixin<T extends StatefulWidget> on State<T> {
           vlog('videoUrl=${info.videoUrl}');
       }
     } catch (e, st) {
+      // 日志记录完整错误信息
       log.error('解析失败：$e');
       vlog('解析异常堆栈: $st');
+
+      // 向用户显示友好提示
+      if (mounted) {
+        final friendlyMsg = _getFriendlyErrorMessage(e.toString());
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(friendlyMsg),
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
     } finally {
       sw.stop();
       setState(() => parsing = false);
@@ -187,5 +199,35 @@ mixin ParserMixin<T extends StatefulWidget> on State<T> {
     final mb = bytes / (1024 * 1024);
     if (mb >= 1) return '${mb.toStringAsFixed(2)} MB';
     return '${(bytes / 1024).toStringAsFixed(1)} KB';
+  }
+
+  /// 将技术错误转换为友好提示
+  String _getFriendlyErrorMessage(String error) {
+    // 作品不存在/已删除
+    if (error.contains('不存在') || error.contains('已删除') || error.contains('404')) {
+      return '作品不存在或已被删除';
+    }
+    // 访问被拒绝
+    if (error.contains('403') || error.contains('被拒绝')) {
+      return '访问被拒绝，作品可能已设为私密';
+    }
+    // 未授权
+    if (error.contains('401') || error.contains('未授权')) {
+      return '需要登录才能访问此内容';
+    }
+    // 风控
+    if (error.contains('风控') || error.contains('挑战页')) {
+      return '触发风控，请稍后重试或更换网络';
+    }
+    // 网络错误
+    if (error.contains('SocketException') || error.contains('TimeoutException')) {
+      return '网络连接失败，请检查网络后重试';
+    }
+    // 解析错误
+    if (error.contains('无法提取') || error.contains('未找到')) {
+      return '解析失败，页面结构可能已变更';
+    }
+    // 默认
+    return '解析失败，请稍后重试';
   }
 }

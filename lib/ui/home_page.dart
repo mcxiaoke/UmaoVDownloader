@@ -249,9 +249,9 @@ class _HomePageState extends State<HomePage> with ParserMixin, DownloaderMixin {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                // 标题（可复制）
+                // 标题（可复制，截断到40字符）
                 SelectableText(
-                  info.title.replaceAll(RegExp(r'\s+'), ' '),
+                  _truncateTitle(info.title),
                   style: const TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
@@ -312,6 +312,13 @@ class _HomePageState extends State<HomePage> with ParserMixin, DownloaderMixin {
         );
       },
     );
+  }
+
+  /// 截断标题到指定长度（默认40字符）
+  String _truncateTitle(String title, [int maxLen = 40]) {
+    final text = title.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (text.length <= maxLen) return text;
+    return '${text.substring(0, maxLen)}...';
   }
 
   /// 构建元信息文本：ID · 类型 · 数量

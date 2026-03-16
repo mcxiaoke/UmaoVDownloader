@@ -28,6 +28,7 @@ export const DEFAULT_HEADERS = {
 /**
  * 带重试机制的HTTP请求函数
  * 在网络不稳定的情况下自动重试，提高成功率
+ * 注意：401/403/404 等客户端错误不重试，直接抛出明确错误
  * @param {string} url - 请求URL
  * @param {Object} options - fetch选项
  * @param {number} retries - 重试次数，默认2次
@@ -35,12 +36,30 @@ export const DEFAULT_HEADERS = {
  * @throws {Error} 当所有重试都失败时抛出错误
  */
 export async function fetchWithRetry(url, options = {}, retries = 2) {
+  // 不重试的 HTTP 状态码（客户端错误）
+  const NO_RETRY_STATUS = [401, 403, 404];
+
   for (let i = 0; i < retries; i++) {
     try {
       const resp = await fetch(url, options);
       if (resp.ok) return resp;
+
+      // 客户端错误不重试，直接抛出明确错误
+      if (NO_RETRY_STATUS.includes(resp.status)) {
+        const msg = resp.status === 404
+          ? "作品不存在或已被删除"
+          : resp.status === 403
+          ? "访问被拒绝，可能需要登录或作品已私密"
+          : "未授权访问，请检查登录状态";
+        const err = new Error(msg);
+        err.status = resp.status;
+        throw err;
+      }
+
       if (i === retries - 1) throw new Error(`HTTP ${resp.status}`);
     } catch (e) {
+      // 如果是明确错误（已包含友好信息），直接抛出
+      if (e.status) throw e;
       if (i === retries - 1) throw e;
       // 指数退避：延迟时间随重试次数增加
       await delay(500 * (i + 1));

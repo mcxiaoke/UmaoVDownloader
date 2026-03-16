@@ -146,7 +146,7 @@ const kUaIosDouyin =
       }
 
       onLog?.call(isNoWatermark ? '正在使用无水印 URL 解析 CDN 节点…' : '正在解析 CDN 节点…');
-      onLog?.call('  解析 URL: ${currentUrl.substring(0, currentUrl.length.clamp(0, 100))}...');
+      onLog?.call('  解析 URL: $currentUrl');
       final cdnUrls = await _resolveCdnUrls(currentUrl, onLog);
       onLog?.call('获得 ${cdnUrls.length} 个 CDN 节点，开始下载');
 
@@ -336,15 +336,7 @@ const kUaIosDouyin =
               resolved.add(loc);
               final lineParam =
                   Uri.parse(candidate).queryParameters['line'] ?? '?';
-              // 显示 scheme://host + path 前段，参数省略（URL 完整但过长）
-              final locUri = Uri.parse(loc);
-              // 显示更多路径信息（最多 100 字符）
-              final displayPath = locUri.path.length > 100
-                  ? '${locUri.path.substring(0, 100)}…'
-                  : locUri.path;
-              onLog?.call(
-                'CDN 节点 line=$lineParam → ${locUri.scheme}://${locUri.host}$displayPath',
-              );
+              onLog?.call('CDN 节点 line=$lineParam → $loc');
               continue;
             }
           }

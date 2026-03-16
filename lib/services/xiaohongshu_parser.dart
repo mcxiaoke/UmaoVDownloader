@@ -104,9 +104,8 @@ class XiaohongshuParser with HttpParserMixin {
       throw const XiaohongshuParseException('无法提取笔记数据');
     }
     log('  ✓ noteId: ${note['noteId'] ?? note['id'] ?? 'unknown'}');
-    log(
-      '  ✓ title: ${(note['title'] ?? note['desc'] ?? '').toString().substring(0, (note['title'] ?? note['desc'] ?? '').toString().length.clamp(0, 50))}',
-    );
+    final title = (note['title'] ?? note['desc'] ?? '').toString().trim();
+    log('  ✓ title: ${title.isEmpty ? "<无标题>" : title}');
     final hasVideo = note['video'] != null && note['video'] is Map;
     log(
       '  ✓ type: ${hasVideo
@@ -128,14 +127,10 @@ class XiaohongshuParser with HttpParserMixin {
     );
     log('  imageCount: ${result.imageUrls.length}');
     if (result.videoUrl.isNotEmpty) {
-      log(
-        '  videoUrl: ${result.videoUrl.substring(0, result.videoUrl.length.clamp(0, 120))}...',
-      );
+      log('  videoUrl: ${result.videoUrl}');
     }
     if (result.videoUrlNoWatermark != null) {
-      log(
-        '  videoUrlNoWatermark: ${result.videoUrlNoWatermark!.substring(0, result.videoUrlNoWatermark!.length.clamp(0, 120))}...',
-      );
+      log('  videoUrlNoWatermark: ${result.videoUrlNoWatermark}');
     }
     if (result.imageUrls.isNotEmpty) {
       log('  imageUrls[0]: ${result.imageUrls[0]}');
@@ -422,12 +417,8 @@ class XiaohongshuParser with HttpParserMixin {
     if (videoInfo?.videoUrl.isNotEmpty == true && !isLivePhoto) {
       noWatermarkUrl = _buildNoWatermarkVideoUrl(videoInfo!.videoUrl);
       if (noWatermarkUrl != null) {
-        log(
-          '  原始URL: ${videoInfo.videoUrl.substring(0, videoInfo.videoUrl.length.clamp(0, 120))}...',
-        );
-        log(
-          '  无水印URL: ${noWatermarkUrl.substring(0, noWatermarkUrl.length.clamp(0, 120))}...',
-        );
+        log('  原始URL: ${videoInfo.videoUrl}');
+        log('  无水印URL: $noWatermarkUrl');
       }
     }
 
@@ -915,9 +906,7 @@ class XiaohongshuParser with HttpParserMixin {
           },
         );
         if (size > 0) {
-          log(
-            '    找到可用CDN: ${variant.url.substring(0, variant.url.length.clamp(0, 60))}... (${(size / 1024 / 1024).toStringAsFixed(2)}MB)',
-          );
+          log('    找到可用CDN: ${variant.url} (${(size / 1024 / 1024).toStringAsFixed(2)}MB)');
           bestUrl = variant.url;
           break;
         }
@@ -936,7 +925,7 @@ class XiaohongshuParser with HttpParserMixin {
             ? '${(c.size! / 1024 / 1024).toStringAsFixed(2)}MB'
             : 'unknown';
         log('    ${c.codec}: ${c.width}x${c.height}, ${c.bitrate}bps, $sizeMB');
-        log('      ${c.url.substring(0, c.url.length.clamp(0, 120))}...');
+        logDebug('      ${c.url}');
       }
     }
 

@@ -498,6 +498,8 @@ mixin HttpParserMixin {
   }
 
   /// 使用 HttpClient 手动跟随重定向（用于需要更精细控制的情况）
+  ///
+  /// 检测最终 URL 的 HTTP 状态码，404 时抛出 [ParserException]
   Future<String> resolveUrlManually(
     String url, {
     required String userAgent,
@@ -506,6 +508,7 @@ mixin HttpParserMixin {
   }) async {
     var currentUri = Uri.parse(url);
     final ioClient = HttpClient();
+    int? lastStatusCode;
     try {
       for (var i = 0; i < maxRedirects; i++) {
         final request = await ioClient.getUrl(currentUri);
@@ -516,6 +519,7 @@ mixin HttpParserMixin {
         request.followRedirects = false;
 
         final response = await request.close();
+        lastStatusCode = response.statusCode;
         await response.drain<void>();
 
         if (response.statusCode >= 300 && response.statusCode < 400) {
@@ -529,6 +533,12 @@ mixin HttpParserMixin {
     } finally {
       ioClient.close();
     }
+
+    // 检测 404 状态码
+    if (lastStatusCode == 404) {
+      throw const DouyinParseException('作品不存在或已被删除（链接返回404）');
+    }
+
     return currentUri.toString();
   }
 

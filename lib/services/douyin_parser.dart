@@ -205,7 +205,8 @@ class DouyinParser with HttpParserMixin {
       );
     }
 
-    throw DouyinParseException('无法从页面提取 _ROUTER_DATA 数据');
+    throw const DouyinParseException('作品不存在或已被删除');
+  }
   }
 
   bool _looksLikeWafChallenge(String html) {

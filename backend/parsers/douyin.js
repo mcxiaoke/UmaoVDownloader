@@ -147,7 +147,7 @@ export async function parse(url, debug = false) {
   log("→ 提取视频/图文数据...");
   const item = extractItem(routerData);
   if (!item) {
-    throw new Error("videoInfoRes.item_list 为空");
+    throw new Error("作品不存在或已被删除");
   }
   log(`  ✓ title: ${(item.desc || "").substring(0, 50)}`);
 
@@ -313,13 +313,28 @@ async function resolveAndFetch(url) {
     shareId = url.match(/v\.douyin\.com\/([A-Za-z0-9_-]+)/)?.[1] ?? null;
   }
 
-  const resp = await fetchWithRetry(url, {
-    redirect: "follow",
-    headers: DY_HEADERS,
-  });
+  let resp;
+  try {
+    resp = await fetchWithRetry(url, {
+      redirect: "follow",
+      headers: DY_HEADERS,
+    });
+  } catch (e) {
+    // 检测 404 错误，给出明确提示
+    if (e.message && e.message.includes("404")) {
+      throw new Error("作品不存在或已被删除（链接返回404）");
+    }
+    throw e;
+  }
 
   const finalUrl = resp.url;
   const html = await resp.text();
+
+  // 检测页面内容中的错误提示
+  if (html.includes("作品已删除") || html.includes("视频已删除") || html.includes("内容不存在")) {
+    throw new Error("作品已被删除或不存在");
+  }
+
   return { html, finalUrl, shareId };
 }
 
