@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -19,9 +20,6 @@ import 'widgets/input_row.dart';
 import 'widgets/log_panel.dart';
 import 'widgets/thumbnail_grid.dart';
 import 'widgets/video_cover.dart';
-
-/// 应用版本号
-const String kAppVersion = '1.0.4';
 
 /// GitHub 项目地址
 const String kGitHubUrl = 'https://github.com/mcxiaoke/UmaoVDownloader';
@@ -42,6 +40,7 @@ class _HomePageState extends State<HomePage> with ParserMixin, DownloaderMixin {
   final _thumbScrollCtrl = ScrollController();
   final _parserFacade = ParserFacade();
   bool _screenSizeLogged = false;
+  String _appVersion = '';
 
   // ─── ParserMixin 所需状态 ─────────────────────────────────────
 
@@ -135,8 +134,18 @@ class _HomePageState extends State<HomePage> with ParserMixin, DownloaderMixin {
   @override
   void initState() {
     super.initState();
+    _initAppVersion();
     if (Platform.isAndroid) {
       _checkStoragePermission();
+    }
+  }
+
+  Future<void> _initAppVersion() async {
+    final info = await PackageInfo.fromPlatform();
+    if (mounted) {
+      setState(() {
+        _appVersion = info.version;
+      });
     }
   }
 
@@ -537,7 +546,7 @@ class _HomePageState extends State<HomePage> with ParserMixin, DownloaderMixin {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           const SizedBox(height: 4),
-                          Text('Umao VDownloader v$kAppVersion'),
+                          Text('Umao VDownloader v${_appVersion.isNotEmpty ? _appVersion : "..."}'),
                           const Text('mcxiaoke'),
                           const SizedBox(height: 4),
                           GestureDetector(
