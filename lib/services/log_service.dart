@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:developer' as developer;
 
 /// 无参回调类型（兼容 Flutter VoidCallback）
 typedef VoidCallback = void Function();
@@ -29,7 +28,7 @@ class LogEntry {
   String toString() => '[$timeStr][${level.name.toUpperCase()}] $message';
 }
 
-enum LogLevel { info, warn, error }
+enum LogLevel { debug, info, warn, error }
 
 /// 全局日志服务：维护内存列表，同时追加写入日志文件。
 /// 实现 Listenable 接口以支持 Flutter UI 绑定。
@@ -65,6 +64,7 @@ class LogService implements Listenable {
     }
   }
 
+  void debug(String msg) => _append(LogLevel.debug, msg);
   void info(String msg) => _append(LogLevel.info, msg);
   void warn(String msg) => _append(LogLevel.warn, msg);
   void error(String msg) => _append(LogLevel.error, msg);
@@ -74,32 +74,7 @@ class LogService implements Listenable {
     if (entries.length >= _maxInMemory) entries.removeAt(0);
     entries.add(entry);
     _fileSink?.writeln(entry.toString());
-    // 同步到系统日志，方便通过 adb logcat 直接查看。
-    developer.log(
-      entry.toString(),
-      name: 'dviewer',
-      level: switch (level) {
-        LogLevel.info => 800,
-        LogLevel.warn => 900,
-        LogLevel.error => 1000,
-      },
-    );
-    // Debug 模式下也打印到控制台
-    if (_isDebugMode) {
-      // ignore: avoid_print
-      print(entry.toString());
-    }
     _notifyListeners();
-  }
-
-  /// 检测是否为调试模式
-  static bool get _isDebugMode {
-    bool isDebug = false;
-    assert(() {
-      isDebug = true;
-      return true;
-    }());
-    return isDebug || !bool.fromEnvironment('dart.vm.product');
   }
 
   // Listenable 接口实现

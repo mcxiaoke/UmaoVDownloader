@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'providers/providers.dart';
 import 'services/app_logger.dart';
 import 'services/log_service.dart';
+import 'services/parser_common.dart';
 import 'services/settings_service.dart';
 import 'ui/home_page.dart';
 
@@ -35,6 +36,9 @@ void main() async {
 
   // 并行初始化日志服务和设置服务
   await Future.wait([_log.init(), _settings.load()]);
+
+  // 设置调试 JSON 输出目录（使用用户配置的下载目录）
+  debugOutputDir = _settings.downloadDir;
 
   // 初始化全局日志系统
   AppLogger.init(logService: _log, verbose: _settings.verboseLog);

@@ -94,29 +94,28 @@ class XiaohongshuParser with HttpParserMixin {
     if (note == null) {
       throw const XiaohongshuParseException('无法提取笔记数据');
     }
-    log('  ✓ noteId: ${note['noteId'] ?? note['id'] ?? 'unknown'}');
+    // 保存 note 数据用于调试
+    _saveDebugJson(note, 'note_data', shareId: shareId);
+    final noteId = note['noteId'] ?? note['id'] ?? 'unknown';
     final title = (note['title'] ?? note['desc'] ?? '').toString().trim();
-    log('  ✓ title: ${title.isEmpty ? "<无标题>" : title}');
     final hasVideo = note['video'] != null && note['video'] is Map;
+    final type = hasVideo
+        ? 'video'
+        : note['imageList'] != null
+        ? 'image'
+        : 'unknown';
     log(
-      '  ✓ type: ${hasVideo
-          ? 'video'
-          : note['imageList'] != null
-          ? 'image'
-          : 'unknown'}',
+      '  ✓ noteId: $noteId, title: ${title.isEmpty ? "<无标题>" : title}, type: $type',
     );
 
     final result = await _buildResult(note, shareId: shareId);
 
-    log('→ 构建结果:');
-    log(
-      '  type: ${result.videoUrl.isNotEmpty
-          ? 'video'
-          : result.imageUrls.isNotEmpty
-          ? 'image'
-          : 'unknown'}',
-    );
-    log('  imageCount: ${result.imageUrls.length}');
+    final resultType = result.videoUrl.isNotEmpty
+        ? 'video'
+        : result.imageUrls.isNotEmpty
+        ? 'image'
+        : 'unknown';
+    log('→ 构建结果: type=$resultType, imageCount=${result.imageUrls.length}');
     // URL 只在详细日志模式下打印
     if (result.videoUrl.isNotEmpty) {
       logDebug('  videoUrl: ${result.videoUrl}');
@@ -131,8 +130,8 @@ class XiaohongshuParser with HttpParserMixin {
             ? result.imageThumbUrls[i]
             : result.imageUrls[i];
         final full = result.imageUrls[i];
-        logDebug('  图片 ${i + 1}: thumb: $thumb');
-        logDebug('  图片 ${i + 1}: full:  $full');
+        logDebug('thumb${i + 1}=$thumb');
+        logDebug('full${i + 1}=$full');
       }
     }
 
@@ -191,52 +190,29 @@ class XiaohongshuParser with HttpParserMixin {
       cleanUndefined: true,
     );
 
-    // 保存原始 JSON 字符串
-    if (result.rawJson.isNotEmpty) {
-      _saveRawJson(result.rawJson, prefix: 'initial_state');
-    }
-
     return result.data;
   }
 
-  /// 保存原始 JSON 字符串到下载目录（仅桌面平台）
-  void _saveRawJson(String jsonStr, {required String prefix}) {
+  /// 保存调试 JSON 到下载目录（仅桌面平台）
+  void _saveDebugJson(Map<String, dynamic> data, String prefix, {String? shareId}) {
     if (!Platform.isWindows && !Platform.isMacOS && !Platform.isLinux) return;
 
     try {
       final timestamp = DateTime.now().toIso8601String().replaceAll(':', '-');
-
-      String downloadDir;
-      if (Platform.isWindows) {
-        // 优先使用 F:\Downloads\TikTok，如果不存在则使用用户目录
-        final fDir = Directory('F:\\\\Downloads\\\\TikTok');
-        if (fDir.existsSync()) {
-          downloadDir = 'F:\\\\Downloads\\\\TikTok';
-        } else {
-          final home =
-              Platform.environment['USERPROFILE'] ??
-              Platform.environment['HOME'];
-          downloadDir = home != null
-              ? '$home\\Downloads\\TikTok'
-              : 'F:\\\\Downloads\\\\TikTok';
-        }
-      } else {
-        final home = Platform.environment['HOME'];
-        downloadDir = home != null ? '$home/Downloads' : Directory.current.path;
-      }
+      final idPrefix = shareId != null ? '${shareId}_' : '';
+      final downloadDir = getDebugOutputDir();
 
       final dir = Directory(downloadDir);
       dir.createSync(recursive: true);
 
       final file = File(
-        '${dir.path}${Platform.pathSeparator}xhs_${prefix}_$timestamp.json',
+        '${dir.path}${Platform.pathSeparator}xhs_$idPrefix${prefix}_$timestamp.json',
       );
+      final jsonStr = const JsonEncoder.withIndent('  ').convert(data);
       file.writeAsStringSync(jsonStr, encoding: utf8);
-      final size = file.lengthSync();
-      log('  已保存原始 $prefix: ${file.path} ($size bytes)');
-    } catch (e, stack) {
-      log('  保存原始数据失败: $e');
-      log('  错误堆栈: $stack');
+      log('  调试 JSON 已保存: ${file.path}');
+    } catch (e) {
+      log('  保存调试 JSON 失败: $e');
     }
   }
 
@@ -248,8 +224,6 @@ class XiaohongshuParser with HttpParserMixin {
     if (match == null) return null;
 
     final jsonStr = match.group(1)!;
-    // 保存原始 JSON 字符串
-    _saveRawJson(jsonStr, prefix: 'ssr_data');
 
     try {
       return jsonDecode(jsonStr) as Map<String, dynamic>;
@@ -334,13 +308,14 @@ class XiaohongshuParser with HttpParserMixin {
     final imageThumbUrls = imageList.map((i) => i['thumb']!).toList();
 
     final hasVideoField = note['video'] != null && note['video'] is Map;
-    log('  hasVideoField: $hasVideoField');
 
     final videoInfo = await _extractVideoInfo(note);
     final isLivePhoto = videoInfo?.isLivePhoto ?? false;
-    log(
-      '  hasVideoStream: ${videoInfo?.videoUrl.isNotEmpty ?? false}, isLivePhoto: $isLivePhoto',
-    );
+    final hasVideoStream = videoInfo?.videoUrl.isNotEmpty ?? false;
+
+    // 合并日志：hasVideoField, hasVideoStream, isLivePhoto
+    final liveCount = videoInfo?.livePhotoUrls?.where((u) => u.isNotEmpty).length ?? 0;
+    log('  hasVideoField: $hasVideoField, hasVideoStream: $hasVideoStream, isLivePhoto: $isLivePhoto${isLivePhoto ? ', liveCount: $liveCount' : ''}');
 
     final displayTitle = title.isNotEmpty
         ? title
@@ -599,7 +574,12 @@ class XiaohongshuParser with HttpParserMixin {
           }
 
           final fullUrl = fullNoWaterUrl ?? fullOrigUrl;
-          final thumb = thumbUrl ?? fullUrl;
+          // 缩略图：优先使用无水印 URL 的缩略版本（避免移动端返回的劣化图）
+          // 无水印 URL 格式: https://sns-img-hw.xhscdn.com/{fileId}?imageView2/2/w/0/format/jpg
+          // 缩略图修改 w/0 为 w/540
+          final thumb = fullNoWaterUrl != null
+              ? fullNoWaterUrl.replaceFirst('w/0', 'w/540')
+              : (thumbUrl ?? fullUrl);
 
           if (fullUrl == null && thumb == null) return null;
 
@@ -680,9 +660,6 @@ class XiaohongshuParser with HttpParserMixin {
 
       if (videoUrl != null) {
         urls.add(videoUrl);
-        log(
-          '  实况图视频 ${urls.length}: ${videoUrl.substring(videoUrl.lastIndexOf('/') + 1)}',
-        );
       } else {
         urls.add('');
       }
@@ -698,14 +675,12 @@ class XiaohongshuParser with HttpParserMixin {
       // 过滤出非空的实况图视频 URL
       final nonEmptyUrls = livePhotoUrls.where((u) => u.isNotEmpty).toList();
       if (nonEmptyUrls.isNotEmpty) {
-        log('  检测到 ${nonEmptyUrls.length} 张实况图');
         return _VideoInfoResult(
           videoUrl: nonEmptyUrls.first,
           isLivePhoto: true,
           livePhotoUrls: livePhotoUrls, // 保留与 imageUrls 索引对应的完整列表
         );
       }
-      log('  无 video 字段');
       return null;
     }
 

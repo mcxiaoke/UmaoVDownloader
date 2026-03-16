@@ -198,6 +198,8 @@ class DouyinParser with HttpParserMixin {
 
     final item = _extractItemFromRouterData(html);
     if (item != null) {
+      // 保存 item 数据用于调试
+      _saveDebugJson(item, 'item_data', shareId: shareId);
       return _buildFromRouterItem(
         item,
         fallbackVideoId: videoId,
@@ -523,6 +525,29 @@ class DouyinParser with HttpParserMixin {
       commentCount: stats.commentCount,
       shareCount: stats.shareCount,
     );
+  }
+
+  /// 保存调试 JSON 到下载目录（仅桌面平台）
+  void _saveDebugJson(Map<String, dynamic> data, String prefix, {String? shareId}) {
+    if (!Platform.isWindows && !Platform.isMacOS && !Platform.isLinux) return;
+
+    try {
+      final timestamp = DateTime.now().toIso8601String().replaceAll(':', '-');
+      final idPrefix = shareId != null ? '${shareId}_' : '';
+      final downloadDir = getDebugOutputDir();
+
+      final dir = Directory(downloadDir);
+      dir.createSync(recursive: true);
+
+      final file = File(
+        '${dir.path}${Platform.pathSeparator}dy_$idPrefix${prefix}_$timestamp.json',
+      );
+      final jsonStr = const JsonEncoder.withIndent('  ').convert(data);
+      file.writeAsStringSync(jsonStr, encoding: utf8);
+      log('  调试 JSON 已保存: ${file.path}');
+    } catch (e) {
+      log('  保存调试 JSON 失败: $e');
+    }
   }
 
   /// 释放资源

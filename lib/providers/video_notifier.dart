@@ -105,9 +105,9 @@ class VideoNotifier extends Notifier<VideoState> {
 
       // 解析成功
       state = state.copyWithSuccess(info);
-      _log.info('解析成功：${info.title}');
-      _vlog('解析耗时: ${sw.elapsedMilliseconds} ms');
-      _log.info('itemId=${info.itemId}');
+      _log.info(
+        '解析成功：title=${info.title} itemId=${info.itemId} 耗时: ${sw.elapsedMilliseconds} ms',
+      );
 
       // 日志输出
       switch (info.mediaType) {
@@ -241,22 +241,18 @@ class ParseResult {
   /// 错误信息（仅 error 类型有效）
   final String? errorMessage;
 
-  const ParseResult._({
-    required this.type,
-    this.videoInfo,
-    this.errorMessage,
-  });
+  const ParseResult._({required this.type, this.videoInfo, this.errorMessage});
 
   /// 输入为空
   static const empty = ParseResult._(type: ParseResultType.empty);
 
   /// 无效 URL
-  static const invalidUrl =
-      ParseResult._(type: ParseResultType.invalidUrl);
+  static const invalidUrl = ParseResult._(type: ParseResultType.invalidUrl);
 
   /// 不支持的平台
-  static const unsupportedPlatform =
-      ParseResult._(type: ParseResultType.unsupportedPlatform);
+  static const unsupportedPlatform = ParseResult._(
+    type: ParseResultType.unsupportedPlatform,
+  );
 
   /// 解析成功
   factory ParseResult.success(VideoInfo info) =>

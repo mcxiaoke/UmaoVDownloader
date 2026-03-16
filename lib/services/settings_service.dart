@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'parser_common.dart';
+
 const _kDownloadDir = 'download_dir';
 const _kVerboseLog = 'verbose_log';
 
@@ -36,6 +38,8 @@ class SettingsService extends ChangeNotifier {
 
   Future<void> setDownloadDir(String path) async {
     _downloadDir = path;
+    // 同步更新调试输出目录
+    debugOutputDir = path;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_kDownloadDir, path);
     notifyListeners();

@@ -143,6 +143,7 @@ class AppLogger {
     try {
       switch (level) {
         case AppLogLevel.debug:
+          _logService!.debug(message);
         case AppLogLevel.info:
           _logService!.info(message);
         case AppLogLevel.warn:

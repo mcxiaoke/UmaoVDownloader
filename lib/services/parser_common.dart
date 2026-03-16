@@ -8,6 +8,25 @@ import 'package:http/http.dart' as http;
 import 'app_logger.dart';
 import 'url_extractor.dart';
 
+// ==================== 常量定义 ====================
+
+/// 调试 JSON 输出目录（可在 app 启动时设置）
+String? debugOutputDir;
+
+/// 获取调试 JSON 输出目录
+///
+/// 优先级：
+/// 1. 用户设置的下载目录 (debugOutputDir)
+/// 2. 系统临时目录
+String getDebugOutputDir() {
+  // 优先使用设置的路径
+  if (debugOutputDir != null && debugOutputDir!.isNotEmpty) {
+    return debugOutputDir!;
+  }
+  // 回退到系统临时目录
+  return Directory.systemTemp.path;
+}
+
 // ==================== 枚举定义 ====================
 
 /// 视频清晰度枚举（ratio 参数值即为实际传参字符串）
@@ -41,7 +60,7 @@ enum MediaType {
 enum ParserPlatform {
   douyin, // 抖音平台
   xiaohongshu, // 小红书平台
-  unknown, // 未知平台
+  unknown // 未知平台
   ;
 
   /// 根据URL判断平台类型
@@ -213,7 +232,7 @@ class VideoInfo {
       musicUrl: _parseNullableString(j['musicUrl']),
       musicTitle: _parseNullableString(j['musicTitle']),
       musicAuthor: _parseNullableString(j['musicAuthor']),
-      livePhotoUrls: _parseStringList(j['livePhotoUrls']),
+      livePhotoUrls: _parseStringList(j['livePhotoUrls'], keepEmpty: true),
       // 作者信息
       authorId: _parseNullableString(j['authorId']),
       authorName: _parseNullableString(j['authorName']),
@@ -259,9 +278,15 @@ class VideoInfo {
   }
 
   /// 解析字符串列表
-  static List<String> _parseStringList(dynamic value) {
+  ///
+  /// [keepEmpty] 是否保留空字符串（用于 livePhotoUrls 等需要保持索引对应的场景）
+  static List<String> _parseStringList(
+    dynamic value, {
+    bool keepEmpty = false,
+  }) {
     if (value is! List) return const [];
-    return value.map((e) => e.toString()).where((e) => e.isNotEmpty).toList();
+    final list = value.map((e) => e.toString()).toList();
+    return keepEmpty ? list : list.where((e) => e.isNotEmpty).toList();
   }
 
   /// 解析可空字符串（空字符串转为 null）

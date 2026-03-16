@@ -265,9 +265,7 @@ export async function parse(url, debug = false) {
 
   const result = await buildResult(note, shareId);
 
-  log("→ 构建结果:");
-  log(`  type: ${result.type}`);
-  log(`  imageCount: ${result.imageCount || 0}`);
+  log(`→ 构建结果:type: ${result.type}  imageCount: ${result.imageCount || 0}`);
   if (result.qualities) {
     log(`  qualities: ${result.qualities.join(", ")}`);
     log(`  最佳视频: ${result.videoUrl}`);
@@ -554,9 +552,10 @@ async function buildResult(note, shareId) {
   // 提取统计信息
   const interactInfo = note.interactInfo || {};
   const createTimeRaw = note.time;
-  const createTime = typeof createTimeRaw === "number"
-    ? createTimeRaw
-    : parseInt(createTimeRaw, 10) || null;
+  const createTime =
+    typeof createTimeRaw === "number"
+      ? createTimeRaw
+      : parseInt(createTimeRaw, 10) || null;
 
   const itemId = String(id);
   const result = {
@@ -688,7 +687,7 @@ function extractImageUrls(note) {
           result.videoUrl = videoStream.masterUrl;
           result.isLivePhoto = true;
           log(
-            `  图片 ${idx + 1}: 检测到 Live Photo, 视频 URL: ${videoStream.masterUrl}`,
+            `  图片 ${idx + 1}: 检测到实况图, 视频 URL: ${videoStream.masterUrl}`,
           );
         }
       }

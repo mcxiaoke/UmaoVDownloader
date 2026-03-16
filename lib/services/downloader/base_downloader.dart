@@ -441,7 +441,7 @@ abstract class BaseDownloader implements VideoDownloader {
       filePath = basePath;
     }
 
-    onLog?.call('下载单个图片…');
+    onLog?.call('下载单个图片 $url');
 
     final partFile = File('$filePath.part');
     await partFile.parent.create(recursive: true);
@@ -523,7 +523,7 @@ abstract class BaseDownloader implements VideoDownloader {
       filePath = basePath;
     }
 
-    onLog?.call('下载单个实况视频…');
+    onLog?.call('下载单个实况 $url');
 
     final partFile = File('$filePath.part');
     await partFile.parent.create(recursive: true);

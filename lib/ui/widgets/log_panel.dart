@@ -178,6 +178,7 @@ class _LogPanelState extends State<LogPanel> {
                   LogLevel.error => const Color(0xFFFF6B6B),
                   LogLevel.warn => const Color(0xFFFFD93D),
                   LogLevel.info => const Color(0xFFB0BEC5),
+                  LogLevel.debug => const Color(0xFF78909C),
                 },
               ),
             );
