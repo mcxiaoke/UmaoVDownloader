@@ -5,8 +5,27 @@ import 'package:flutter/material.dart';
 import '../../services/log_service.dart';
 import '../../services/settings_service.dart';
 
+/// 将 LogService 适配为 Flutter ChangeNotifier
+class _LogServiceAdapter extends ChangeNotifier {
+  final LogService _logService;
+  late final void Function() _listener;
+
+  _LogServiceAdapter(this._logService) {
+    _listener = notifyListeners;
+    _logService.addListener(_listener);
+  }
+
+  LogService get log => _logService;
+
+  @override
+  void dispose() {
+    _logService.removeListener(_listener);
+    super.dispose();
+  }
+}
+
 /// 日志面板组件
-class LogPanel extends StatelessWidget {
+class LogPanel extends StatefulWidget {
   final LogService log;
   final SettingsService settings;
   final ScrollController scrollController;
@@ -25,9 +44,28 @@ class LogPanel extends StatelessWidget {
   });
 
   @override
+  State<LogPanel> createState() => _LogPanelState();
+}
+
+class _LogPanelState extends State<LogPanel> {
+  late final _LogServiceAdapter _logAdapter;
+
+  @override
+  void initState() {
+    super.initState();
+    _logAdapter = _LogServiceAdapter(widget.log);
+  }
+
+  @override
+  void dispose() {
+    _logAdapter.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: settings,
+      listenable: widget.settings,
       builder: (context, _) => LayoutBuilder(
         builder: (context, constraints) {
           final narrow = constraints.maxWidth < 430;
@@ -40,7 +78,7 @@ class LogPanel extends StatelessWidget {
 
           final actions = [
             TextButton.icon(
-              onPressed: onSettingsTap,
+              onPressed: widget.onSettingsTap,
               icon: const Icon(Icons.tune, size: 17),
               label: Text(
                 '设置',
@@ -49,7 +87,7 @@ class LogPanel extends StatelessWidget {
               style: actionStyle,
             ),
             TextButton.icon(
-              onPressed: onCopyTap,
+              onPressed: widget.onCopyTap,
               icon: const Icon(Icons.content_copy, size: 17),
               label: Text(
                 '复制日志',
@@ -58,7 +96,7 @@ class LogPanel extends StatelessWidget {
               style: actionStyle,
             ),
             TextButton.icon(
-              onPressed: onClearTap,
+              onPressed: widget.onClearTap,
               icon: const Icon(Icons.delete_outline, size: 17),
               label: Text(
                 '清空',
@@ -122,13 +160,14 @@ class LogPanel extends StatelessWidget {
 
   Widget _buildLogListView() {
     return ListenableBuilder(
-      listenable: log,
+      listenable: _logAdapter,
       builder: (context, _) {
+        final log = _logAdapter.log;
         // 自动滚动到底部
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (scrollController.hasClients) {
-            scrollController.animateTo(
-              scrollController.position.maxScrollExtent,
+          if (widget.scrollController.hasClients) {
+            widget.scrollController.animateTo(
+              widget.scrollController.position.maxScrollExtent,
               duration: const Duration(milliseconds: 150),
               curve: Curves.easeOut,
             );
@@ -136,7 +175,7 @@ class LogPanel extends StatelessWidget {
         });
 
         final listView = ListView.builder(
-          controller: scrollController,
+          controller: widget.scrollController,
           itemCount: log.entries.length,
           itemBuilder: (_, i) {
             final e = log.entries[i];
@@ -172,7 +211,7 @@ class LogPanel extends StatelessWidget {
                       radius: const Radius.circular(4),
                     ),
                     child: Scrollbar(
-                      controller: scrollController,
+                      controller: widget.scrollController,
                       thumbVisibility: true,
                       child: listView,
                     ),

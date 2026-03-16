@@ -192,7 +192,7 @@ class DouyinParser with HttpParserMixin {
     final html = response.body;
 
     if (_looksLikeWafChallenge(html)) {
-      log('命中风控挑战页: $shareUrl');
+      logDebug('命中风控挑战页: $shareUrl');
       throw const DouyinParseException('触发风控挑战页，请更换网络后重试');
     }
 

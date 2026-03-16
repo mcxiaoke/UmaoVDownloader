@@ -75,14 +75,14 @@ class XiaohongshuParser with HttpParserMixin {
     log('开始解析: $input');
 
     final extracted = UrlUtils.extractUrl(input);
-    log('提取URL: $extracted');
+    logDebug('提取URL: $extracted');
 
     final shareId = _extractShareId(extracted);
     log('  shareId: $shareId');
 
     log('→ 请求页面...');
     final (:html, :finalUrl) = await _resolveXhsUrl(extracted);
-    log('  最终URL: $finalUrl');
+    logDebug('  最终URL: $finalUrl');
     log('  HTML长度: ${html.length} bytes');
 
     log('→ 提取 __INITIAL_STATE__...');
@@ -126,14 +126,15 @@ class XiaohongshuParser with HttpParserMixin {
           : 'unknown'}',
     );
     log('  imageCount: ${result.imageUrls.length}');
+    // URL 只在详细日志模式下打印
     if (result.videoUrl.isNotEmpty) {
-      log('  videoUrl: ${result.videoUrl}');
+      logDebug('  videoUrl: ${result.videoUrl}');
     }
     if (result.videoUrlNoWatermark != null) {
-      log('  videoUrlNoWatermark: ${result.videoUrlNoWatermark}');
+      logDebug('  videoUrlNoWatermark: ${result.videoUrlNoWatermark}');
     }
     if (result.imageUrls.isNotEmpty) {
-      log('  imageUrls[0]: ${result.imageUrls[0]}');
+      logDebug('  imageUrls[0]: ${result.imageUrls[0]}');
       for (var i = 0; i < result.imageUrls.length; i++) {
         final thumb = result.imageThumbUrls.length > i
             ? result.imageThumbUrls[i]
@@ -417,8 +418,8 @@ class XiaohongshuParser with HttpParserMixin {
     if (videoInfo?.videoUrl.isNotEmpty == true && !isLivePhoto) {
       noWatermarkUrl = _buildNoWatermarkVideoUrl(videoInfo!.videoUrl);
       if (noWatermarkUrl != null) {
-        log('  原始URL: ${videoInfo.videoUrl}');
-        log('  无水印URL: $noWatermarkUrl');
+        logDebug('  原始URL: ${videoInfo.videoUrl}');
+        logDebug('  无水印URL: $noWatermarkUrl');
       }
     }
 
@@ -906,13 +907,13 @@ class XiaohongshuParser with HttpParserMixin {
           },
         );
         if (size > 0) {
-          log('    找到可用CDN: ${variant.url} (${(size / 1024 / 1024).toStringAsFixed(2)}MB)');
+          logDebug('    找到可用CDN: ${variant.url} (${(size / 1024 / 1024).toStringAsFixed(2)}MB)');
           bestUrl = variant.url;
           break;
         }
       }
     } else {
-      log('    默认URL可用');
+      logDebug('    默认URL可用');
     }
 
     if (candidateUrls.isNotEmpty) {

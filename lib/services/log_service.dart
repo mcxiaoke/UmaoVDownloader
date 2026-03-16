@@ -1,8 +1,14 @@
 import 'dart:io';
 import 'dart:developer' as developer;
 
-import 'package:flutter/foundation.dart';
-import 'package:path_provider/path_provider.dart';
+/// 无参回调类型（兼容 Flutter VoidCallback）
+typedef VoidCallback = void Function();
+
+/// 可监听接口（兼容 Flutter Listenable）
+abstract class Listenable {
+  void addListener(VoidCallback listener);
+  void removeListener(VoidCallback listener);
+}
 
 /// 日志条目
 class LogEntry {
@@ -26,10 +32,12 @@ class LogEntry {
 enum LogLevel { info, warn, error }
 
 /// 全局日志服务：维护内存列表，同时追加写入日志文件。
-class LogService extends ChangeNotifier {
+/// 实现 Listenable 接口以支持 Flutter UI 绑定。
+class LogService implements Listenable {
   static const _maxInMemory = 500;
 
   final List<LogEntry> entries = [];
+  final List<VoidCallback> _listeners = [];
   IOSink? _fileSink;
   String? _logFilePath;
 
@@ -38,7 +46,7 @@ class LogService extends ChangeNotifier {
   /// 初始化文件日志，写到系统临时目录
   Future<void> init() async {
     try {
-      final dir = await getTemporaryDirectory();
+      final dir = Directory.systemTemp;
       final logDir = Directory(
         '${dir.path}${Platform.pathSeparator}umao_vdownloader_logs',
       );
@@ -53,7 +61,7 @@ class LogService extends ChangeNotifier {
       _append(LogLevel.info, 'LogService 初始化，日志文件: $_logFilePath');
     } catch (e) {
       // 文件日志初始化失败不影响主流程
-      debugPrint('LogService init failed: $e');
+      print('LogService init failed: $e');
     }
   }
 
@@ -76,7 +84,24 @@ class LogService extends ChangeNotifier {
         LogLevel.error => 1000,
       },
     );
-    notifyListeners();
+    _notifyListeners();
+  }
+
+  // Listenable 接口实现
+  @override
+  void addListener(VoidCallback listener) {
+    _listeners.add(listener);
+  }
+
+  @override
+  void removeListener(VoidCallback listener) {
+    _listeners.remove(listener);
+  }
+
+  void _notifyListeners() {
+    for (final listener in _listeners) {
+      listener();
+    }
   }
 
   Future<void> close() async {

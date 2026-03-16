@@ -146,7 +146,6 @@ const kUaIosDouyin =
       }
 
       onLog?.call(isNoWatermark ? '正在使用无水印 URL 解析 CDN 节点…' : '正在解析 CDN 节点…');
-      onLog?.call('  解析 URL: $currentUrl');
       final cdnUrls = await _resolveCdnUrls(currentUrl, onLog);
       onLog?.call('获得 ${cdnUrls.length} 个 CDN 节点，开始下载');
 
@@ -336,14 +335,14 @@ const kUaIosDouyin =
               resolved.add(loc);
               final lineParam =
                   Uri.parse(candidate).queryParameters['line'] ?? '?';
-              onLog?.call('CDN 节点 line=$lineParam → $loc');
+              onLog?.call('已获取 CDN 节点 #${lineParam}');
               continue;
             }
           }
           // 未重定向（直接 200）：URL 本身就是 CDN 地址
           resolved.add(candidate);
         } catch (e) {
-          onLog?.call('CDN 预解析失败（$candidate）：$e');
+          onLog?.call('CDN 预解析失败: $e');
         }
       }
     } finally {
@@ -390,7 +389,7 @@ const kUaIosDouyin =
           imgPath = basePath;
         }
 
-        onLog?.call('下载图片 ${i + 1}/$total…');
+
 
         final partFile = File('$imgPath.part');
         await partFile.parent.create(recursive: true);
@@ -427,7 +426,6 @@ const kUaIosDouyin =
         if (!saved) {
           if (await partFile.exists()) await partFile.delete();
           onLog?.call('图片 ${i + 1} 下载失败，跳过');
-          onLog?.call('  失败 URL: $url');
           continue;
         }
 
@@ -711,7 +709,6 @@ const kUaIosDouyin =
         if (!saved) {
           if (await partFile.exists()) await partFile.delete();
           onLog?.call('实况视频 ${originalIndex + 1} 下载失败，跳过');
-          onLog?.call('  失败 URL: $url');
           continue;
         }
 
