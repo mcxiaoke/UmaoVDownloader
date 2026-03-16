@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-本文件为 Claude Code (claude.ai/code) 在此代码库中工作时提供指导。
+本文件为 Claude Code (claude.ai/code) 在此代码库中工作时提供指导。工作中用简体中文交流和写代码注释。
 
 ## 项目概述
 
