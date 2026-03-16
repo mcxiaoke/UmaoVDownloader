@@ -91,7 +91,8 @@ class _HomePageState extends State<HomePage> with ParserMixin, DownloaderMixin {
   @override
   int? get lastVerboseProgressBucket => _lastVerboseProgressBucket;
   @override
-  set lastVerboseProgressBucket(int? value) => _lastVerboseProgressBucket = value;
+  set lastVerboseProgressBucket(int? value) =>
+      _lastVerboseProgressBucket = value;
 
   bool _downloadingMusic = false;
   @override
@@ -249,7 +250,7 @@ class _HomePageState extends State<HomePage> with ParserMixin, DownloaderMixin {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                // 标题（可复制，截断到40字符）
+                // 标题（可复制，截断到80字符）
                 SelectableText(
                   _truncateTitle(info.title),
                   style: const TextStyle(
@@ -314,8 +315,8 @@ class _HomePageState extends State<HomePage> with ParserMixin, DownloaderMixin {
     );
   }
 
-  /// 截断标题到指定长度（默认40字符）
-  String _truncateTitle(String title, [int maxLen = 40]) {
+  /// 截断标题到指定长度（默认80字符）
+  String _truncateTitle(String title, [int maxLen = 80]) {
     final text = title.replaceAll(RegExp(r'\s+'), ' ').trim();
     if (text.length <= maxLen) return text;
     return '${text.substring(0, maxLen)}...';

@@ -51,6 +51,30 @@ const log = DEBUG ? (...args) => console.log("[DEBUG]", ...args) : () => {};
 const logTime = (label) => (DEBUG ? console.time(label) : () => {});
 const logTimeEnd = (label) => (DEBUG ? console.timeEnd(label) : () => {});
 
+// 服务端错误信息转换（不暴露内部细节）
+function getServerErrorMsg(error) {
+  const msg = (error || "").toLowerCase();
+  if (msg.includes("不存在") || msg.includes("已删除") || msg.includes("404")) {
+    return "作品不存在或已被删除";
+  }
+  if (msg.includes("403") || msg.includes("被拒绝") || msg.includes("私密")) {
+    return "访问被拒绝，作品可能已设为私密";
+  }
+  if (msg.includes("401") || msg.includes("未授权") || msg.includes("登录")) {
+    return "需要登录才能访问此内容";
+  }
+  if (msg.includes("风控") || msg.includes("挑战") || msg.includes("waf")) {
+    return "触发风控，请稍后重试或更换网络";
+  }
+  if (msg.includes("网络") || msg.includes("timeout") || msg.includes("socket")) {
+    return "网络连接失败，请稍后重试";
+  }
+  if (msg.includes("无法提取") || msg.includes("未找到")) {
+    return "解析失败，页面结构可能已变更";
+  }
+  return "解析失败，请稍后重试";
+}
+
 // 动态注入 <base href> 到 index.html，支持子路径部署
 app.get([BASE + "/", BASE + "/index.html", BASE || "/"], async (req, res) => {
   const { readFile } = await import("node:fs/promises");
@@ -125,7 +149,20 @@ app.get("/parse", async (req, res) => {
   } catch (e) {
     logTimeEnd("  parse耗时");
     log(`  ✗ 解析失败: ${e.message}`);
-    res.status(500).json({ error: e.message });
+    // 区分客户端错误(400)和服务端错误(500)
+    const isClientError =
+      e.message?.includes("不存在") ||
+      e.message?.includes("已删除") ||
+      e.message?.includes("404") ||
+      e.message?.includes("403") ||
+      e.message?.includes("401") ||
+      e.message?.includes("私密") ||
+      e.message?.includes("拒绝") ||
+      e.message?.includes("登录");
+    const statusCode = isClientError ? 400 : 500;
+    // 返回友好错误（不暴露内部细节）
+    const friendlyMsg = getServerErrorMsg(e.message);
+    res.status(statusCode).json({ error: friendlyMsg });
   }
 });
 
@@ -201,7 +238,9 @@ app.get("/download", async (req, res) => {
     log(`  ✓ 转发完成`);
   } catch (e) {
     log(`  ✗ 代理失败: ${e.message}`);
-    if (!res.headersSent) res.status(500).json({ error: e.message });
+    if (!res.headersSent) {
+      res.status(500).json({ error: "下载代理失败，请稍后重试" });
+    }
   }
 });
 

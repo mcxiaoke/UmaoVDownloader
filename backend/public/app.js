@@ -10,6 +10,30 @@ function setStatus(msg, isError = false) {
   status.className = isError ? "error" : "";
 }
 
+// 友好错误提示转换
+function getFriendlyError(error) {
+  const msg = (error || "").toLowerCase();
+  if (msg.includes("不存在") || msg.includes("已删除") || msg.includes("404")) {
+    return "作品不存在或已被删除";
+  }
+  if (msg.includes("403") || msg.includes("被拒绝") || msg.includes("私密")) {
+    return "访问被拒绝，作品可能已设为私密";
+  }
+  if (msg.includes("401") || msg.includes("未授权") || msg.includes("登录")) {
+    return "需要登录才能访问此内容";
+  }
+  if (msg.includes("风控") || msg.includes("挑战") || msg.includes("waf")) {
+    return "触发风控，请稍后重试或更换网络";
+  }
+  if (msg.includes("network") || msg.includes("timeout") || msg.includes("网络")) {
+    return "网络连接失败，请检查网络后重试";
+  }
+  if (msg.includes("无法提取") || msg.includes("未找到") || msg.includes("解析")) {
+    return "解析失败，页面结构可能已变更";
+  }
+  return error || "解析失败，请稍后重试";
+}
+
 function dlUrl(url, name) {
   return `download?url=${encodeURIComponent(url)}&name=${encodeURIComponent(name)}`;
 }
@@ -19,7 +43,7 @@ function renderVideo(info) {
   const idPart = info.shareId || info.itemId || info.id || "";
   const titlePart = info.title
     .replace(/[\\/:"*?<>|]/g, "_")
-    .substring(0, 50);
+    .substring(0, 40);
   const safeName = idPart ? `${idPart}_${titlePart}` : titlePart;
 
   // 构建下载按钮文字：下载视频 + 文件大小 + 时长 + 码率 + 分辨率
@@ -65,7 +89,7 @@ function renderImages(info) {
   const idPart = info.shareId || info.itemId || info.id || "";
   const titlePart = info.title
     .replace(/[\\/:"*?<>|]/g, "_")
-    .substring(0, 30);
+    .substring(0, 40);
   const safeName = idPart ? `${idPart}_${titlePart}` : titlePart;
 
   // 使用后端返回的缩略图和大图
@@ -236,7 +260,9 @@ async function doParse() {
     const resp = await fetch(`parse?url=${encodeURIComponent(url)}`);
     const info = await resp.json();
     if (!resp.ok) {
-      setStatus(info.error ?? "解析失败", true);
+      // 友好错误提示
+      const friendlyMsg = getFriendlyError(info.error || "解析失败");
+      setStatus(friendlyMsg, true);
       return;
     }
 
@@ -250,7 +276,9 @@ async function doParse() {
       renderVideo(info);
     }
   } catch (e) {
-    setStatus("请求失败：" + e.message, true);
+    const friendlyMsg = getFriendlyError(e.message || "网络请求失败");
+    setStatus(friendlyMsg, true);
+    console.error("[parse] 错误详情:", e);
   } finally {
     btn.disabled = false;
   }
@@ -332,8 +360,19 @@ async function downloadAllAsZip(urls, names, zipFilename) {
 }
 
 btn.addEventListener("click", doParse);
+
+// 请求防抖：避免快速按 Enter 重复请求
+let isParsing = false;
+const debouncedParse = () => {
+  if (isParsing) return;
+  isParsing = true;
+  doParse().finally(() => {
+    setTimeout(() => (isParsing = false), 500);
+  });
+};
+
 input.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") doParse();
+  if (e.key === "Enter") debouncedParse();
 });
 
 // ── Cookie 设置功能 ───────────────────────────────────────────────────────────

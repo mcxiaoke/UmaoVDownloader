@@ -207,7 +207,6 @@ class DouyinParser with HttpParserMixin {
 
     throw const DouyinParseException('作品不存在或已被删除');
   }
-  }
 
   bool _looksLikeWafChallenge(String html) {
     return html.contains('Please wait...') &&
