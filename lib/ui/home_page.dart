@@ -3,17 +3,16 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../providers/providers.dart';
 import '../services/app_logger.dart';
 import '../services/log_service.dart';
 import '../services/parser_common.dart';
-import '../services/parser_facade.dart';
 import '../services/settings_service.dart';
-import 'mixins/downloader_mixin.dart';
-import 'mixins/parser_mixin.dart';
 import 'widgets/directory_row.dart';
 import 'widgets/download_actions.dart';
 import 'widgets/input_row.dart';
@@ -25,111 +24,25 @@ import 'widgets/video_cover.dart';
 const String kGitHubUrl = 'https://github.com/mcxiaoke/UmaoVDownloader';
 
 /// 主页
-class HomePage extends StatefulWidget {
-  final LogService log;
-  final SettingsService settings;
-
-  const HomePage({super.key, required this.log, required this.settings});
+///
+/// 使用 ConsumerStatefulWidget 以支持 Riverpod 的响应式状态管理。
+/// 状态通过 Provider 管理，UI 监听状态变化并响应。
+class HomePage extends ConsumerStatefulWidget {
+  const HomePage({super.key});
 
   @override
-  State<HomePage> createState() => _HomePageState();
+  ConsumerState<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> with ParserMixin, DownloaderMixin {
+class _HomePageState extends ConsumerState<HomePage> {
   final _inputCtrl = TextEditingController();
   final _thumbScrollCtrl = ScrollController();
-  final _parserFacade = ParserFacade();
   bool _screenSizeLogged = false;
   String _appVersion = '';
 
-  // ─── ParserMixin 所需状态 ─────────────────────────────────────
-
-  @override
-  TextEditingController get inputController => _inputCtrl;
-
-  @override
-  LogService get log => widget.log;
-
-  @override
-  SettingsService get settings => widget.settings;
-
-  @override
-  ParserFacade get parserFacade => _parserFacade;
-
-  bool _parsing = false;
-  @override
-  bool get parsing => _parsing;
-  @override
-  set parsing(bool value) => _parsing = value;
-
-  VideoInfo? _videoInfo;
-  @override
-  VideoInfo? get videoInfo => _videoInfo;
-  @override
-  set videoInfo(VideoInfo? value) => _videoInfo = value;
-
-  int? _fileSizeBytes;
-  @override
-  int? get fileSizeBytes => _fileSizeBytes;
-  @override
-  set fileSizeBytes(int? value) => _fileSizeBytes = value;
-
-  bool _fetchingSize = false;
-  @override
-  bool get fetchingSize => _fetchingSize;
-  @override
-  set fetchingSize(bool value) => _fetchingSize = value;
-
-  // ─── DownloaderMixin 所需状态 ─────────────────────────────────
-
-  bool _downloading = false;
-  @override
-  bool get downloading => _downloading;
-  @override
-  set downloading(bool value) => _downloading = value;
-
-  double? _downloadProgress;
-  @override
-  double? get downloadProgress => _downloadProgress;
-  @override
-  set downloadProgress(double? value) => _downloadProgress = value;
-
-  int? _lastVerboseProgressBucket;
-  @override
-  int? get lastVerboseProgressBucket => _lastVerboseProgressBucket;
-  @override
-  set lastVerboseProgressBucket(int? value) =>
-      _lastVerboseProgressBucket = value;
-
-  bool _downloadingMusic = false;
-  @override
-  bool get downloadingMusic => _downloadingMusic;
-  @override
-  set downloadingMusic(bool value) => _downloadingMusic = value;
-
-  bool _downloadingLiveVideos = false;
-  @override
-  bool get downloadingLiveVideos => _downloadingLiveVideos;
-  @override
-  set downloadingLiveVideos(bool value) => _downloadingLiveVideos = value;
-
-  double? _liveVideoProgress;
-  @override
-  double? get liveVideoProgress => _liveVideoProgress;
-  @override
-  set liveVideoProgress(double? value) => _liveVideoProgress = value;
-
-  final Map<int, double> _singleProgress = {};
-  @override
-  Map<int, double> get singleProgress => _singleProgress;
-
-  final Map<int, bool> _singleDownloading = {};
-  @override
-  Map<int, bool> get singleDownloading => _singleDownloading;
-
-  final Map<int, bool> _singleDone = {};
-  @override
-  Map<int, bool> get singleDone => _singleDone;
+  // 服务 getter - 直接从 Provider 获取
+  LogService get _log => ref.read(logServiceProvider);
+  SettingsService get _settings => ref.read(settingsServiceProvider);
 
   @override
   void initState() {
@@ -137,6 +50,23 @@ class _HomePageState extends State<HomePage> with ParserMixin, DownloaderMixin {
     _initAppVersion();
     if (Platform.isAndroid) {
       _checkStoragePermission();
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+
+    if (!_screenSizeLogged) {
+      _screenSizeLogged = true;
+      final mediaQuery = MediaQuery.of(context);
+      final screenWidth = mediaQuery.size.width;
+      final screenHeight = mediaQuery.size.height;
+      final devicePixelRatio = mediaQuery.devicePixelRatio;
+      _log.info(
+        '屏幕: ${screenWidth.toStringAsFixed(0)} x ${screenHeight.toStringAsFixed(0)} '
+        '逻辑像素, 设备像素比: ${devicePixelRatio.toStringAsFixed(2)}',
+      );
     }
   }
 
@@ -218,53 +148,173 @@ class _HomePageState extends State<HomePage> with ParserMixin, DownloaderMixin {
     );
   }
 
-  // ─── 回调 ───────────────────────────────────────────────────
+  // ─── 解析逻辑 ─────────────────────────────────────────────────────
 
-  @override
-  void resetDownloadProgress() {
-    _downloadProgress = null;
-    _liveVideoProgress = null;
-    _downloadingLiveVideos = false;
-    _singleProgress.clear();
-    _singleDownloading.clear();
-    _singleDone.clear();
-  }
+  /// 解析输入
+  Future<void> _parse() async {
+    // 让输入框失去焦点，隐藏键盘
+    FocusScope.of(context).unfocus();
 
-  @override
-  void onParseSuccess(VideoInfo info) {
-    resetDownloadProgress();
-    _downloadingMusic = false;
-  }
+    final input = _inputCtrl.text.trim();
+    if (input.isEmpty) return;
 
-  @override
-  void onDownloadComplete(String path) {
-    _inputCtrl.clear();
-    if (mounted) {
+    final result =
+        await ref.read(videoNotifierProvider.notifier).parse(input);
+
+    // 处理需要 UI 反馈的结果
+    if (result.shouldShowErrorSnack && mounted) {
+      final message = switch (result.type) {
+        ParseResultType.invalidUrl => '未找到有效的链接，请粘贴抖音/小红书分享文本或链接',
+        ParseResultType.unsupportedPlatform => '目前仅支持抖音/小红书链接',
+        ParseResultType.error => result.errorMessage ?? '解析失败，请稍后重试',
+        _ => '解析失败',
+      };
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('已保存到 $path'),
+          content: Text(message),
+          duration: const Duration(seconds: 3),
+          backgroundColor: Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+
+    // 解析成功：重置下载状态
+    if (result.isSuccess) {
+      ref.read(downloadNotifierProvider.notifier).reset();
+    }
+  }
+
+  // ─── 下载逻辑 ─────────────────────────────────────────────────────
+
+  /// 下载主内容
+  Future<void> _download() async {
+    final result = await ref.read(downloadNotifierProvider.notifier).download();
+    _handleDownloadResult(result);
+  }
+
+  /// 下载单个图片
+  Future<void> _downloadSingleImage(int index) async {
+    final result =
+        await ref.read(downloadNotifierProvider.notifier).downloadSingleImage(index);
+    _handleDownloadResult(result, index: index, type: '图片');
+  }
+
+  /// 下载单个实况视频
+  Future<void> _downloadSingleLivePhoto(int index) async {
+    final result =
+        await ref.read(downloadNotifierProvider.notifier).downloadSingleLivePhoto(index);
+    _handleDownloadResult(result, index: index, type: '实况视频');
+  }
+
+  /// 下载背景音乐
+  Future<void> _downloadMusic() async {
+    final result = await ref.read(downloadNotifierProvider.notifier).downloadMusic();
+    _handleDownloadResult(result, type: '背景音乐');
+  }
+
+  /// 下载动图视频
+  Future<void> _downloadLiveVideos() async {
+    final result = await ref.read(downloadNotifierProvider.notifier).downloadLiveVideos();
+    _handleDownloadResult(result, type: '动图视频');
+  }
+
+  /// 处理下载结果
+  void _handleDownloadResult(DownloadResult result, {int? index, String? type}) {
+    if (!mounted) return;
+
+    // 权限被拒绝
+    if (result.shouldShowPermissionDialog) {
+      _showPermissionDeniedDialog();
+      return;
+    }
+
+    // 成功
+    if (result.isSuccess) {
+      // 清空输入
+      _inputCtrl.clear();
+
+      // 显示成功提示
+      final message = _buildSuccessMessage(result, index: index, type: type);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+
+      // 单个下载：延迟清除进度
+      if (index != null) {
+        Future.delayed(const Duration(seconds: 2), () {
+          if (mounted) {
+            ref.read(downloadNotifierProvider.notifier).clearSingleProgress(index);
+          }
+        });
+      }
+    }
+
+    // 失败
+    if (result.type == DownloadResultType.error && result.errorMessage != null) {
+      final label = type != null && index != null ? '$type ${index + 1}' : '';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('$label 下载失败'),
+          backgroundColor: Colors.red,
           duration: const Duration(seconds: 3),
         ),
       );
     }
   }
 
-  // ─── 构建界面 ────────────────────────────────────────────────
+  /// 构建成功消息
+  String _buildSuccessMessage(DownloadResult result, {int? index, String? type}) {
+    if (type != null && index != null) {
+      return '$type ${index + 1} 已保存';
+    }
+    if (result.count != null) {
+      return '动图视频已保存（${result.count} 个）';
+    }
+    if (result.isBatch) {
+      return '已保存到 ${result.path}';
+    }
+    return '已保存到 ${result.path}';
+  }
+
+  /// 显示权限被永久拒绝的对话框
+  void _showPermissionDeniedDialog() {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('需要存储权限'),
+        content: const Text('存储权限已被永久拒绝，请在系统设置中手动开启后重试。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              openAppSettings();
+            },
+            child: const Text('去设置'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ─── 构建界面 ─────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
+    // 监听状态
+    final videoState = ref.watch(videoNotifierProvider);
+    final downloadState = ref.watch(downloadNotifierProvider);
+
     final isAndroid = Platform.isAndroid;
-    if (!_screenSizeLogged) {
-      _screenSizeLogged = true;
-      final mediaQuery = MediaQuery.of(context);
-      final screenWidth = mediaQuery.size.width;
-      final screenHeight = mediaQuery.size.height;
-      final devicePixelRatio = mediaQuery.devicePixelRatio;
-      widget.log.info(
-        '屏幕: ${screenWidth.toStringAsFixed(0)} x ${screenHeight.toStringAsFixed(0)} '
-        '逻辑像素, 设备像素比: ${devicePixelRatio.toStringAsFixed(2)}',
-      );
-    }
+
     return Scaffold(
       appBar: AppBar(
         title: LayoutBuilder(
@@ -298,31 +348,35 @@ class _HomePageState extends State<HomePage> with ParserMixin, DownloaderMixin {
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(12, 6, 12, 12),
-          child: _buildMainContent(),
+          child: _buildMainContent(videoState, downloadState),
         ),
       ),
     );
   }
 
   /// 主内容区
-  Widget _buildMainContent() {
+  Widget _buildMainContent(VideoState videoState, DownloadState downloadState) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         // 顶部输入行（固定）
-        InputRow(controller: _inputCtrl, parsing: _parsing, onParse: parse),
+        InputRow(
+          controller: _inputCtrl,
+          parsing: videoState.parsing,
+          onParse: _parse,
+        ),
         const SizedBox(height: 10),
         // 中间结果区域（可滚动）
         Expanded(
           child: SingleChildScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
-            child: _buildResultCard(),
+            child: _buildResultCard(videoState, downloadState),
           ),
         ),
         const SizedBox(height: 10),
         // 底部目录行（固定）
         DirectoryRow(
-          settings: widget.settings,
+          settings: _settings,
           onPickDirectory: _pickDirectory,
           onOpenDirectory: _openDirectory,
         ),
@@ -364,12 +418,11 @@ class _HomePageState extends State<HomePage> with ParserMixin, DownloaderMixin {
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
                   child: LogPanel(
-                    log: widget.log,
-                    settings: widget.settings,
+                    log: _log,
+                    settings: _settings,
                     scrollController: ScrollController(),
                     onCopyTap: _copyLogContent,
-                    onClearTap: () =>
-                        setState(() => widget.log.entries.clear()),
+                    onClearTap: () => setState(() => _log.entries.clear()),
                   ),
                 ),
               ),
@@ -382,8 +435,8 @@ class _HomePageState extends State<HomePage> with ParserMixin, DownloaderMixin {
 
   // ── 解析结果卡片 ──────────────────────────────────────────────
 
-  Widget _buildResultCard() {
-    if (_videoInfo == null && !_parsing) {
+  Widget _buildResultCard(VideoState videoState, DownloadState downloadState) {
+    if (videoState.videoInfo == null && !videoState.parsing) {
       return Container(
         height: 280,
         decoration: BoxDecoration(
@@ -396,14 +449,14 @@ class _HomePageState extends State<HomePage> with ParserMixin, DownloaderMixin {
       );
     }
 
-    if (_parsing) {
+    if (videoState.parsing) {
       return const SizedBox(
         height: 280,
         child: Center(child: CircularProgressIndicator()),
       );
     }
 
-    final info = _videoInfo!;
+    final info = videoState.videoInfo!;
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -435,11 +488,11 @@ class _HomePageState extends State<HomePage> with ParserMixin, DownloaderMixin {
                   ThumbnailGrid(
                     videoInfo: info,
                     scrollController: _thumbScrollCtrl,
-                    singleProgress: _singleProgress,
-                    singleDownloading: _singleDownloading,
-                    singleDone: _singleDone,
-                    onDownloadImage: downloadSingleImage,
-                    onDownloadLivePhoto: downloadSingleLivePhoto,
+                    singleProgress: downloadState.singleProgressMap,
+                    singleDownloading: downloadState.singleDownloadingMap,
+                    singleDone: downloadState.singleDoneMap,
+                    onDownloadImage: _downloadSingleImage,
+                    onDownloadLivePhoto: _downloadSingleLivePhoto,
                   ),
                 // 普通视频显示封面
                 if (info.mediaType == MediaType.video && info.coverUrl != null)
@@ -449,30 +502,30 @@ class _HomePageState extends State<HomePage> with ParserMixin, DownloaderMixin {
                 if (narrow)
                   DownloadActionsNarrow(
                     videoInfo: info,
-                    downloading: _downloading,
-                    downloadProgress: _downloadProgress,
-                    downloadingMusic: _downloadingMusic,
-                    downloadingLiveVideos: _downloadingLiveVideos,
-                    liveVideoProgress: _liveVideoProgress,
-                    fileSizeBytes: _fileSizeBytes,
-                    fetchingSize: _fetchingSize,
-                    onDownload: download,
-                    onDownloadMusic: downloadMusicOnly,
-                    onDownloadLiveVideos: downloadLiveVideos,
+                    downloading: downloadState.downloading,
+                    downloadProgress: downloadState.downloadProgress,
+                    downloadingMusic: downloadState.downloadingMusic,
+                    downloadingLiveVideos: downloadState.downloadingLiveVideos,
+                    liveVideoProgress: downloadState.liveVideoProgress,
+                    fileSizeBytes: videoState.fileSizeBytes,
+                    fetchingSize: videoState.fetchingSize,
+                    onDownload: _download,
+                    onDownloadMusic: _downloadMusic,
+                    onDownloadLiveVideos: _downloadLiveVideos,
                   )
                 else
                   DownloadActionsWide(
                     videoInfo: info,
-                    downloading: _downloading,
-                    downloadProgress: _downloadProgress,
-                    downloadingMusic: _downloadingMusic,
-                    downloadingLiveVideos: _downloadingLiveVideos,
-                    liveVideoProgress: _liveVideoProgress,
-                    fileSizeBytes: _fileSizeBytes,
-                    fetchingSize: _fetchingSize,
-                    onDownload: download,
-                    onDownloadMusic: downloadMusicOnly,
-                    onDownloadLiveVideos: downloadLiveVideos,
+                    downloading: downloadState.downloading,
+                    downloadProgress: downloadState.downloadProgress,
+                    downloadingMusic: downloadState.downloadingMusic,
+                    downloadingLiveVideos: downloadState.downloadingLiveVideos,
+                    liveVideoProgress: downloadState.liveVideoProgress,
+                    fileSizeBytes: videoState.fileSizeBytes,
+                    fetchingSize: videoState.fetchingSize,
+                    onDownload: _download,
+                    onDownloadMusic: _downloadMusic,
+                    onDownloadLiveVideos: _downloadLiveVideos,
                   ),
               ],
             ),
@@ -503,7 +556,7 @@ class _HomePageState extends State<HomePage> with ParserMixin, DownloaderMixin {
   // ─── 日志设置面板 ────────────────────────────────────────────
 
   Future<void> _openLogSettingsPanel() async {
-    var verbose = widget.settings.verboseLog;
+    var verbose = _settings.verboseLog;
 
     await showModalBottomSheet<void>(
       context: context,
@@ -528,9 +581,9 @@ class _HomePageState extends State<HomePage> with ParserMixin, DownloaderMixin {
                       value: verbose,
                       onChanged: (v) async {
                         setSheetState(() => verbose = v);
-                        await widget.settings.setVerboseLog(v);
+                        await _settings.setVerboseLog(v);
                         AppLogger.setVerbose(v);
-                        widget.log.info(v ? '已开启详细日志输出' : '已关闭详细日志输出');
+                        _log.info(v ? '已开启详细日志输出' : '已关闭详细日志输出');
                       },
                       title: const Text('详细日志'),
                     ),
@@ -576,7 +629,7 @@ class _HomePageState extends State<HomePage> with ParserMixin, DownloaderMixin {
   // ─── 目录操作 ────────────────────────────────────────────────
 
   Future<void> _pickDirectory() async {
-    final savedDir = widget.settings.downloadDir;
+    final savedDir = _settings.downloadDir;
     final initialDir = savedDir.isNotEmpty && await Directory(savedDir).exists()
         ? savedDir
         : null;
@@ -585,8 +638,8 @@ class _HomePageState extends State<HomePage> with ParserMixin, DownloaderMixin {
       initialDirectory: initialDir,
     );
     if (result != null) {
-      await widget.settings.setDownloadDir(result);
-      widget.log.info('下载目录已更改为：$result');
+      await _settings.setDownloadDir(result);
+      _log.info('下载目录已更改为：$result');
     }
   }
 
@@ -616,7 +669,7 @@ class _HomePageState extends State<HomePage> with ParserMixin, DownloaderMixin {
   }
 
   void _copyLogContent() {
-    if (widget.log.entries.isEmpty) {
+    if (_log.entries.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('当前没有日志可复制'),
@@ -626,11 +679,11 @@ class _HomePageState extends State<HomePage> with ParserMixin, DownloaderMixin {
       return;
     }
 
-    final content = widget.log.entries.map((e) => e.toString()).join('\n');
+    final content = _log.entries.map((e) => e.toString()).join('\n');
     Clipboard.setData(ClipboardData(text: content));
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('已复制日志内容（${widget.log.entries.length} 条）'),
+        content: Text('已复制日志内容（${_log.entries.length} 条）'),
         duration: const Duration(seconds: 2),
       ),
     );
