@@ -417,6 +417,8 @@ class _HomePageState extends State<HomePage> with ParserMixin, DownloaderMixin {
   void _openDirectory(String path) {
     if (Platform.isWindows) {
       Process.run('explorer', [path]);
+    } else if (Platform.isMacOS) {
+      Process.run('open', [path]);
     }
   }
 
