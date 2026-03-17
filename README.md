@@ -25,20 +25,52 @@
 
 客户端项目基于 Dart 3.11 和 Flutter 构建，提供本地化的直接下载体验和持久化配置管理。
 
+
 ### 目录结构 (App端)
 
 ```
-lib/services/
-├── parser_facade.dart          # 解析器门面，统一入口
-├── parser_common.dart          # 公共数据模型（VideoInfo、MediaType 等）
-├── douyin_parser.dart          # 抖音解析器
-├── xiaohongshu_parser.dart     # 小红书解析器
-├── url_extractor.dart          # URL 智能提取
-├── settings_service.dart       # 配置持久化
-└── downloader/                 # 下载调度器
-    ├── base_downloader.dart    # 基础下载逻辑
-    ├── mobile_downloader.dart  # Android 特定实现
-    └── desktop_downloader.dart # Windows/Linux 实现
+lib/
+├── main.dart                          # 应用入口点
+├── constants/
+│   └── app_constants.dart            # 应用常量定义
+├── providers/
+│   ├── download_notifier.dart        # 下载状态管理
+│   ├── download_state.dart           # 下载状态枚举
+│   ├── video_notifier.dart           # 视频信息状态管理
+│   ├── video_state.dart              # 视频状态枚举
+│   └── providers.dart                # Riverpod 提供者配置
+├── services/
+│   ├── parser_facade.dart            # 解析器门面，统一入口
+│   ├── parser_common.dart            # 公共数据模型（VideoInfo、MediaType 等）
+│   ├── douyin_parser.dart            # 抖音解析器
+│   ├── xiaohongshu_parser.dart       # 小红书解析器
+│   ├── url_extractor.dart            # URL 智能提取
+│   ├── app_logger.dart               # 应用日志
+│   ├── log_service.dart              # 日志基础设施
+│   ├── settings_service.dart         # 配置持久化
+│   └── downloader/                   # 下载调度器
+│       ├── base_downloader.dart      # 基础下载逻辑
+│       ├── desktop_downloader.dart   # Windows/Linux 实现
+│       ├── mobile_downloader.dart    # Android 特定实现
+│       ├── video_downloader.dart     # 视频下载专用实现
+│       └── web_downloader.dart       # Web 平台下载实现
+├── ui/
+│   ├── home_page.dart                # 主要应用界面
+│   ├── mixins/
+│   │   └── permission_mixin.dart     # 权限处理混入
+│   └── widgets/
+│       ├── directory_row.dart        # 下载目录选择
+│       ├── download_actions.dart     # 下载操作按钮
+│       ├── input_row.dart            # URL 输入组件
+│       ├── log_panel.dart            # 日志显示面板
+│       ├── rate_limited_image.dart   # 限速图片加载
+│       ├── result_card.dart          # 解析结果显示卡片
+│       ├── settings_dialog.dart      # 设置对话框
+│       ├── thumbnail_grid.dart       # 缩略图网格
+│       └── video_cover.dart          # 视频封面显示
+└── utils/
+    ├── filename_utils.dart           # 文件名处理工具
+    └── platform_utils.dart           # 平台相关工具
 ```
 
 ### CLI 工具 (`umao_vd`)
@@ -61,6 +93,7 @@ umao_vd.exe -j "http://xhslink.com/o/xxxxxx"                   # 支持小红书
 
 跨设备极速分享与下载能力（无需安装 App），内置完整的解析器实现及 Web 界面。
 
+
 ### 目录结构 (`backend/`)
 
 ```
@@ -76,19 +109,17 @@ backend/
 │   ├── index.html
 │   ├── app.js
 │   └── style.css
-└── tests/                      # 测试系统
-    ├── cache-validator.js      # 验证器（本地/在线模式）
-    ├── cache-test-cases.js     # 测试用例
-    └── cache/                  # 测试数据缓存
+├── tests/                      # 测试系统
+│   ├── cache-validator.js      # 验证器（本地/在线模式）
+│   ├── cache-test-cases.js     # 测试用例
+│   └── cache/                  # 测试数据缓存
+│       ├── dy_*.json           # 抖音测试数据
+│       └── xhs_*.json          # 小红书测试数据
+├── constants.js                # 常量定义
+├── cookies.js                  # Cookie管理
+├── test.js                     # 测试入口
+└── package.json                # 依赖配置
 ```
-
-### 测试系统
-
-支持本地和在线两种测试模式，用于验证解析器正确性：
-
-```bash
-cd backend
-
 # 本地测试（快速，无网络请求）
 node tests/cache-validator.js --local
 node tests/cache-validator.js --local --douyin    # 只测抖音

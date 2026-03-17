@@ -108,15 +108,13 @@ PORT=3333 BASE_PATH=/vd pm2 start server.js --name umao-vd
   - 自动检测 URL 平台并路由到对应解析器
 
 - **平台解析器**：
-  - `DouyinParser`：从抖音分享链接提取视频数据
-  - `XiaohongshuParser`：处理小红书内容解析（视频、图文、实况图）
+  - `DouyinParser` (`lib/services/douyin_parser.dart`)：从抖音分享链接提取视频数据
+  - `XiaohongshuParser` (`lib/services/xiaohongshu_parser.dart`)：处理小红书内容解析（视频、图文、实况图）
 
-- **下载系统**：
-  - `BaseDownloader`：包含通用下载逻辑的抽象基类
-  - `DesktopDownloader`：Windows/Linux 特定实现
-  - `MobileDownloader`：具有存储权限的 Android 特定实现
-
-### 数据模型
+- **状态管理**：
+  - `DownloadNotifier` (`lib/providers/download_notifier.dart`)：下载状态管理
+  - `VideoNotifier` (`lib/providers/video_notifier.dart`)：视频信息状态管理
+  - 基于 Riverpod 的状态管理架构
 
 - **VideoInfo**：包含以下内容的核心数据结构：
   - 视频元数据（ID、标题、尺寸、码率）
@@ -132,6 +130,8 @@ PORT=3333 BASE_PATH=/vd pm2 start server.js --name umao-vd
   - 视频质量选择
   - 进度跟踪和下载管理
   - 多平台支持检测
+- **UI 组件** (`lib/ui/widgets/`)：
+- `InputRow`：URL 输入组件 - `ResultCard`：解析结果显示卡片 - `DownloadActions`：下载操作按钮 - `DirectoryRow`：下载目录选择 - `LogPanel`：日志显示面板 - `VideoCover`：视频封面显示 - `ThumbnailGrid`：缩略图网格 - `SettingsDialog`：设置对话框
 
 ### CLI 实现
 
@@ -184,20 +184,6 @@ PORT=3333 BASE_PATH=/vd pm2 start server.js --name umao-vd
 - 可配置的输出目录
 
 ## 测试系统
-
-### 测试文件结构
-
-```
-backend/tests/
-├── cache-validator.js      # 验证器（支持本地/在线模式）
-├── cache-test-cases.js     # 测试用例定义
-└── cache/                  # 测试数据缓存
-    ├── dy_*.json           # 抖音测试数据
-    └── xhs_*.json          # 小红书测试数据
-
-test/
-└── parser_test.dart        # Dart 端单元测试
-```
 
 ### 测试用例覆盖
 
@@ -272,74 +258,6 @@ test/
 - 使用轮换用户代理避免被屏蔽
 - 实现适当的进度回调
 - 处理平台特定的存储要求
-
-## 文件结构参考
-
-```
-lib/
-├── main.dart                          # 应用入口点
-├── services/
-│   ├── parser_facade.dart            # 主要解析接口
-│   ├── parser_common.dart            # 公共数据模型
-│   ├── douyin_parser.dart            # 抖音特定解析
-│   ├── xiaohongshu_parser.dart       # 小红书解析
-│   ├── url_extractor.dart            # URL 提取工具
-│   ├── downloader/                   # 平台下载器
-│   │   ├── base_downloader.dart
-│   │   ├── desktop_downloader.dart
-│   │   └── mobile_downloader.dart
-│   ├── settings_service.dart         # 配置管理
-│   └── log_service.dart              # 日志基础设施
-└── ui/
-    └── home_page.dart                # 主要应用 UI
-
-cli/
-└── umao_vd.dart                     # 独立 CLI 工具
-
-backend/                             # Node.js 服务端
-├── parser.js                       # 解析器入口
-├── server.js                       # Express.js 服务
-├── parsers/                        # 解析器模块
-│   ├── index.js                    # 路由
-│   ├── common.js                   # 公共工具
-│   ├── douyin.js                   # 抖音解析
-│   └── xiaohongshu.js              # 小红书解析
-├── tests/                          # 测试系统
-│   ├── cache-validator.js          # 验证器
-│   ├── cache-test-cases.js         # 测试用例
-│   └── cache/                      # 测试数据
-├── public/                         # 静态前端文件
-│   ├── index.html
-│   ├── app.js
-│   └── style.css
-└── package.json
-
-tool/
-├── run_tests.dart                   # 批量测试工具
-└── debug_parse.dart                 # 调试解析工具
-
-test/
-├── parser_test.dart                 # 解析器单元测试
-├── urls.txt                         # 测试 URL 集合
-└── xhs.txt                          # 小红书 URL
-```
-
-## 常见开发任务
-
-### 添加新平台支持
-
-1. 在 `parser_facade.dart` 中扩展 `ParserPlatform` 枚举
-2. 创建平台特定的解析器类
-3. 更新 URL 检测逻辑
-4. 添加测试缓存和测试用例
-5. **运行测试验证**
-
-### Node.js 服务端开发
-
-1. 在 `backend/parsers/` 下添加/修改解析逻辑
-2. 更新 `backend/parsers/index.js` 的路由
-3. 在前端界面添加对应的 UI 元素
-4. **运行测试验证**
 
 ### 提高解析器准确性
 
