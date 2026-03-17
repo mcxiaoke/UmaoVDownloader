@@ -6,6 +6,12 @@ const status = document.getElementById("status");
 const result = document.getElementById("result");
 const abogusToggle = document.getElementById("abogusToggle");
 
+// 恢复开关状态
+abogusToggle.checked = localStorage.getItem("options.abogusEnabled") === "true";
+abogusToggle.addEventListener("change", () => {
+  localStorage.setItem("options.abogusEnabled", abogusToggle.checked);
+});
+
 function setStatus(msg, isError = false) {
   status.textContent = msg;
   status.className = isError ? "error" : "";
@@ -26,10 +32,18 @@ function getFriendlyError(error) {
   if (msg.includes("风控") || msg.includes("挑战") || msg.includes("waf")) {
     return "触发风控，请稍后重试或更换网络";
   }
-  if (msg.includes("network") || msg.includes("timeout") || msg.includes("网络")) {
+  if (
+    msg.includes("network") ||
+    msg.includes("timeout") ||
+    msg.includes("网络")
+  ) {
     return "网络连接失败，请检查网络后重试";
   }
-  if (msg.includes("无法提取") || msg.includes("未找到") || msg.includes("解析")) {
+  if (
+    msg.includes("无法提取") ||
+    msg.includes("未找到") ||
+    msg.includes("解析")
+  ) {
     return "解析失败，页面结构可能已变更";
   }
   return error || "解析失败，请稍后重试";
@@ -42,9 +56,7 @@ function dlUrl(url, name) {
 function renderVideo(info) {
   const ext = ".mp4";
   const idPart = info.shareId || info.itemId || info.id || "";
-  const titlePart = info.title
-    .replace(/[\\/:"*?<>|]/g, "_")
-    .substring(0, 40);
+  const titlePart = info.title.replace(/[\\/:"*?<>|]/g, "_").substring(0, 40);
   const safeName = idPart ? `${idPart}_${titlePart}` : titlePart;
 
   // 构建下载按钮文字：下载视频 + 文件大小 + 时长 + 码率 + 分辨率
@@ -88,9 +100,7 @@ function renderVideo(info) {
 
 function renderImages(info) {
   const idPart = info.shareId || info.itemId || info.id || "";
-  const titlePart = info.title
-    .replace(/[\\/:"*?<>|]/g, "_")
-    .substring(0, 40);
+  const titlePart = info.title.replace(/[\\/:"*?<>|]/g, "_").substring(0, 40);
   const safeName = idPart ? `${idPart}_${titlePart}` : titlePart;
 
   // 使用后端返回的缩略图和大图
@@ -116,9 +126,10 @@ function renderImages(info) {
     .join("");
 
   // 构建音乐文件名：{shareId}_{musicAuthor} - {musicTitle}.mp3
-  const musicFileName = info.musicAuthor && info.musicTitle
-    ? `${idPart}_${escHtml(info.musicAuthor).replace(/[\\/:"*?<>|]/g, "_")} - ${escHtml(info.musicTitle).replace(/[\\/:"*?<>|]/g, "_")}.mp3`
-    : `${safeName}_music.mp3`;
+  const musicFileName =
+    info.musicAuthor && info.musicTitle
+      ? `${idPart}_${escHtml(info.musicAuthor).replace(/[\\/:"*?<>|]/g, "_")} - ${escHtml(info.musicTitle).replace(/[\\/:"*?<>|]/g, "_")}.mp3`
+      : `${safeName}_music.mp3`;
 
   const musicBtn = info.musicUrl
     ? `<a class="btn-dl secondary full-width" href="${dlUrl(info.musicUrl, musicFileName)}" download>
@@ -261,7 +272,9 @@ async function doParse() {
     // 检查是否启用 abogus
     const useAbogus = abogusToggle.checked;
     const abogusParam = useAbogus ? "&abogus=1" : "";
-    const resp = await fetch(`parse?url=${encodeURIComponent(url)}${abogusParam}`);
+    const resp = await fetch(
+      `parse?url=${encodeURIComponent(url)}${abogusParam}`,
+    );
     const info = await resp.json();
     if (!resp.ok) {
       // 友好错误提示
@@ -306,9 +319,7 @@ async function fetchAndConvertToJpeg(cdnUrl) {
     canvas.width = img.naturalWidth;
     canvas.height = img.naturalHeight;
     canvas.getContext("2d").drawImage(img, 0, 0);
-    return await new Promise((res) =>
-      canvas.toBlob(res, "image/jpeg", 0.8),
-    );
+    return await new Promise((res) => canvas.toBlob(res, "image/jpeg", 0.8));
   } finally {
     URL.revokeObjectURL(objUrl);
   }
@@ -417,14 +428,10 @@ kookieTabs.forEach((tab) => {
     kookieTabs.forEach((t) => t.classList.remove("active"));
     tab.classList.add("active");
 
-    document
-      .querySelectorAll(".kookie-tab-content")
-      .forEach((content) => {
-        content.classList.remove("active");
-      });
-    document
-      .getElementById(`tab-${tab.dataset.tab}`)
-      .classList.add("active");
+    document.querySelectorAll(".kookie-tab-content").forEach((content) => {
+      content.classList.remove("active");
+    });
+    document.getElementById(`tab-${tab.dataset.tab}`).classList.add("active");
   });
 });
 
@@ -485,9 +492,7 @@ saveKookiesBtn.addEventListener("click", async () => {
     const data = await resp.json();
 
     if (resp.ok) {
-      xhsKookieStatus.textContent = xhsKookie
-        ? "✓ 小红书 Cookie 已保存"
-        : "";
+      xhsKookieStatus.textContent = xhsKookie ? "✓ 小红书 Cookie 已保存" : "";
       xhsKookieStatus.className = xhsKookie
         ? "kookie-status success"
         : "kookie-status";

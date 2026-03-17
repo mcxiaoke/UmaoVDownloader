@@ -11,26 +11,36 @@
 
 import { BDMS } from './abogus.js';
 
-// 默认指纹配置 (可在运行时覆盖)
+// 默认指纹配置 (Android Chrome 真机参数)
 let fingerprint = {
-  innerWidth: 420,
-  innerHeight: 960,
-  outerWidth: 420,
-  outerHeight: 960,
-  availWidth: 420,
-  availHeight: 960,
-  sizeWidth: 420,
-  sizeHeight: 960,
-  platform: "Win32"
+  innerWidth: 980,
+  innerHeight: 1762,
+  outerWidth: 400,
+  outerHeight: 890,
+  availWidth: 400,
+  availHeight: 890,
+  sizeWidth: 400,
+  sizeHeight: 890,
+  platform: "Linux armv81"
 };
 
-// 默认 UA
-const DEFAULT_UA = "Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Mobile Safari/537.36";
+// 默认 UA (Android Edge Mobile)
+const DEFAULT_UA = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Mobile Safari/537.36 EdgA/145.0.0.0";
 
 // 默认配置
 const DEFAULT_CONFIG = {
+  // pageId: 页面ID
+  //   - 9999: 移动端 H5 页面（slidesinfo 等接口）
+  //   - 6241: PC 端页面
   pageId: 9999,
+  
+  // appId: 应用ID
+  //   - 1128: 抖音移动端
+  //   - 6383: 抖音 PC 端（aweme/detail 等接口）
+  // 注意：不同接口可能需要不同的 appId
   appId: 1128,
+  
+  // bdms 版本号
   version: "1.0.1.19-fix.01"
 };
 
@@ -47,12 +57,13 @@ export function setFingerprint(fp) {
  * 生成 a_bogus 签名
  * @param {string} queryString - URL 查询参数字符串 (不含 a_bogus)
  * @param {string} userAgent - User-Agent 字符串
- * @param {Object} config - 可选配置 { pageId, appId, version }
+ * @param {Object} config - 可选配置 { pageId, appId, version, fingerprint }
  * @returns {string} a_bogus 签名
  */
 export function generateABogus(queryString, userAgent = DEFAULT_UA, config = {}) {
-  const { pageId, appId, version } = { ...DEFAULT_CONFIG, ...config };
-  const bdms = new BDMS(userAgent);
+  const { pageId, appId, version, fingerprint: customFingerprint } = { ...DEFAULT_CONFIG, ...config };
+  const fp = customFingerprint || fingerprint;
+  const bdms = new BDMS(userAgent, fp);
   
   const aBogus = bdms.calculateABogus(
     1, 0, 8,
