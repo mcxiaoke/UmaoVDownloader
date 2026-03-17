@@ -223,6 +223,9 @@ export async function parse(url, debug = false) {
   log(`  最终URL: ${finalUrl}`);
   log(`  HTML长度: ${html.length} bytes`);
 
+  // 保存 referer URL（最终跳转地址，用于 CDN 请求）
+  const refererUrl = finalUrl;
+
   // 尝试从 __INITIAL_STATE__ 提取数据
   log("→ 提取 __INITIAL_STATE__...");
   let data = extractInitialState(html);
@@ -263,7 +266,7 @@ export async function parse(url, debug = false) {
     `  ✓ type: ${note.video ? "video" : note.imageList ? "image" : "unknown"}`,
   );
 
-  const result = await buildResult(note, shareId);
+  const result = await buildResult(note, shareId, refererUrl);
 
   log(`→ 构建结果:type: ${result.type}  imageCount: ${result.imageCount || 0}`);
   if (result.qualities) {
@@ -526,8 +529,9 @@ function detectMediaType(note) {
  * 构建统一的结果对象
  * @param {object} note - 笔记数据
  * @param {string|null} shareId - 短链接ID
+ * @param {string|null} refererUrl - 最终跳转URL（用于CDN请求的Referer）
  */
-async function buildResult(note, shareId) {
+async function buildResult(note, shareId, refererUrl) {
   const id = note.noteId || note.id || "";
   const title = note.title || "";
   const desc = note.desc || "";
@@ -620,6 +624,11 @@ async function buildResult(note, shareId) {
     result.imageList = imageList;
     result.imageCount = imageList.length;
   }
+
+  // 添加 referer 和 cookie（用于 CDN 请求）
+  result.refererUrl = refererUrl;
+  // 从当前请求头中提取 Cookie（如果有）
+  result.cookie = XHS_HEADERS.Cookie || null;
 
   return result;
 }

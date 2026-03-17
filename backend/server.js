@@ -66,7 +66,11 @@ function getServerErrorMsg(error) {
   if (msg.includes("风控") || msg.includes("挑战") || msg.includes("waf")) {
     return "触发风控，请稍后重试或更换网络";
   }
-  if (msg.includes("网络") || msg.includes("timeout") || msg.includes("socket")) {
+  if (
+    msg.includes("网络") ||
+    msg.includes("timeout") ||
+    msg.includes("socket")
+  ) {
     return "网络连接失败，请稍后重试";
   }
   if (msg.includes("无法提取") || msg.includes("未找到")) {
@@ -100,6 +104,8 @@ const ALLOWED_DOMAINS = [
   "douyinvod.com", // 抖音视频CDN
   "douyinpic.com", // 抖音图片CDN
   "douyinstatic.com", // 抖音静态资源CDN
+  "365yg.com",
+  "amemv.com",
   // 小红书CDN域名
   "xhscdn.com", // 小红书CDN主域名
   "xiaohongshu.com", // 小红书主域名
@@ -114,8 +120,8 @@ const UA_PROXY =
 // ── GET /parse API 端点 ────────────────────────────────────────────────────────────────
 // 功能：解析抖音、小红书等平台链接，返回结构化视频/图文信息
 app.get("/parse", async (req, res) => {
-  const { url } = req.query;
-  log(`→ /parse 请求: ${url}`);
+  const { url, abogus } = req.query;
+  log(`→ /parse 请求: ${url}${abogus === "1" ? " (abogus)" : ""}`);
 
   // 参数验证
   if (!url) {
@@ -123,12 +129,19 @@ app.get("/parse", async (req, res) => {
     return res.status(400).json({ error: "缺少 url 参数" });
   }
 
+  // 构建 URL，附加 abogus 参数
+  let parseUrl = url;
+  if (abogus === "1") {
+    const separator = url.includes("?") ? "&" : "?";
+    parseUrl = `${url}${separator}abogus=1`;
+  }
+
   // 记录解析耗时
   logTime("  parse耗时");
 
   try {
     // 调用解析器，传入DEBUG标志以控制日志输出
-    const info = await parse(url, DEBUG);
+    const info = await parse(parseUrl, DEBUG);
     logTimeEnd("  parse耗时");
 
     // 记录解析结果详情

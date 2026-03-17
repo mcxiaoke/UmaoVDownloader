@@ -38,32 +38,50 @@
       <button
         id="kookieBtn"
         class="kookie-btn"
-        title="设置 Cookie 以获取高清内容"
+        title="设置 Cookie 和解析选项"
       >
-        🍪 Cookie 设置
+        ⚙️ 设置
       </button>
     </div>
 
-    <!-- Cookie 设置弹窗 -->
+    <!-- 设置弹窗 -->
     <div id="kookieModal" class="modal">
       <div class="modal-content">
         <div class="modal-header">
-          <h3>🍪 Cookie 设置</h3>
+          <h3>⚙️ 设置</h3>
           <button class="modal-close" id="closeKookieModal">&times;</button>
         </div>
         <div class="modal-body">
-          <p class="kookie-hint">
-            设置 Cookie 后可获取高清原图和视频。Cookie
-            仅存储在本地服务器，不会上传到其他位置。
-            <a href="#" id="kookieHelpLink">如何获取 Cookie？</a>
-          </p>
-
-          <div class="kookie-tabs">
-            <button class="kookie-tab active" data-tab="xhs">小红书</button>
-            <button class="kookie-tab" data-tab="douyin">抖音</button>
+          <!-- 解析选项 -->
+          <div class="settings-section">
+            <h4 class="settings-section-title">解析选项</h4>
+            <label class="settings-switch">
+              <input type="checkbox" id="abogusToggle" />
+              <span class="settings-slider"></span>
+              <div class="settings-switch-info">
+                <span class="settings-switch-label">使用加密签名</span>
+                <span class="settings-switch-desc">启用后可获取抖音动图视频（实况图）</span>
+              </div>
+            </label>
           </div>
 
-          <div class="kookie-tab-content active" id="tab-xhs">
+          <div class="settings-divider"></div>
+
+          <!-- Cookie 设置 -->
+          <div class="settings-section">
+            <h4 class="settings-section-title">Cookie 设置</h4>
+            <p class="kookie-hint">
+              设置 Cookie 后可获取高清原图和视频。Cookie
+              仅存储在本地服务器，不会上传到其他位置。
+              <a href="#" id="kookieHelpLink">如何获取 Cookie？</a>
+            </p>
+
+            <div class="kookie-tabs">
+              <button class="kookie-tab active" data-tab="xhs">小红书</button>
+              <button class="kookie-tab" data-tab="douyin">抖音</button>
+            </div>
+
+            <div class="kookie-tab-content active" id="tab-xhs">
             <textarea
               id="xhsKookieInput"
               placeholder="请粘贴小红书的 Cookie 字符串...&#10;支持格式：name=value; name2=value2&#10;或 Netscape HTTP Cookie File 格式（从浏览器扩展导出）"
@@ -110,10 +128,11 @@
               Netscape HTTP Cookie File 格式
             </p>
           </div>
+          </div><!-- 关闭 Cookie 设置的 settings-section -->
         </div>
         <div class="modal-footer">
-          <button id="clearKookies" class="btn-secondary">清除</button>
-          <button id="saveKookies" class="btn-primary">保存设置</button>
+          <button id="clearKookies" class="btn-secondary">清除 Cookie</button>
+          <button id="saveKookies" class="btn-primary">保存</button>
         </div>
       </div>
     </div>

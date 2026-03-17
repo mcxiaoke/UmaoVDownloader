@@ -4,6 +4,7 @@ const input = document.getElementById("urlInput");
 const btn = document.getElementById("parseBtn");
 const status = document.getElementById("status");
 const result = document.getElementById("result");
+const abogusToggle = document.getElementById("abogusToggle");
 
 function setStatus(msg, isError = false) {
   status.textContent = msg;
@@ -257,7 +258,10 @@ async function doParse() {
   setStatus("正在解析…");
 
   try {
-    const resp = await fetch(`parse?url=${encodeURIComponent(url)}`);
+    // 检查是否启用 abogus
+    const useAbogus = abogusToggle.checked;
+    const abogusParam = useAbogus ? "&abogus=1" : "";
+    const resp = await fetch(`parse?url=${encodeURIComponent(url)}${abogusParam}`);
     const info = await resp.json();
     if (!resp.ok) {
       // 友好错误提示

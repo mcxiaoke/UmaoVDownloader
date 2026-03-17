@@ -27,6 +27,7 @@ import {
   fetchWithRetry,
   MOBILE_UA,
 } from "./common.js";
+import { generateABogus } from "../abogus/index.js"; // a_bogus 签名模块
 
 // 抖音无水印视频播放接口基础URL
 const PLAY_BASE = "https://aweme.snssdk.com/aweme/v1/play/";
@@ -85,6 +86,18 @@ export async function parse(url, debug = false) {
   log = debug ? (...args) => console.log("  [DY]", ...args) : () => {};
   currentShortId = extractShortId(url); // 设置当前短ID
 
+  // 检测是否开启 abogus (URL 参数 abogus=1)
+  let useAbogus = false;
+  try {
+    const urlObj = new URL(url);
+    useAbogus = urlObj.searchParams.get("abogus") === "1";
+  } catch {
+    // URL 解析失败，忽略
+  }
+  if (useAbogus) {
+    log(">>> ABOGUS 模式已开启 <<<");
+  }
+
   // 初始化请求头（加载 Cookie）
   await initHeaders();
 
@@ -105,13 +118,15 @@ export async function parse(url, debug = false) {
   }
   const isNote = finalUrl.includes("/note/");
 
+  // 构建 share 页面 URL 作为 referer
+  const shareRefererUrl = `https://www.iesdouyin.com/share/${isNote ? "note" : "video"}/${awemeId}/`;
+
   // 若页面不含数据，重新请求 share 页
   let html = rawHtml;
   if (!html.includes("window._ROUTER_DATA")) {
     log("  未找到 _ROUTER_DATA, 请求 share 页面...");
-    const shareBase = `https://www.iesdouyin.com/share/${isNote ? "note" : "video"}/${awemeId}/`;
     const origParams = new URL(finalUrl).search;
-    html = await fetchSharePage(shareBase + origParams);
+    html = await fetchSharePage(shareRefererUrl + origParams);
   }
 
   log("→ 提取 _ROUTER_DATA...");
@@ -139,6 +154,20 @@ export async function parse(url, debug = false) {
     throw new Error("未找到 _ROUTER_DATA");
   }
   log("  ✓ 数据提取成功");
+
+  // 提取 webId（用于 a_bogus 签名）
+  let extractedWebId = null;
+  try {
+    // 从 commonContext 或 loaderData 中提取 webId
+    const loaderData = routerData.loaderData || {};
+    extractedWebId = routerData.commonContext?.webId || 
+      Object.values(loaderData).find(v => v?.webId)?.webId || null;
+    if (extractedWebId) {
+      log(`  ✓ 提取到 webId: ${extractedWebId}`);
+    }
+  } catch (e) {
+    log(`  ⚠️ 提取 webId 失败: ${e.message}`);
+  }
 
   const item = extractItem(routerData);
   if (!item || Object.keys(item).length === 0) {
@@ -239,6 +268,72 @@ export async function parse(url, debug = false) {
   if (!info.videoUrl && (!info.imageUrls || info.imageUrls.length === 0)) {
     throw new Error("无法获取有效的媒体内容，可能是链接无效或已被删除");
   }
+
+  // ========== ABOGUS 模式：获取动图视频 ==========
+  if (useAbogus && mediaType === "image" && itemId) {
+    log(">>> 尝试获取动图视频 (slidesinfo API)...");
+    try {
+      const slidesInfo = await fetchSlidesInfo(itemId, shareRefererUrl, extractedWebId);
+      if (slidesInfo && slidesInfo.images) {
+        log(`  ✓ 获取到 ${slidesInfo.images.length} 张图片数据`);
+        
+        // 将动图视频信息合并到 imageList，对齐小红书 livephoto 格式
+        let livePhotoCount = 0;
+        const livePhotoUrls = [];
+        
+        info.imageList = info.imageList.map((img, idx) => {
+          const slideImg = slidesInfo.images[idx];
+          if (!slideImg?.video?.play_addr?.url_list?.[0]) {
+            // 没有视频，保持原样
+            return img;
+          }
+          
+          // 提取视频信息
+          const playAddr = slideImg.video.play_addr;
+          const playAddrH264 = slideImg.video.play_addr_h264;
+          const videoUrl = playAddr.url_list[0];
+          const videoUrlH264 = playAddrH264?.url_list?.[0] || videoUrl;
+          
+          livePhotoCount++;
+          livePhotoUrls.push(videoUrl);
+          
+          log(`  Image ${idx + 1}: 动态视频 ${slideImg.video.duration}ms, ${playAddr.width}x${playAddr.height}, ${(playAddr.data_size / 1024).toFixed(1)}KB`);
+          
+          // 对齐小红书 livephoto 格式
+          return {
+            ...img,
+            // 视频信息（对齐小红书格式）
+            videoUrl: videoUrl,
+            videoUrlH264: videoUrlH264,
+            isLivePhoto: true,
+            // 视频尺寸
+            videoWidth: playAddr.width || null,
+            videoHeight: playAddr.height || null,
+            videoSize: playAddr.data_size || null,
+            duration: slideImg.video.duration || null, // 毫秒
+          };
+        });
+        
+        // 更新结果（对齐小红书 livephoto 格式）
+        if (livePhotoCount > 0) {
+          info.type = "livephoto"; // 更新类型
+          info.livePhotoCount = livePhotoCount;
+          info.livePhotoUrls = livePhotoUrls;
+          log(`  ✓ 检测到 ${livePhotoCount} 个实况图，类型更新为 livephoto`);
+        }
+        
+        // 保存 slidesInfo 供调试
+        saveDebugJson(slidesInfo, "slidesinfo");
+      }
+    } catch (e) {
+      log(`  ⚠️ 获取动图视频失败: ${e.message}`);
+    }
+  }
+
+  // 添加 referer 和 cookie（用于 CDN 请求）
+  info.refererUrl = shareRefererUrl;
+  // 从当前请求头中提取 Cookie（如果有）
+  info.cookie = DY_HEADERS.Cookie || null;
 
   return info;
 }
@@ -602,5 +697,107 @@ async function saveDebugJson(data, prefix) {
     log(`  调试 JSON 已保存: ${filePath}`);
   } catch (e) {
     log(`  保存调试 JSON 失败: ${e}`);
+  }
+}
+
+// ── ABOGUS 相关函数 ─────────────────────────────────────────────────────────
+
+/**
+ * 使用 slidesinfo API 获取动图视频信息
+ * @param {string} awemeId - 作品 ID
+ * @param {string} referer - Referer URL
+ * @returns {Promise<Object|null>} slides 信息
+ */
+async function fetchSlidesInfo(awemeId, referer, pageWebId = null) {
+  // 生成随机 19 位数字 ID (device_id 和 web_id 通常相同)
+  const randomId = () => {
+    let id = '';
+    for (let i = 0; i < 19; i++) {
+      id += Math.floor(Math.random() * 10);
+    }
+    return id;
+  };
+  
+  // 优先使用页面提取的 webId，否则随机生成
+  const webId = pageWebId || randomId();
+  const deviceId = webId; // device_id 通常与 web_id 相同
+  
+  if (pageWebId) {
+    log(`  [ABOGUS] 使用页面提取的 device_id/web_id: ${deviceId}`);
+  } else {
+    log(`  [ABOGUS] 随机生成 device_id/web_id: ${deviceId}`);
+  }
+
+  // 构建 API URL 参数
+  const params = {
+    reflow_source: 'reflow_page',
+    web_id: webId,
+    device_id: deviceId,
+    aweme_ids: `[${awemeId}]`,
+    request_source: '200'
+  };
+
+  // 构建 query string
+  const queryString = Object.entries(params)
+    .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
+    .join('&');
+
+  log(`  [ABOGUS] queryString: ${queryString.substring(0, 100)}...`);
+
+  // 生成 a_bogus
+  const userAgent = DY_HEADERS["User-Agent"] || MOBILE_UA;
+  log(`  [ABOGUS] UA: ${userAgent.substring(0, 50)}...`);
+  
+  const aBogus = generateABogus(queryString, userAgent);
+  log(`  [ABOGUS] a_bogus: ${aBogus}`);
+  log(`  [ABOGUS] a_bogus length: ${aBogus.length}`);
+
+  // 构建完整 URL
+  const apiUrl = `https://www.iesdouyin.com/web/api/v2/aweme/slidesinfo/?${queryString}&a_bogus=${encodeURIComponent(aBogus)}`;
+  log(`  [ABOGUS] API URL: ${apiUrl.substring(0, 100)}...`);
+
+  // 发送请求
+  const resp = await fetchWithRetry(apiUrl, {
+    method: 'GET',
+    headers: {
+      'accept': 'application/json, text/plain, */*',
+      'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8',
+      'agw-js-conv': 'str',
+      'cookie': DY_HEADERS.Cookie || '',
+      'Referer': referer,
+      'User-Agent': userAgent
+    }
+  });
+
+  const text = await resp.text();
+  log(`  [ABOGUS] Response status: ${resp.status}`);
+  log(`  [ABOGUS] Response length: ${text.length}`);
+
+  try {
+    const json = JSON.parse(text);
+    
+    // 检查错误
+    if (json.status_code !== 0) {
+      log(`  [ABOGUS] API 错误: status_code=${json.status_code}, msg=${json.status_msg}`);
+      return null;
+    }
+
+    // 提取 slides 信息
+    const item = json.aweme_details?.[0];
+    if (!item) {
+      log(`  [ABOGUS] 未找到 aweme_details`);
+      return null;
+    }
+
+    log(`  [ABOGUS] 成功获取 slides 信息: aweme_id=${item.aweme_id}, images=${item.images?.length}`);
+
+    return {
+      aweme_id: item.aweme_id,
+      images: item.images
+    };
+  } catch (e) {
+    log(`  [ABOGUS] JSON 解析失败: ${e.message}`);
+    log(`  [ABOGUS] Response preview: ${text.substring(0, 200)}`);
+    return null;
   }
 }
