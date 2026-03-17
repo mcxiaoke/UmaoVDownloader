@@ -319,7 +319,10 @@ class DownloadNotifier extends Notifier<DownloadState> {
     final prefix = info.shareId ?? info.itemId;
     final cleanTitle = sanitizeFilename(info.title);
     final platformPrefix = info.platform.filePrefix;
-    return '$platformPrefix${prefix}_${cleanTitle}_${index + 1}';
+    // 添加日期后缀
+    final now = DateTime.now();
+    final dateSuffix = '${now.year}${_p2(now.month)}${_p2(now.day)}';
+    return '$platformPrefix${prefix}_${cleanTitle}_${dateSuffix}_${index + 1}';
   }
 
   /// 构建音乐文件名
@@ -327,15 +330,20 @@ class DownloadNotifier extends Notifier<DownloadState> {
     final prefix = info.shareId ?? info.itemId;
     final cleanTitle = sanitizeFilename(info.title);
     final platformPrefix = info.platform.filePrefix;
+    // 添加日期后缀
+    final now = DateTime.now();
+    final dateSuffix = '${now.year}${_p2(now.month)}${_p2(now.day)}';
 
     if (info.musicAuthor != null && info.musicTitle != null) {
       final cleanAuthor = sanitizeFilename(info.musicAuthor!, maxLen: 50);
       final cleanMusicTitle = sanitizeFilename(info.musicTitle!, maxLen: 50);
-      return '$platformPrefix${prefix}_$cleanAuthor - $cleanMusicTitle';
+      return '$platformPrefix${prefix}_${cleanAuthor}_${cleanMusicTitle}_$dateSuffix';
     } else {
-      return '$platformPrefix${prefix}_${cleanTitle}_bgm';
+      return '$platformPrefix${prefix}_${cleanTitle}_bgm_$dateSuffix';
     }
   }
+
+  String _p2(int n) => n.toString().padLeft(2, '0');
 
   /// 更新主下载进度
   void _updateMainProgress(VideoInfo info, int received, int? total) {

@@ -51,9 +51,12 @@ abstract class BaseDownloader implements VideoDownloader {
     final prefix = info.shareId ?? info.itemId;
     final cleanTitle = sanitizeFilename(info.title);
     final platformPrefix = info.platform.filePrefix;
+    // 添加日期后缀（格式：20260317）
+    final now = DateTime.now();
+    final dateSuffix = '${now.year}${_p2(now.month)}${_p2(now.day)}';
     final baseName = filename != null && filename.isNotEmpty
         ? sanitizeFilename(filename)
-        : '$platformPrefix${prefix}_$cleanTitle';
+        : '$platformPrefix${prefix}_${cleanTitle}_$dateSuffix';
 
     // ── 图文作品：批量下载图片 ──────────────────────────────────
     if (info.mediaType == MediaType.image) {
@@ -142,6 +145,9 @@ abstract class BaseDownloader implements VideoDownloader {
     void Function(String message)? onLog,
   ) async {
     const chunkTimeout = kDownloadChunkTimeout;
+    const speedCheckInterval = Duration(seconds: 15);
+    const minSpeedBytesPerSec = 200 * 1024; // 200 KB/s
+
     final client = http.Client();
     try {
       for (int lineIdx = 0; lineIdx < cdnUrls.length; lineIdx++) {
@@ -202,14 +208,40 @@ abstract class BaseDownloader implements VideoDownloader {
           final sink = partFile.openWrite();
           int received = 0;
           bool streamOk = false;
+          
+          // 速度检测相关变量
+          final downloadStart = DateTime.now();
+          DateTime lastSpeedCheck = downloadStart;
+          int receivedAtLastCheck = 0;
 
           try {
             await for (final chunk in streamed.stream.timeout(chunkTimeout)) {
               sink.add(chunk);
               received += chunk.length;
               onProgress?.call(received, total);
+
+              // 速度检测：每15秒检查一次
+              final now = DateTime.now();
+              if (now.difference(lastSpeedCheck) >= speedCheckInterval) {
+                final elapsed = now.difference(lastSpeedCheck).inMilliseconds;
+                final bytesReceived = received - receivedAtLastCheck;
+                final speed = elapsed > 0 ? (bytesReceived * 1000 / elapsed) : 0.0;
+                final speedKb = (speed / 1024).toStringAsFixed(1);
+
+                onLog?.call('下载速度: ${speedKb}KB/s（已接收 ${(received / 1024 / 1024).toStringAsFixed(2)} MB）');
+
+                // 如果速度低于 200KB/s，切换 CDN
+                if (speed < minSpeedBytesPerSec) {
+                  onLog?.call('速度过慢（${speedKb}KB/s < 200KB/s），切换 CDN 节点');
+                  skipToNextCdn = true;
+                  break;
+                }
+
+                lastSpeedCheck = now;
+                receivedAtLastCheck = received;
+              }
             }
-            streamOk = true;
+            streamOk = !skipToNextCdn;
           } on TimeoutException {
             // CDN 节点挂起：换节点比换 UA 更有效
             final recvMb = (received / 1024 / 1024).toStringAsFixed(2);
@@ -569,7 +601,10 @@ abstract class BaseDownloader implements VideoDownloader {
     final prefix = info.shareId ?? info.itemId;
     final cleanTitle = sanitizeFilename(info.title);
     final platformPrefix = info.platform.filePrefix;
-    final baseName = '$platformPrefix${prefix}_$cleanTitle';
+    // 添加日期后缀
+    final now = DateTime.now();
+    final dateSuffix = '${now.year}${_p2(now.month)}${_p2(now.day)}';
+    final baseName = '$platformPrefix${prefix}_${cleanTitle}_$dateSuffix';
     return await _downloadLivePhotos(info, dir, baseName, onProgress, onLog);
   }
 

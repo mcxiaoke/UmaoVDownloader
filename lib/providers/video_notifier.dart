@@ -148,6 +148,7 @@ class VideoNotifier extends Notifier<VideoState> {
 
     state = state.copyWithFileSize(null, fetching: true);
     _vlog('开始获取视频文件大小');
+    _vlog('原始 videoUrl: ${info.videoUrl}');
 
     try {
       final ioClient = HttpClient();
@@ -160,9 +161,11 @@ class VideoNotifier extends Notifier<VideoState> {
         final resp = await req.close();
         await resp.drain<void>();
 
+        _vlog('重定向检测: statusCode=${resp.statusCode}');
         if (resp.statusCode >= 300 && resp.statusCode < 400) {
           resolvedUrl =
               resp.headers.value(HttpHeaders.locationHeader) ?? info.videoUrl;
+          _vlog('重定向到: $resolvedUrl');
         }
       } finally {
         ioClient.close();
@@ -173,8 +176,19 @@ class VideoNotifier extends Notifier<VideoState> {
         headers: {HttpHeaders.userAgentHeader: kUaEdge},
       );
 
+      _vlog('HEAD 响应: statusCode=${headResp.statusCode}');
+      _vlog('HEAD headers: ${headResp.headers}');
+
       final cl = headResp.headers['content-length'];
       final size = cl != null ? int.tryParse(cl) : null;
+
+      // 详细日志：记录 Content-Length 原始值
+      _vlog('Content-Length 原始值: "$cl"');
+      _vlog('解析后文件大小: $size bytes');
+
+      if (size != null && size < 1024) {
+        _vlog('警告: 文件大小 < 1KB，可能解析异常');
+      }
 
       state = state.copyWithFileSize(size, fetching: false);
       _vlog('视频文件大小: ${formatFileSize(size)}');
