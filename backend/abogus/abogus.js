@@ -1,52 +1,145 @@
+/**
+ * A-Bogus 签名算法
+ * 用于抖音系 API 的请求签名验证
+ * 
+ * 算法流程：
+ * 1. 计算请求参数、请求体、User-Agent 的 SM3 哈希
+ * 2. 组合时间戳、随机种子、页面ID、应用ID等参数
+ * 3. 计算校验字节
+ * 4. RC4 加密 + 自定义 Base64 编码
+ */
+
 import {
-  Ht,
+  rc4Encrypt,
   SM3,
-  qt,
-  m_731,
-  m_732,
-  m_733,
-  m_734,
-  m_728, m_718, nr, m_735
-} from './deps.js'
+  base64Encode,
+  objectToString,
+  stringToByteArray,
+  processVersionBytes,
+  toArray,
+  encryptUserAgent,
+  generateRandomPrefix,
+  getRandomFlags,
+  obfuscateBytes
+} from './deps.js';
 
 // ============================================================
-// A-Bogus 签名算法
-// 用于抖音系 API 的请求签名验证
+// 常量定义
 // ============================================================
 
-// 请求计数器（用于确定返回值类型）
+/**
+ * SM3 哈希盐值
+ * - "dhzx": 移动端/通用
+ * - "cus": PC 端
+ */
+const HASH_SALT = "dhzx";
+
+/**
+ * 周期基准日期: 2024-07-25 00:00:00 UTC
+ * 用于计算 14 天周期数
+ */
+const CYCLE_BASE_DATE = 1721836800000;
+
+/**
+ * 周期天数
+ */
+const CYCLE_DAYS = 14;
+
+/**
+ * 固定 XOR 值（用于校验计算）
+ */
+const FIXED_XOR_VALUE = 41;
+
+/**
+ * RC4 密钥字节
+ */
+const RC4_KEY_BYTE = 211;
+
+// ============================================================
+// 全局状态
+// ============================================================
+
+/**
+ * 请求计数器
+ * 用于确定签名版本类型
+ */
 var requestCounter = 0;
 
-// 固定请求参数（SM3 哈希的 salt 值）
-// 可选值: "dhzx" (移动端/通用) 或 "cus" (PC端)
-// 两者都能工作，"dhzx" 是更常用的值
-const FIX_REQ_PARAMS = "dhzx";
-
-// 初始时间戳
+/**
+ * 初始化时间戳
+ */
 var initTimestamp = Date.now();
 
-// 根据请求次数确定返回值类型
-// 返回值 3/4/5/6 对应不同的签名版本
-const getVersionType = function fn_149() {
+// ============================================================
+// 辅助函数
+// ============================================================
+
+/**
+ * 根据请求次数确定签名版本类型
+ * 返回值对应不同的签名算法版本
+ * @returns {number} 版本类型 (3-6)
+ */
+function getVersionType() {
   if (requestCounter > 10745) return 3;
   if (requestCounter > 1283) return 4;
   if (requestCounter > 139) return 5;
   return 6;
-};
+}
 
+/**
+ * 取整函数
+ * @param {number} n - 输入数值
+ * @returns {number} 整数部分
+ */
+function floorInt(n) {
+  return ~~n;
+}
+
+/**
+ * 将整数拆分为字节数组
+ * @param {number} value - 要拆分的值
+ * @param {number} byteCount - 字节数 (1-6)
+ * @returns {number[]} 字节数组
+ */
+function intToBytes(value, byteCount) {
+  var bytes = [];
+  for (var i = 0; i < byteCount; i++) {
+    if (i < 4) {
+      bytes.push((value >> (8 * i)) & 255);
+    } else {
+      // 超过 32 位，需要除法
+      var divisor = Math.pow(256, i);
+      bytes.push(Math.floor(value / divisor) & 255);
+    }
+  }
+  return bytes;
+}
+
+// ============================================================
+// BDMS 签名类
+// ============================================================
+
+/**
+ * BDMS 签名计算器
+ * 用于生成抖音 API 的 a_bogus 签名
+ */
 export class BDMS {
 
   /**
-   * @param {string} ua - User-Agent 字符串
-   * @param {Object} fingerprint - 浏览器指纹
-   *   - innerWidth, innerHeight: 内部窗口尺寸
-   *   - outerWidth, outerHeight: 外部窗口尺寸
-   *   - availWidth, availHeight: 可用屏幕尺寸
-   *   - sizeWidth, sizeHeight: 屏幕尺寸
-   *   - platform: 平台标识 (如 "Linux armv81", "Win32")
+   * @param {string} userAgent - User-Agent 字符串
+   * @param {Object} fingerprint - 浏览器指纹参数
+   * @param {number} fingerprint.innerWidth - 内部窗口宽度
+   * @param {number} fingerprint.innerHeight - 内部窗口高度
+   * @param {number} fingerprint.outerWidth - 外部窗口宽度
+   * @param {number} fingerprint.outerHeight - 外部窗口高度
+   * @param {number} fingerprint.availWidth - 可用屏幕宽度
+   * @param {number} fingerprint.availHeight - 可用屏幕高度
+   * @param {number} fingerprint.sizeWidth - 屏幕宽度
+   * @param {number} fingerprint.sizeHeight - 屏幕高度
+   * @param {string} fingerprint.platform - 平台标识 (如 "Linux armv81", "Win32")
    */
-  constructor(ua, fingerprint = null) {
-    this.ua = ua;
+  constructor(userAgent, fingerprint = null) {
+    this.userAgent = userAgent;
     // 默认指纹 (Android Chrome 真机参数)
     this.fingerprint = fingerprint || {
       innerWidth: 980,
@@ -63,12 +156,12 @@ export class BDMS {
 
   /**
    * 计算 a_bogus 签名
-   * @param {number} a_0 - 固定值 1（未使用）
-   * @param {number} a_1 - 固定值 0（未使用）
-   * @param {number} a_2 - 固定值 8（未使用）
+   * @param {number} _arg0 - 固定值 1（未使用）
+   * @param {number} _arg1 - 固定值 0（未使用）
+   * @param {number} _arg2 - 固定值 8（未使用）
    * @param {string} queryString - 请求参数字符串
-   * @param {string} body - 请求体，默认为空字符串
-   * @param {string} userAgent - User-Agent（未使用，从构造函数获取）
+   * @param {string} requestBody - 请求体，默认为空字符串
+   * @param {string} _userAgent - User-Agent（未使用，从构造函数获取）
    * @param {number} pageId - 页面ID
    *   - 9999: 移动端 H5 页面
    *   - 6241: PC 端页面
@@ -76,281 +169,277 @@ export class BDMS {
    *   - 1128: 抖音移动端
    *   - 6383: 抖音 PC 端
    * @param {string} version - bdms 版本号，如 "1.0.1.19-fix.01"
+   * @returns {string} a_bogus 签名字符串
    */
-  calculateABogus(a_0, a_1, a_2, queryString, body, userAgent, pageId, appId, version) {
-    var v_0, v_1, v_2, v_3, v_4, v_5, v_6, v_7, v_8, v_9, v_10, v_11, v_12, v_13, v_14, v_15, v_16, v_17, v_18, v_19, v_20, v_21, v_22, v_23, v_24, v_25, v_26, v_27, v_28, v_29, v_30, v_31, v_32, v_33, v_34, v_35, v_36, v_37, v_38, v_39, v_40, v_41, v_42, v_43, v_44, v_45, v_46, v_47, v_48, v_49, v_50, v_51, v_52, v_53, v_54, v_55, v_56, v_57, v_58, v_59, v_60, v_61, v_62, v_63, v_64, v_65, v_66, v_67;
-    
+  calculateABogus(_arg0, _arg1, _arg2, queryString, requestBody, _userAgent, pageId, appId, version) {
+    // 更新请求计数器
     requestCounter = requestCounter + 1;
-    
-    // Mock 值：版本类型标识（实际应由 getVersionType() 返回）
-    v_0 = 3; // Mock
-    
-    // 当前时间戳
-    v_1 = Date.now();
-    
-    // SM3 哈希实例
-    v_2 = new SM3();
-    
-    // Mock 值：随机种子相关参数
-    v_3 = 1;  // Mock: randomSeed1
-    v_4 = 14; // Mock: randomSeed2
-    
-    // 计算请求参数的 SM3 哈希（加盐）
-    // reqParamsArr = SM3(SM3(queryString + FIX_REQ_PARAMS))
-    v_5 = v_2.sum(v_2.sum(queryString + FIX_REQ_PARAMS));
-    
-    // 计算请求体的 SM3 哈希
-    v_6 = v_2.sum(v_2.sum(body + FIX_REQ_PARAMS));
-    
-    // 计算 User-Agent 的 SM3 哈希
-    // 步骤：RC4加密 -> Base64编码 -> SM3哈希
-    v_7 = v_2.sum(qt(m_728(v_3, v_4, this.ua), 's3'));
-    
-    // Mock 值：应该是时间相关（实际未使用）
-    v_8 = Date.now(); // Mock
-    
-    // Base64 前缀随机数种子
-    v_2 = new Array(2);
-    v_2[0] = 3;
-    v_2[1] = 82;
-    
-    // 取整函数
-    v_9 = function fn_151(a_0) {
-      return ~~a_0;
-    };
-    
-    // 当前时间戳（毫秒）
-    v_10 = new Date().getTime();
-    
-    // 计算日期时间周期数
-    // 基准日期: 2024-07-25 00:00:00 UTC (1721836800000)
-    // 每14天为一个周期
-    v_11 = (v_10 - 1721836800000) / 1000 / 60 / 60 / 24 / 14 >> 0;
-    
-    // 版本类型
-    v_10 = getVersionType();
-    
-    // 时间戳偏移量（用于时间数组）
-    v_12 = initTimestamp > 0 ? v_1 - initTimestamp + 3 & 255 : 2;
-    
-    // 时间戳各字节
-    v_13 = v_1 & 255;           // timestamp byte 0
-    v_14 = v_1 >> 8 & 255;      // timestamp byte 1
-    v_15 = v_1 >> 16 & 255;     // timestamp byte 2
-    v_16 = v_1 >> 24 & 255;     // timestamp byte 3
-    v_17 = v_1 / 256 / 256 / 256 / 256 & 255;        // timestamp byte 4
-    v_18 = v_1 / 256 / 256 / 256 / 256 / 256 & 255;  // timestamp byte 5
-    
-    // 随机种子的字节表示
-    v_19 = v_3 % 256 & 255;
-    v_20 = v_3 / 256 & 255;
-    
-    // 获取随机指纹参数（屏幕尺寸、平台等）
-    v_3 = nr();
-    
-    // 指纹参数的字节表示（用于校验计算）
-    v_21 = v_3['4'] & 255;
-    v_22 = v_3['4'] >> 8 & 255;
-    v_23 = v_3['0'];
-    v_24 = v_3['1'];
-    v_25 = v_3['2'];
-    v_26 = v_3['3'];
-    
-    // 随机种子2的字节表示
-    v_27 = v_4 & 255;
-    v_28 = v_4 >> 8 & 255;
-    v_29 = v_4 >> 16 & 255;
-    v_30 = v_4 >> 24 & 255;
-    
-    // 从请求参数哈希中提取的索引值
-    v_4 = v_5['9'];
-    v_31 = v_5['18'];
-    v_32 = 3;
-    v_33 = v_5[3];
-    
-    // 查找特殊索引位置（处理数组中的特定值）
-    while (true) {
-      if (!(v_33 === 11))
-        break;
-      v_63 = v_32 + 1;
-      v_33 = v_63 < v_6.length ? v_5[v_63] : 12;
-      v_32 = v_63;
-      continue;
-    }
-    
-    // 条件选择索引
-    v_34 = v_3['4'] & 2 ? 11 : v_33;
-    
-    // 从 body 哈希中提取的索引值
-    v_35 = v_6['10'];
-    v_36 = v_6['19'];
-    v_37 = 4;
-    v_38 = v_6[4];
-    
-    while (true) {
-      if (!(v_38 === 8))
-        break;
-      v_63 = v_37 + 1;
-      v_38 = v_63 < v_6.length ? v_6[v_63] : 9;
-      v_37 = v_63;
-      continue;
-    }
-    
-    v_39 = v_3['4'] & 4 ? 8 : v_38;
-    
-    // 从 UA 哈希中提取的索引值
-    v_40 = v_7['11'];
-    v_41 = v_7['21'];
-    v_42 = 5;
-    v_43 = v_7[5];
-    
-    while (true) {
-      if (v_43 === 12) {
-        v_63 = v_42 + 1;
-        v_43 = v_63 < v_7.length ? v_7[v_63] : 13;
-        v_42 = v_63;
-        continue;
-      }
-      
-      v_44 = v_3['4'] & 8 ? 12 : v_43;
-      
-      // Mock 时间戳的字节表示（v_8 是 Mock 值）
-      v_45 = v_8 & 255;
-      v_46 = v_8 >> 8 & 255;
-      v_47 = v_8 >> 16 & 255;
-      v_48 = v_8 >> 24 & 255;
-      v_49 = v_8 / 256 / 256 / 256 / 256 & 255;
-      v_50 = v_8 / 256 / 256 / 256 / 256 / 256 & 255;
-      
-      // pageId 各字节
-      v_51 = pageId & 255;
-      v_52 = pageId >> 8 & 255;
-      v_53 = pageId >> 16 & 255;
-      v_54 = pageId >> 24 & 255;
-      
-      // appId 各字节
-      v_55 = appId & 255;
-      v_56 = appId >> 8 & 255;
-      v_57 = appId >> 16 & 255;
-      v_58 = appId >> 24 & 255;
-      
-      // 系统指纹参数（屏幕尺寸、平台等）
-      // 格式: innerWidth|innerHeight|outerWidth|outerHeight|availWidth|availHeight|sizeWidth|sizeHeight|platform
-      v_59 = this.fingerprint;
-      
-      // 转换为字符数组
-      v_60 = m_732(m_731(v_59));
-      v_59 = v_60.length;
-      
-      // 系统参数长度
-      v_61 = v_59 & 255;
-      v_62 = v_59 >> 8 & 255;
-      
-      // 时间数组
-      v_59 = m_732((v_1 + 3 & 255) + ',');
-      v_63 = v_59.length;
-      
-      // 时间数组长度
-      v_64 = v_63 & 255;
-      v_65 = v_63 >> 8 & 255;
-      
-      // 版本号各部分异或值
-      v_63 = m_733(version.split('.').map(v_9));
-      v_66 = v_63['0'] ^ v_63['1'] ^ v_63['2'] ^ v_63['3'] ^ v_63['4'] ^ v_63['5'];
-      
-      // 计算校验位（XOR 所有相关参数）
-      // getLastNumArr: 对所有参数进行异或运算得到校验字节
-      v_67 = v_66 ^ v_63['6'] ^ v_63['7'] ^ 41 ^ v_11 ^ v_10 ^ v_12;
-      v_66 = v_67 ^ v_13 ^ v_14 ^ v_15 ^ v_16 ^ v_17 ^ v_18 ^ v_19 ^ v_20;
-      v_67 = v_66 ^ v_21 ^ v_22 ^ v_23 ^ v_24 ^ v_25 ^ v_26 ^ v_27 ^ v_28;
-      v_66 = v_67 ^ v_29 ^ v_30 ^ v_4 ^ v_31 ^ v_34 ^ v_35 ^ v_36 ^ v_39;
-      v_67 = v_66 ^ v_40 ^ v_41 ^ v_44 ^ v_45 ^ v_46 ^ v_47 ^ v_48 ^ v_49;
-      v_66 = v_67 ^ v_50 ^ v_0 ^ v_51 ^ v_52 ^ v_53 ^ v_54 ^ v_55 ^ v_56;
-      
-      // 构建 50 字节的参数数组
-      // getLen50Arr: 按特定顺序排列各参数字节
-      v_67 = new Array(50);
-      v_67[0] = v_18;  // timestamp byte 5
-      v_67[1] = v_27;  // seed2 byte 0
-      v_67[2] = v_40;  // uaHash[11]
-      v_67[3] = v_46;  // mockTimestamp byte 1
-      v_67[4] = v_57;  // appId byte 2
-      v_67[5] = v_13;  // timestamp byte 0
-      v_67[6] = v_54;  // pageId byte 3
-      v_67[7] = v_28;  // seed2 byte 1
-      v_67[8] = v_19;  // seed1 byte 0
-      v_67[9] = v_31;  // reqParamsHash[18]
-      v_67[10] = v_21; // fingerprint[4] byte 0
-      v_67[11] = v_0;  // versionType (Mock)
-      v_67[12] = v_34; // conditional index
-      v_67[13] = v_52; // pageId byte 1
-      v_67[14] = v_12; // timestamp offset
-      v_67[15] = v_4;  // reqParamsHash[9]
-      v_67[16] = v_49; // mockTimestamp byte 4
-      v_67[17] = v_30; // seed2 byte 3
-      v_67[18] = v_14; // timestamp byte 1
-      v_67[19] = v_55; // appId byte 0
-      v_67[20] = v_11; // dateTimeCycle (14天周期数)
-      v_67[21] = v_39; // conditional index
-      v_67[22] = v_15; // timestamp byte 2
-      v_67[23] = v_53; // pageId byte 2
-      v_67[24] = v_44; // uaHash conditional
-      v_67[25] = v_23; // fingerprint[0]
-      v_67[26] = v_47; // mockTimestamp byte 2
-      v_67[27] = v_48; // mockTimestamp byte 3
-      v_67[28] = v_10; // versionType
-      v_67[29] = v_56; // appId byte 1
-      v_67[30] = v_24; // fingerprint[1]
-      v_67[31] = v_58; // appId byte 3
-      v_67[32] = v_41; // uaHash[21]
-      v_67[33] = v_35; // bodyHash[10]
-      v_67[34] = v_25; // fingerprint[2]
-      v_67[35] = v_22; // fingerprint[4] byte 1
-      v_67[36] = v_17; // timestamp byte 4
-      v_67[37] = v_51; // pageId byte 0
-      v_67[38] = v_36; // bodyHash[19]
-      v_67[39] = v_26; // fingerprint[3]
-      v_67[40] = v_50; // mockTimestamp byte 5
-      v_67[41] = v_29; // seed2 byte 2
-      v_67[42] = v_20; // seed1 byte 1
-      v_67[43] = 41;   // 固定值
-      v_67[44] = v_45; // mockTimestamp byte 0
-      v_67[45] = v_16; // timestamp byte 3
-      v_67[46] = v_61; // systemParams length byte 0
-      v_67[47] = v_62; // systemParams length byte 1
-      v_67[48] = v_64; // timeArr length byte 0
-      v_67[49] = v_65; // timeArr length byte 1
-      
-      // 校验字节数组（1字节）
-      v_46 = new Array(1);
-      v_46[0] = v_66 ^ v_57 ^ v_58 ^ v_61 ^ v_62 ^ v_64 ^ v_65;
-      
-      v_66 = String.fromCharCode;
-      v_65 = m_734;  // RC4 扩展函数
-      v_64 = Ht;     // RC4 加密
-      v_62 = String.fromCharCode;
-      
-      // RC4 密钥（固定值 211 = 0xD3 = 'Ó'）
-      v_61 = new Array(1);
-      v_61[0] = 211;
-      
-      v_58 = String.fromCharCode;
-      v_57 = [];
-      v_54 = v_57.concat;
-      
-      // 构建加密数据块
-      v_52 = new Array(2);
-      v_52[0] = m_734(v_63);  // 版本号处理
-      v_52[1] = m_734(m_735(v_67.concat(m_734(v_60), m_734(v_59), v_46)));  // 参数块
-      
-      // RC4 加密
-      v_63 = v_64(v_62.apply(null, v_61), v_58.apply(null, v_54.apply(v_57, v_52)));
-      
-      // 最终 Base64 编码
-      v_52 = qt(v_66.apply(String, v_65(m_718(v_2, 1))) + v_63, 's4');
-      
-      return v_52;
-    }
-  }
 
+    // --------------------------------------------------------
+    // 第一阶段：计算基础参数
+    // --------------------------------------------------------
+
+    // 当前时间戳（毫秒）
+    const timestamp = Date.now();
+
+    // Mock 版本类型（实际应从 getVersionType() 获取）
+    const mockVersionType = 3;
+
+    // SM3 哈希实例
+    const sm3 = new SM3();
+
+    // RC4 加密种子参数
+    const rc4Seed1 = 1;
+    const rc4Seed2 = 14;
+
+    // --------------------------------------------------------
+    // 第二阶段：计算各类哈希值
+    // --------------------------------------------------------
+
+    // 请求参数的 SM3 哈希（双重哈希 + 盐值）
+    const paramsHash = sm3.sum(sm3.sum(queryString + HASH_SALT));
+
+    // 请求体的 SM3 哈希
+    const bodyHash = sm3.sum(sm3.sum((requestBody || '') + HASH_SALT));
+
+    // User-Agent 的 SM3 哈希
+    // 步骤：RC4加密 -> Base64编码(s3) -> SM3哈希
+    const uaEncrypted = encryptUserAgent(rc4Seed1, rc4Seed2, this.userAgent);
+    const uaBase64 = base64Encode(uaEncrypted, 's3');
+    const uaHash = sm3.sum(uaBase64);
+
+    // Mock 时间戳（用于混淆）
+    const mockTimestamp = Date.now();
+
+    // --------------------------------------------------------
+    // 第三阶段：准备参数字节
+    // --------------------------------------------------------
+
+    // Base64 前缀随机种子
+    const prefixSeed = [3, 82];
+
+    // 当前版本类型
+    const versionType = getVersionType();
+
+    // 计算日期周期数（从基准日期起，每14天一个周期）
+    const dateCycle = Math.floor((timestamp - CYCLE_BASE_DATE) / (1000 * 60 * 60 * 24 * CYCLE_DAYS));
+
+    // 时间戳偏移量
+    const timestampOffset = initTimestamp > 0 
+      ? (timestamp - initTimestamp + 3) & 255 
+      : 2;
+
+    // 时间戳各字节（6 字节）
+    const tsBytes = intToBytes(timestamp, 6);
+
+    // RC4 种子1的字节表示
+    const seed1Bytes = intToBytes(rc4Seed1, 2);
+
+    // 获取随机指纹参数
+    const randomFlags = getRandomFlags();
+
+    // 指纹参数的字节表示
+    const flagBytes = [
+      randomFlags[4] & 255,        // flag byte 0
+      (randomFlags[4] >> 8) & 255, // flag byte 1
+      randomFlags[0],
+      randomFlags[1],
+      randomFlags[2],
+      randomFlags[3]
+    ];
+
+    // RC4 种子2的字节表示（4 字节）
+    const seed2Bytes = intToBytes(rc4Seed2, 4);
+
+    // --------------------------------------------------------
+    // 第四阶段：从哈希中提取索引
+    // --------------------------------------------------------
+
+    // 从请求参数哈希提取
+    let paramsIndex = paramsHash[9];
+    let paramsIndexAlt = paramsHash[18];
+    let paramsSearchIdx = 3;
+    let paramsSearchVal = paramsHash[3];
+
+    // 跳过值为 11 的位置
+    while (paramsSearchVal === 11) {
+      paramsSearchIdx++;
+      paramsSearchVal = paramsSearchIdx < paramsHash.length ? paramsHash[paramsSearchIdx] : 12;
+    }
+
+    // 根据标志位选择索引
+    const paramsFinalIndex = (randomFlags[4] & 2) ? 11 : paramsSearchVal;
+
+    // 从请求体哈希提取
+    let bodyIndex = bodyHash[10];
+    let bodyIndexAlt = bodyHash[19];
+    let bodySearchIdx = 4;
+    let bodySearchVal = bodyHash[4];
+
+    // 跳过值为 8 的位置
+    while (bodySearchVal === 8) {
+      bodySearchIdx++;
+      bodySearchVal = bodySearchIdx < bodyHash.length ? bodyHash[bodySearchIdx] : 9;
+    }
+
+    const bodyFinalIndex = (randomFlags[4] & 4) ? 8 : bodySearchVal;
+
+    // 从 UA 哈希提取
+    let uaIndex = uaHash[11];
+    let uaIndexAlt = uaHash[21];
+    let uaSearchIdx = 5;
+    let uaSearchVal = uaHash[5];
+
+    // 跳过值为 12 的位置
+    while (uaSearchVal === 12) {
+      uaSearchIdx++;
+      uaSearchVal = uaSearchIdx < uaHash.length ? uaHash[uaSearchIdx] : 13;
+    }
+
+    const uaFinalIndex = (randomFlags[4] & 8) ? 12 : uaSearchVal;
+
+    // --------------------------------------------------------
+    // 第五阶段：准备 ID 和指纹字节
+    // --------------------------------------------------------
+
+    // Mock 时间戳字节
+    const mockTsBytes = intToBytes(mockTimestamp, 6);
+
+    // pageId 字节
+    const pageIdBytes = intToBytes(pageId, 4);
+
+    // appId 字节
+    const appIdBytes = intToBytes(appId, 4);
+
+    // 浏览器指纹转字节数组
+    const fingerprintStr = objectToString(this.fingerprint);
+    const fingerprintBytes = stringToByteArray(fingerprintStr);
+    const fingerprintLen = fingerprintBytes.length;
+    const fingerprintLenBytes = intToBytes(fingerprintLen, 2);
+
+    // 时间数组
+    const timeArrStr = ((timestamp + 3) & 255) + ',';
+    const timeArrBytes = stringToByteArray(timeArrStr);
+    const timeArrLen = timeArrBytes.length;
+    const timeArrLenBytes = intToBytes(timeArrLen, 2);
+
+    // --------------------------------------------------------
+    // 第六阶段：计算校验字节
+    // --------------------------------------------------------
+
+    // 处理版本号
+    const versionBytes = processVersionBytes(version);
+
+    // 版本号异或值
+    const versionXor = versionBytes[0] ^ versionBytes[1] ^ versionBytes[2] ^ versionBytes[3] 
+                     ^ versionBytes[4] ^ versionBytes[5];
+
+    // 计算最终校验字节
+    let checksum = versionXor ^ versionBytes[6] ^ versionBytes[7] 
+                  ^ FIXED_XOR_VALUE ^ dateCycle ^ versionType ^ timestampOffset;
+
+    checksum = checksum ^ tsBytes[0] ^ tsBytes[1] ^ tsBytes[2] ^ tsBytes[3] ^ tsBytes[4] ^ tsBytes[5]
+             ^ seed1Bytes[0] ^ seed1Bytes[1];
+
+    checksum = checksum ^ flagBytes[0] ^ flagBytes[1] ^ flagBytes[2] ^ flagBytes[3] ^ flagBytes[4] ^ flagBytes[5]
+             ^ seed2Bytes[0] ^ seed2Bytes[1];
+
+    checksum = checksum ^ seed2Bytes[2] ^ seed2Bytes[3] ^ paramsIndex ^ paramsIndexAlt ^ paramsFinalIndex
+             ^ bodyIndex ^ bodyIndexAlt ^ bodyFinalIndex;
+
+    checksum = checksum ^ uaIndex ^ uaIndexAlt ^ uaFinalIndex 
+             ^ mockTsBytes[0] ^ mockTsBytes[1] ^ mockTsBytes[2] ^ mockTsBytes[3] ^ mockTsBytes[4] ^ mockTsBytes[5];
+
+    checksum = checksum ^ mockVersionType 
+             ^ pageIdBytes[0] ^ pageIdBytes[1] ^ pageIdBytes[2] ^ pageIdBytes[3]
+             ^ appIdBytes[0] ^ appIdBytes[1];
+
+    // --------------------------------------------------------
+    // 第七阶段：构建参数数组（50 字节）
+    // --------------------------------------------------------
+
+    const paramArray = new Array(50);
+    paramArray[0] = tsBytes[5];              // 时间戳字节5
+    paramArray[1] = seed2Bytes[0];           // 种子2字节0
+    paramArray[2] = uaIndex;                 // UA哈希索引
+    paramArray[3] = mockTsBytes[1];          // Mock时间戳字节1
+    paramArray[4] = appIdBytes[2];           // appId字节2
+    paramArray[5] = tsBytes[0];              // 时间戳字节0
+    paramArray[6] = pageIdBytes[3];          // pageId字节3
+    paramArray[7] = seed2Bytes[1];           // 种子2字节1
+    paramArray[8] = seed1Bytes[0];           // 种子1字节0
+    paramArray[9] = paramsIndexAlt;          // 参数哈希索引
+    paramArray[10] = flagBytes[0];           // 标志字节0
+    paramArray[11] = mockVersionType;        // Mock版本类型
+    paramArray[12] = paramsFinalIndex;       // 参数最终索引
+    paramArray[13] = pageIdBytes[1];         // pageId字节1
+    paramArray[14] = timestampOffset;        // 时间戳偏移
+    paramArray[15] = paramsIndex;            // 参数哈希索引
+    paramArray[16] = mockTsBytes[4];         // Mock时间戳字节4
+    paramArray[17] = seed2Bytes[3];          // 种子2字节3
+    paramArray[18] = tsBytes[1];             // 时间戳字节1
+    paramArray[19] = appIdBytes[0];          // appId字节0
+    paramArray[20] = dateCycle;              // 日期周期数
+    paramArray[21] = bodyFinalIndex;         // 请求体最终索引
+    paramArray[22] = tsBytes[2];             // 时间戳字节2
+    paramArray[23] = pageIdBytes[2];         // pageId字节2
+    paramArray[24] = uaFinalIndex;           // UA最终索引
+    paramArray[25] = flagBytes[2];           // 标志字节2
+    paramArray[26] = mockTsBytes[2];         // Mock时间戳字节2
+    paramArray[27] = mockTsBytes[3];         // Mock时间戳字节3
+    paramArray[28] = versionType;            // 版本类型
+    paramArray[29] = appIdBytes[1];          // appId字节1
+    paramArray[30] = flagBytes[3];           // 标志字节3
+    paramArray[31] = appIdBytes[3];          // appId字节3
+    paramArray[32] = uaIndexAlt;             // UA哈希索引备选
+    paramArray[33] = bodyIndex;              // 请求体哈希索引
+    paramArray[34] = flagBytes[4];           // 标志字节4
+    paramArray[35] = flagBytes[1];           // 标志字节1
+    paramArray[36] = tsBytes[4];             // 时间戳字节4
+    paramArray[37] = pageIdBytes[0];         // pageId字节0
+    paramArray[38] = bodyIndexAlt;           // 请求体哈希索引备选
+    paramArray[39] = flagBytes[5];           // 标志字节5
+    paramArray[40] = mockTsBytes[5];         // Mock时间戳字节5
+    paramArray[41] = seed2Bytes[2];          // 种子2字节2
+    paramArray[42] = seed1Bytes[1];          // 种子1字节1
+    paramArray[43] = FIXED_XOR_VALUE;        // 固定XOR值
+    paramArray[44] = mockTsBytes[0];         // Mock时间戳字节0
+    paramArray[45] = tsBytes[3];             // 时间戳字节3
+    paramArray[46] = fingerprintLenBytes[0]; // 指纹长度字节0
+    paramArray[47] = fingerprintLenBytes[1]; // 指纹长度字节1
+    paramArray[48] = timeArrLenBytes[0];     // 时间数组长度字节0
+    paramArray[49] = timeArrLenBytes[1];     // 时间数组长度字节1
+
+    // --------------------------------------------------------
+    // 第八阶段：最终加密和编码
+    // --------------------------------------------------------
+
+    // 最终校验字节数组
+    const finalChecksum = new Array(1);
+    finalChecksum[0] = checksum ^ appIdBytes[2] ^ appIdBytes[3] 
+                      ^ fingerprintLenBytes[0] ^ fingerprintLenBytes[1] 
+                      ^ timeArrLenBytes[0] ^ timeArrLenBytes[1];
+
+    // 构建数据块
+    const dataBlock = toArray(versionBytes)
+      .concat(toArray(obfuscateBytes(paramArray.concat(
+        toArray(fingerprintBytes),
+        toArray(timeArrBytes),
+        finalChecksum
+      ))));
+
+    // RC4 加密
+    const rc4Key = String.fromCharCode(RC4_KEY_BYTE);
+    const rc4Data = String.fromCharCode.apply(null, dataBlock);
+    const encrypted = rc4Encrypt(rc4Key, rc4Data);
+
+    // 生成前缀
+    const prefixBytes = generateRandomPrefix(prefixSeed, 1);
+    const prefixStr = String.fromCharCode.apply(String, toArray(prefixBytes));
+
+    // Base64 编码（使用 s4 字符表）
+    const finalBase64 = base64Encode(prefixStr + encrypted, 's4');
+
+    return finalBase64;
+  }
 }

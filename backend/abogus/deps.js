@@ -1,572 +1,731 @@
-export function ir(t) {
-  return ir = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function (t) {
-    return typeof t;
-  } : function (t) {
-    return t && "function" == typeof Symbol && t.constructor === Symbol && t !== Symbol.prototype ? "symbol" : typeof t;
-  }, ir(t);
+/**
+ * A-Bogus 依赖函数库
+ * 包含 SM3 哈希、RC4 加密、Base64 编码等核心算法
+ */
+
+// ============================================================
+// 辅助函数（用于类定义和类型检查）
+// ============================================================
+
+/**
+ * 获取值的类型
+ * @param {*} t - 要检查的值
+ * @returns {string} 类型字符串
+ */
+function getType(t) {
+  return "function" == typeof Symbol && "symbol" == typeof Symbol.iterator
+    ? function (t) { return typeof t; }
+    : function (t) {
+        return t && "function" == typeof Symbol && t.constructor === Symbol && t !== Symbol.prototype
+          ? "symbol"
+          : typeof t;
+      }(t);
 }
 
-export function sr(t) {
+/**
+ * 转换为属性键名
+ * @param {*} t - 要转换的值
+ * @returns {string|symbol} 属性键
+ */
+function toPropertyKey(t) {
   var r = function (t, r) {
-    if ("object" != ir(t) || !t) return t;
+    if ("object" != getType(t) || !t) return t;
     var e = t[Symbol.toPrimitive];
     if (void 0 !== e) {
       var n = e.call(t, r || "default");
-      if ("object" != ir(n)) return n;
+      if ("object" != getType(n)) return n;
       throw new TypeError("@@toPrimitive must return a primitive value.");
     }
     return ("string" === r ? String : Number)(t);
   }(t, "string");
-  return "symbol" == ir(r) ? r : r + "";
+  return "symbol" == getType(r) ? r : r + "";
 }
 
-export function ur(t, r) {
-  for (var e = 0; e < r.length; e++) {
-    var n = r[e];
-    n.enumerable = n.enumerable || !1, n.configurable = !0, "value" in n && (n.writable = !0), Object.defineProperty(t, sr(n.key), n);
+/**
+ * 定义类的属性（用于 ES5 类模拟）
+ * @param {Object} target - 目标对象
+ * @param {Array} descriptors - 属性描述符数组
+ */
+function defineClassProperties(target, descriptors) {
+  for (var i = 0; i < descriptors.length; i++) {
+    var desc = descriptors[i];
+    desc.enumerable = desc.enumerable || false;
+    desc.configurable = true;
+    "value" in desc && (desc.writable = true);
+    Object.defineProperty(target, toPropertyKey(desc.key), desc);
   }
 }
 
-function dr(t, r) {
-  return (t << (r %= 32) | t >>> 32 - r) >>> 0;
-}
-function yr(t) {
-  return 0 <= t && t < 16 ? 2043430169 : 16 <= t && t < 64 ? 2055708042 : void console.error("invalid j for constant Tj");
-}
-function br(t, r, e, n) {
-  return 0 <= t && t < 16 ? (r ^ e ^ n) >>> 0 : 16 <= t && t < 64 ? (r & e | r & n | e & n) >>> 0 : (console.error("invalid j for bool function FF"), 0);
-}
-function mr(t, r, e, n) {
-  return 0 <= t && t < 16 ? (r ^ e ^ n) >>> 0 : 16 <= t && t < 64 ? (r & e | ~r & n) >>> 0 : (console.error("invalid j for bool function GG"), 0);
-}
-function wr(t) {
-  return wr = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function (t) {
-    return typeof t;
-  } : function (t) {
-    return t && "function" == typeof Symbol && t.constructor === Symbol && t !== Symbol.prototype ? "symbol" : typeof t;
-  }, wr(t);
+// ============================================================
+// SM3 哈希算法
+// 中国国家密码标准（GB/T 32905-2016）
+// ============================================================
+
+/**
+ * 循环左移
+ * @param {number} value - 要移位的值
+ * @param {number} bits - 移位位数
+ * @returns {number} 移位后的值
+ */
+function rotateLeft(value, bits) {
+  return (value << (bits %= 32) | value >>> 32 - bits) >>> 0;
 }
 
+/**
+ * SM3 常量 Tj
+ * @param {number} j - 轮次 (0-63)
+ * @returns {number} 常量值
+ */
+function getConstantTj(j) {
+  return 0 <= j && j < 16 ? 2043430169 : 16 <= j && j < 64 ? 2055708042 : void console.error("invalid j for constant Tj");
+}
+
+/**
+ * SM3 布尔函数 FFj
+ * @param {number} j - 轮次
+ * @param {number} a, b, c - 输入值
+ * @returns {number} 计算结果
+ */
+function boolFunctionFF(j, a, b, c) {
+  return 0 <= j && j < 16 ? (a ^ b ^ c) >>> 0 : 16 <= j && j < 64 ? (a & b | a & c | b & c) >>> 0 : (console.error("invalid j for bool function FF"), 0);
+}
+
+/**
+ * SM3 布尔函数 GGj
+ * @param {number} j - 轮次
+ * @param {number} a, b, c - 输入值
+ * @returns {number} 计算结果
+ */
+function boolFunctionGG(j, a, b, c) {
+  return 0 <= j && j < 16 ? (a ^ b ^ c) >>> 0 : 16 <= j && j < 64 ? (a & b | ~a & c) >>> 0 : (console.error("invalid j for bool function GG"), 0);
+}
+
+/**
+ * SM3 哈希算法类
+ * 用于计算消息的 SM3 哈希值
+ */
 export const SM3 = function () {
-  function t() {
-    if (function (t, r) {
-      if (!(t instanceof r)) throw new TypeError("Cannot call a class as a function");
-    }(this, t), !(this instanceof t)) return new t();
-    this.reg = new Array(8), this.chunk = [], this.size = 0, this.reset();
+  function SM3Hash() {
+    if (!(this instanceof SM3Hash)) return new SM3Hash();
+    this.reg = new Array(8);   // 8 个 32 位寄存器
+    this.chunk = [];            // 数据块缓冲区
+    this.size = 0;              // 已处理数据大小
+    this.reset();
   }
-  return function (t, r, e) {
-    r && ur(t.prototype, r), e && ur(t, e), Object.defineProperty(t, "prototype", {
-      writable: !1
-    });
-  }(t, [{
+
+  defineClassProperties(SM3Hash.prototype, [{
     key: "reset",
     value: function () {
-      this.reg[0] = 1937774191, this.reg[1] = 1226093241, this.reg[2] = 388252375, this.reg[3] = 3666478592, this.reg[4] = 2842636476, this.reg[5] = 372324522, this.reg[6] = 3817729613, this.reg[7] = 2969243214, this.chunk = [], this.size = 0;
+      // 初始向量 IV
+      this.reg[0] = 0x7380166f;  // 1937774191
+      this.reg[1] = 0x4914b2b9;  // 1226093241
+      this.reg[2] = 0x172442d7;  // 388252375
+      this.reg[3] = 0xda8a0600;  // 3666478592
+      this.reg[4] = 0xa96f30bc;  // 2842636476
+      this.reg[5] = 0x163138aa;  // 372324522
+      this.reg[6] = 0xe38dee4d;  // 3817729613
+      this.reg[7] = 0xb0fb0e4e;  // 2969243214
+      this.chunk = [];
+      this.size = 0;
     }
   }, {
     key: "write",
-    value: function (t) {
-      var r = "string" == typeof t ? function (t) {
-        var r = encodeURIComponent(t).replace(/%([0-9A-F]{2})/g, function (t, r) {
-            return String.fromCharCode("0x" + r);
-          }),
-          e = new Array(r.length);
-        return Array.prototype.forEach.call(r, function (t, r) {
-          e[r] = t.charCodeAt(0);
-        }), e;
-      }(t) : t;
-      this.size += r.length;
-      var e = 64 - this.chunk.length;
-      if (r.length < e) this.chunk = this.chunk.concat(r);else for (this.chunk = this.chunk.concat(r.slice(0, e)); this.chunk.length >= 64;) this._compress(this.chunk), e < r.length ? this.chunk = r.slice(e, Math.min(e + 64, r.length)) : this.chunk = [], e += 64;
+    value: function (data) {
+      // 字符串转字节数组
+      var bytes = "string" == typeof data ? function (str) {
+        var encoded = encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, function (match, hex) {
+          return String.fromCharCode("0x" + hex);
+        });
+        var arr = new Array(encoded.length);
+        Array.prototype.forEach.call(encoded, function (char, i) {
+          arr[i] = char.charCodeAt(0);
+        });
+        return arr;
+      }(data) : data;
+
+      this.size += bytes.length;
+      var remaining = 64 - this.chunk.length;
+
+      if (bytes.length < remaining) {
+        this.chunk = this.chunk.concat(bytes);
+      } else {
+        for (this.chunk = this.chunk.concat(bytes.slice(0, remaining)); this.chunk.length >= 64;) {
+          this._compress(this.chunk);
+          if (remaining < bytes.length) {
+            this.chunk = bytes.slice(remaining, Math.min(remaining + 64, bytes.length));
+          } else {
+            this.chunk = [];
+          }
+          remaining += 64;
+        }
+      }
     }
   }, {
     key: "sum",
-    value: function (t, r) {
-      t && (this.reset(), this.write(t)), this._fill();
-      for (var e = 0; e < this.chunk.length; e += 64) this._compress(this.chunk.slice(e, e + 64));
-      var n,
-        o,
-        i,
-        u = null;
-      if ("hex" == r) {
-        u = "";
-        for (e = 0; e < 8; e++) u += (n = this.reg[e].toString(16), o = 8, i = "0", n.length >= o ? n : i.repeat(o - n.length) + n);
-      } else for (u = new Array(32), e = 0; e < 8; e++) {
-        var s = this.reg[e];
-        u[4 * e + 3] = (255 & s) >>> 0, s >>>= 8, u[4 * e + 2] = (255 & s) >>> 0, s >>>= 8, u[4 * e + 1] = (255 & s) >>> 0, s >>>= 8, u[4 * e] = (255 & s) >>> 0;
+    value: function (data, outputFormat) {
+      if (data) {
+        this.reset();
+        this.write(data);
       }
-      return this.reset(), u;
+      this._fill();
+
+      for (var i = 0; i < this.chunk.length; i += 64) {
+        this._compress(this.chunk.slice(i, i + 64));
+      }
+
+      var result = null;
+      if ("hex" == outputFormat) {
+        // 十六进制输出
+        result = "";
+        for (i = 0; i < 8; i++) {
+          var hex = this.reg[i].toString(16);
+          result += hex.length >= 8 ? hex : "0".repeat(8 - hex.length) + hex;
+        }
+      } else {
+        // 字节数组输出
+        result = new Array(32);
+        for (i = 0; i < 8; i++) {
+          var val = this.reg[i];
+          result[4 * i + 3] = (255 & val) >>> 0;
+          val >>>= 8;
+          result[4 * i + 2] = (255 & val) >>> 0;
+          val >>>= 8;
+          result[4 * i + 1] = (255 & val) >>> 0;
+          val >>>= 8;
+          result[4 * i] = (255 & val) >>> 0;
+        }
+      }
+      this.reset();
+      return result;
     }
   }, {
     key: "_compress",
-    value: function (t) {
-      if (t < 64) console.error("compress error: not enough data");else {
-        for (var r = function (t) {
-          for (var r = new Array(132), e = 0; e < 16; e++) r[e] = t[4 * e] << 24, r[e] |= t[4 * e + 1] << 16, r[e] |= t[4 * e + 2] << 8, r[e] |= t[4 * e + 3], r[e] >>>= 0;
-          for (var n = 16; n < 68; n++) {
-            var o = r[n - 16] ^ r[n - 9] ^ dr(r[n - 3], 15);
-            o = o ^ dr(o, 15) ^ dr(o, 23), r[n] = (o ^ dr(r[n - 13], 7) ^ r[n - 6]) >>> 0;
-          }
-          for (n = 0; n < 64; n++) r[n + 68] = (r[n] ^ r[n + 4]) >>> 0;
-          return r;
-        }(t), e = this.reg.slice(0), n = 0; n < 64; n++) {
-          var o = dr(e[0], 12) + e[4] + dr(yr(n), n),
-            i = ((o = dr(o = (4294967295 & o) >>> 0, 7)) ^ dr(e[0], 12)) >>> 0,
-            u = br(n, e[0], e[1], e[2]);
-          u = (4294967295 & (u = u + e[3] + i + r[n + 68])) >>> 0;
-          var s = mr(n, e[4], e[5], e[6]);
-          s = (4294967295 & (s = s + e[7] + o + r[n])) >>> 0, e[3] = e[2], e[2] = dr(e[1], 9), e[1] = e[0], e[0] = u, e[7] = e[6], e[6] = dr(e[5], 19), e[5] = e[4], e[4] = (s ^ dr(s, 9) ^ dr(s, 17)) >>> 0;
+    value: function (block) {
+      if (block < 64) {
+        console.error("compress error: not enough data");
+        return;
+      }
+
+      // 扩展消息
+      var extended = function (block) {
+        var w = new Array(132);
+
+        // W0-W15: 从块中加载
+        for (var i = 0; i < 16; i++) {
+          w[i] = block[4 * i] << 24;
+          w[i] |= block[4 * i + 1] << 16;
+          w[i] |= block[4 * i + 2] << 8;
+          w[i] |= block[4 * i + 3];
+          w[i] >>>= 0;
         }
-        for (var c = 0; c < 8; c++) this.reg[c] = (this.reg[c] ^ e[c]) >>> 0;
+
+        // W16-W67: 消息扩展
+        for (var j = 16; j < 68; j++) {
+          var tmp = w[j - 16] ^ w[j - 9] ^ rotateLeft(w[j - 3], 15);
+          tmp = tmp ^ rotateLeft(tmp, 15) ^ rotateLeft(tmp, 23);
+          w[j] = (tmp ^ rotateLeft(w[j - 13], 7) ^ w[j - 6]) >>> 0;
+        }
+
+        // W'0-W'63
+        for (j = 0; j < 64; j++) {
+          w[j + 68] = (w[j] ^ w[j + 4]) >>> 0;
+        }
+        return w;
+      }(block);
+
+      // 压缩函数
+      var regs = this.reg.slice(0);
+      for (var n = 0; n < 64; n++) {
+        var ss1 = rotateLeft(regs[0], 12) + regs[4] + rotateLeft(getConstantTj(n), n);
+        ss1 = rotateLeft((4294967295 & ss1) >>> 0, 7);
+        var tt1 = ((ss1 ^ rotateLeft(regs[0], 12)) >>> 0);
+        var ff = boolFunctionFF(n, regs[0], regs[1], regs[2]);
+        ff = (4294967295 & (ff + regs[3] + tt1 + extended[n + 68])) >>> 0;
+        var gg = boolFunctionGG(n, regs[4], regs[5], regs[6]);
+        gg = (4294967295 & (gg + regs[7] + ss1 + extended[n])) >>> 0;
+
+        regs[3] = regs[2];
+        regs[2] = rotateLeft(regs[1], 9);
+        regs[1] = regs[0];
+        regs[0] = ff;
+        regs[7] = regs[6];
+        regs[6] = rotateLeft(regs[5], 19);
+        regs[5] = regs[4];
+        regs[4] = (gg ^ rotateLeft(gg, 9) ^ rotateLeft(gg, 17)) >>> 0;
+      }
+
+      // 更新寄存器
+      for (var c = 0; c < 8; c++) {
+        this.reg[c] = (this.reg[c] ^ regs[c]) >>> 0;
       }
     }
   }, {
     key: "_fill",
     value: function () {
-      var t = 8 * this.size,
-        r = this.chunk.push(128) % 64;
-      for (64 - r < 8 && (r -= 64); r < 56; r++) this.chunk.push(0);
-      for (var e = 0; e < 4; e++) {
-        var n = Math.floor(t / 4294967296);
-        this.chunk.push(n >>> 8 * (3 - e) & 255);
+      var bitLength = 8 * this.size;
+      var padPos = this.chunk.push(128) % 64;
+
+      // 填充到 56 字节（留 8 字节给长度）
+      if (64 - padPos < 8) padPos -= 64;
+      for (; padPos < 56; padPos++) {
+        this.chunk.push(0);
       }
-      for (e = 0; e < 4; e++) this.chunk.push(t >>> 8 * (3 - e) & 255);
+
+      // 追加 64 位长度值
+      for (var i = 0; i < 4; i++) {
+        var highBits = Math.floor(bitLength / 4294967296);
+        this.chunk.push(highBits >>> 8 * (3 - i) & 255);
+      }
+      for (i = 0; i < 4; i++) {
+        this.chunk.push(bitLength >>> 8 * (3 - i) & 255);
+      }
     }
-  }]), t;
-}()
+  }]);
 
-export const RC4Like = function fn_280(a_0, a_1) {
-  // BB: 0
-  var v_0, v_1, v_2, v_3, v_4, v_5, v_6, v_7, v_8, v_9, v_10;
-  v_0 = [];
-  v_1 = 0;
-  // BB: 20
-  while (true) {
-    // BB: 20
-    if (!(v_1 < 256)) // BB: 48
-      break;
-    // BB: 28
-    v_0[255 - v_1] = v_1;
-    v_1 = v_1 + 1;
-    // BB: 20
-    continue;
-  }
-  // BB: 48
-  v_2 = 0;
-  v_3 = 0;
-  // BB: 53
-  while (true) {
-    // BB: 53
-    if (!(v_3 < 256)) // BB: 141
-      break;
-    // BB: 61
-    v_10 = (v_2 * v_0[v_3] + v_2 + a_0.charCodeAt(v_3 % a_0.length)) % 256;
-    v_8 = v_0[v_3];
-    v_0[v_3] = v_0[v_10];
-    v_0[v_10] = v_8;
-    v_3 = v_3 + 1;
-    v_2 = v_10;
-    // BB: 53
-    continue;
-  }
-  // BB: 141
-  v_4 = 0;
-  v_5 = 0;
-  v_6 = 0;
-  v_7 = '';
-  // BB: 156
-  while (true) {
-    // BB: 156
-    if (!(v_5 < a_1.length)) // BB: 287
-      return v_7;
-    // BB: 167
-    v_8 = (v_4 + 1) % 256;
-    v_9 = (v_6 + v_0[v_8]) % 256;
-    v_10 = v_0[v_8];
-    v_0[v_8] = v_0[v_9];
-    v_0[v_9] = v_10;
-    v_10 = String.fromCharCode(a_1.charCodeAt(v_5) ^ v_0[(v_0[v_8] + v_0[v_9]) % 256]);
-    v_7 = v_7 + v_10;
-    v_5 = v_5 + 1;
-    v_4 = v_8;
-    v_6 = v_9;
-    // BB: 156
-    continue;
-  }
-};
+  return SM3Hash;
+}();
 
-export const Base64Like = function fn_130(a_0, a_1) {
-  // BB: 0
-  var v_0, v_1, v_2, v_3, v_4, v_5, v_6, v_7;
-  v_0 = {};
-  v_0.s0 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
-  v_0.s1 = 'Dkdpgh4ZKsQB80/Mfvw36XI1R25+WUAlEi7NLboqYTOPuzmFjJnryx9HVGcaStCe=';
-  v_0.s2 = 'Dkdpgh4ZKsQB80/Mfvw36XI1R25-WUAlEi7NLboqYTOPuzmFjJnryx9HVGcaStCe=';
-  v_0.s3 = 'ckdp1h4ZKsUB80/Mfvw36XIgR25+WQAlEi7NLboqYTOPuzmFjJnryx9HVGDaStCe';
-  v_0.s4 = 'Dkdpgh2ZmsQB80/MfvV36XI1R45-WUAlEixNLwoqYTOPuzKFjJnry79HbGcaStCe';
-  v_1 = v_0[a_1];
-  v_0 = '';
-  v_2 = 0;
-  // BB: 64
-  while (true) {
-    // BB: 64
-    if (!(a_0.length >= v_2 + 3)) // BB: 237
-      break;
-    // BB: 78
-    v_5 = v_2 + 1;
-    v_4 = v_5 + 1;
-    v_7 = (a_0.charCodeAt(v_2) & 255) << 16 | (a_0.charCodeAt(v_5) & 255) << 8;
-    v_2 = v_4 + 1;
-    v_5 = v_7 | a_0.charCodeAt(v_4) & 255;
-    v_7 = v_0 + v_1.charAt((v_5 & 16515072) >> 18) + v_1.charAt((v_5 & 258048) >> 12);
-    v_0 = v_7 + v_1.charAt((v_5 & 4032) >> 6) + v_1.charAt(v_5 & 63);
-    // BB: 64
-    continue;
-  }
-  // BB: 237
-  if (a_0.length - v_2 > 0) {
-    // BB: 251
-    v_4 = v_2 + 1;
-    v_5 = (a_0.charCodeAt(v_2) & 255) << 16 | (a_0.length > v_4 ? (a_0.charCodeAt(v_4) & 255) << 8 : 0);
-    v_6 = v_0 + v_1.charAt((v_5 & 16515072) >> 18) + v_1.charAt((v_5 & 258048) >> 12);
-    v_7 = a_0.length > v_4 ? v_1.charAt((v_5 & 4032) >> 6) : '=';
-    v_3 = v_6 + v_7 + '=';
-  } else {
-    // BB: 237_to_411_split1
-    v_3 = v_0;
-  }
-  // BB: 411
-  return v_3;
-};
+// ============================================================
+// RC4 加密算法
+// ============================================================
 
-export const m_728 = function fn_142(a_0, a_1, a_2) {
-  // BB: 0
-  var v_0;
-  v_0 = new Array(3);
-  v_0['0'] = a_0 / 256;
-  v_0['1'] = a_0 % 256;
-  v_0['2'] = a_1 % 256;
-  return RC4Like(String.fromCharCode.apply(null, v_0), a_2.trim());
+/**
+ * RC4 流加密算法
+ * @param {string} key - 加密密钥
+ * @param {string} data - 要加密的数据
+ * @returns {string} 加密后的字符串
+ */
+export function rc4Encrypt(key, data) {
+  // 初始化 S 盒
+  var sbox = [];
+  for (var i = 0; i < 256; i++) {
+    sbox[255 - i] = i;
+  }
+
+  // 密钥调度算法 (KSA)
+  var j = 0;
+  for (var i = 0; i < 256; i++) {
+    j = (j * sbox[i] + j + key.charCodeAt(i % key.length)) % 256;
+    // 交换 S[i] 和 S[j]
+    var tmp = sbox[i];
+    sbox[i] = sbox[j];
+    sbox[j] = tmp;
+  }
+
+  // 伪随机生成算法 (PRGA)
+  var i = 0, j2 = 0;
+  var result = '';
+  for (var k = 0; k < data.length; k++) {
+    i = (i + 1) % 256;
+    j2 = (j2 + sbox[i]) % 256;
+    // 交换 S[i] 和 S[j]
+    var tmp = sbox[i];
+    sbox[i] = sbox[j2];
+    sbox[j2] = tmp;
+    // XOR 加密
+    result += String.fromCharCode(data.charCodeAt(k) ^ sbox[(sbox[i] + sbox[j2]) % 256]);
+  }
+  return result;
 }
 
-export function nr() {
+// 别名（兼容旧代码）
+export const Ht = rc4Encrypt;
+export const RC4Like = rc4Encrypt;
+
+// ============================================================
+// 自定义 Base64 编码
+// ============================================================
+
+/**
+ * Base64 字符表映射
+ * s0: 标准 Base64
+ * s1-s4: 抖音 a_bogus 专用字符表
+ */
+const BASE64_ALPHABETS = {
+  s0: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=',  // 标准
+  s1: 'Dkdpgh4ZKsQB80/Mfvw36XI1R25+WUAlEi7NLboqYTOPuzmFjJnryx9HVGcaStCe=',  // abogus v1
+  s2: 'Dkdpgh4ZKsQB80/Mfvw36XI1R25-WUAlEi7NLboqYTOPuzmFjJnryx9HVGcaStCe=',  // abogus v2
+  s3: 'ckdp1h4ZKsUB80/Mfvw36XIgR25+WQAlEi7NLboqYTOPuzmFjJnryx9HVGDaStCe',   // abogus v3 (无填充)
+  s4: 'Dkdpgh2ZmsQB80/MfvV36XI1R45-WUAlEixNLwoqYTOPuzKFjJnry79HbGcaStCe'    // abogus v4
+};
+
+/**
+ * 自定义 Base64 编码
+ * @param {string} data - 要编码的数据
+ * @param {string} alphabetKey - 字符表键名 (s0-s4)
+ * @returns {string} Base64 编码结果
+ */
+export function base64Encode(data, alphabetKey) {
+  var alphabet = BASE64_ALPHABETS[alphabetKey] || BASE64_ALPHABETS.s0;
+  var result = '';
+
+  // 每 3 字节编码为 4 个字符
+  for (var i = 0; i + 3 <= data.length; i += 3) {
+    var b0 = data.charCodeAt(i) & 255;
+    var b1 = data.charCodeAt(i + 1) & 255;
+    var b2 = data.charCodeAt(i + 2) & 255;
+    var triplet = (b0 << 16) | (b1 << 8) | b2;
+
+    result += alphabet.charAt((triplet & 16515072) >> 18);  // 前 6 位
+    result += alphabet.charAt((triplet & 258048) >> 12);    // 中 6 位
+    result += alphabet.charAt((triplet & 4032) >> 6);       // 后 6 位
+    result += alphabet.charAt(triplet & 63);                // 最后 6 位
+  }
+
+  // 处理剩余字节
+  if (data.length - i > 0) {
+    var b0 = data.charCodeAt(i) & 255;
+    var triplet = (b0 << 16) | (i + 1 < data.length ? (data.charCodeAt(i + 1) & 255) << 8 : 0);
+
+    result += alphabet.charAt((triplet & 16515072) >> 18);
+    result += alphabet.charAt((triplet & 258048) >> 12);
+    result += (i + 1 < data.length) ? alphabet.charAt((triplet & 4032) >> 6) : '=';
+    result += '=';
+  }
+
+  return result;
+}
+
+// 别名（兼容旧代码）
+export const qt = base64Encode;
+export const Base64Like = base64Encode;
+
+// ============================================================
+// User-Agent 加密
+// ============================================================
+
+/**
+ * RC4 加密 User-Agent 字符串
+ * @param {number} seed1 - 种子值1（通常为 1）
+ * @param {number} seed2 - 种子值2（通常为 14）
+ * @param {string} userAgent - User-Agent 字符串
+ * @returns {string} 加密后的字符串
+ */
+export function encryptUserAgent(seed1, seed2, userAgent) {
+  // 构建密钥数组
+  var keyBytes = new Array(3);
+  keyBytes[0] = seed1 / 256;      // 高位字节
+  keyBytes[1] = seed1 % 256;      // 低位字节
+  keyBytes[2] = seed2 % 256;      // 种子2
+
+  // RC4 加密
+  return rc4Encrypt(String.fromCharCode.apply(null, keyBytes), userAgent.trim());
+}
+
+// 别名（兼容旧代码）
+export const m_728 = encryptUserAgent;
+
+// ============================================================
+// 随机标志位生成
+// ============================================================
+
+/**
+ * 获取随机标志位数组
+ * 用于签名计算中的随机性参数
+ * @returns {number[]} 5 字节的标志位数组
+ */
+export function getRandomFlags() {
+  // [flag0, flag1, flag2, flag3, flag4]
+  // flag4 包含配置标志 (129 = 0b10000001)
   return [0, 0, 0, 0, 129];
 }
 
-export const m_731 = function fn_140(a_0) {
-  // BB: 0
-  var v_0, m_711, m_710;
-  m_711 = a_0;
-  m_710 = '';
-  v_0 = function fn_141(a_0, a_1) {
-    // BB: 0
-    if (a_1 === 0) {
-      // BB: 8
-      m_710 = m_710 + m_711[a_0];
+// 别名（兼容旧代码）
+export const nr = getRandomFlags;
+
+// ============================================================
+// 对象序列化
+// ============================================================
+
+/**
+ * 将对象转换为管道分隔的字符串
+ * @param {Object} obj - 要序列化的对象
+ * @returns {string} 序列化后的字符串
+ * @example
+ * objectToString({ a: 1, b: 2 }) => "1|2"
+ */
+export function objectToString(obj) {
+  var result = '';
+  var isFirst = true;
+
+  Object.keys(obj).forEach(function (key) {
+    if (isFirst) {
+      result += obj[key];
+      isFirst = false;
     } else {
-      // BB: 26
-      m_710 = m_710 + '|'.concat(m_711[a_0]);
+      result += '|' + obj[key];
     }
-  };
-  Object.keys(m_711).forEach(v_0)
-  return m_710;
-};
+  });
 
-export const m_732 = function fn_139(a_0) {
-  // BB: 0
-  var v_0, v_1, v_2, v_3, v_4;
-  v_0 = [];
-  v_1 = 0;
-  // BB: 10
-  while (true) {
-    // BB: 10
-    if (!(v_1 < a_0.length)) // BB: 94
-      return v_0;
-    // BB: 21
-    v_2 = a_0.charCodeAt(v_1);
-    if (v_2 & 65280) {
-      // BB: 43
-      v_4 = v_0.push;
-      v_3 = new Array(1);
-      v_3[0] = v_2 >> 8;
-      v_4.apply(v_0, v_3)
-      v_3 = v_0.push;
-      v_4 = new Array(1);
-      v_4[0] = v_2 & 255;
-      v_3.apply(v_0, v_4)
-    } else {
-      // BB: 75
-      v_3 = v_0.push;
-      v_4 = new Array(1);
-      v_4[0] = v_2;
-      v_3.apply(v_0, v_4)
-    }
-    // BB: 87
-    v_1 = v_1 + 1;
-    // BB: 10
-    continue;
-  }
-};
-
-export const m_716 = function fn_144() {
-  // BB: 0
-  var v_0;
-  if (nr()['4'] & 64) {
-    // BB: 13
-    v_0 = Math.random() * 109 >> 0;
-    return v_0 + 110 + v_0 % 2;
-  }
-  // BB: 45
-  v_0 = Math.random() * 240 >> 0;
-  if (v_0 > 109) // BB: 69
-    return v_0 + v_0 % 2 + 1;
-  // BB: 85
-  return v_0;
-};
-
-export const m_717 = function fn_145() {
-  return 179; // Mock
-};
-
-export const m_715 = function fn_143() {
-  return "Chrome"; // Mock
+  return result;
 }
 
-export const m_718 = function fn_146(a_0) {
-  // BB: 0
-  var v_0, v_1, v_2, v_3;
-  v_0 = arguments.length > 1 && arguments['1'] !== undefined ? arguments['1'] : 0;
-  v_1 = Math.random() * 65535;
-  if (v_0 === 2) {
-    // BB: 100
-    v_2 = m_716();
-    v_3 = m_717();
-  } else {
-    // BB: 92_to_118_split3
-    v_2 = v_1 & 255;
-    v_3 = v_0 === 1 ? m_715() : v_1 >> 8 & 255;
-  }
-  // BB: 118
-  v_1 = new Array(4);
-  v_1[0] = v_2 & 170 | a_0['0'] & 85;
-  v_1[1] = v_2 & 85 | a_0['0'] & 170;
-  v_1[2] = v_3 & 170 | a_0['1'] & 85;
-  v_1[3] = v_3 & 85 | a_0['1'] & 170;
-  return v_1;
-};
+// 别名（兼容旧代码）
+export const m_731 = objectToString;
 
-export const m_733 = function fn_147(a_0) {
-  // BB: 0
-  var v_0, v_1, v_2, v_3, v_4, v_5, v_6, v_7, v_8;
-  v_0 = m_718;
-  v_1 = a_0['0'];
-  v_2 = a_0['1'];
-  v_3 = new Array(2);
-  v_3[0] = v_1;
-  v_3[1] = v_2;
-  v_1 = v_0(v_3);
-  v_3 = m_718;
-  v_0 = a_0['2'];
-  v_2 = a_0['3'];
-  v_4 = new Array(2);
-  v_4[0] = v_0;
-  v_4[1] = v_2;
-  v_0 = v_3(v_4, 2);
-  v_4 = v_1['0'];
-  v_3 = v_1['1'];
-  v_2 = v_1['2'];
-  v_5 = v_1['3'];
-  v_1 = v_0['0'];
-  v_6 = v_0['1'];
-  v_7 = v_0['2'];
-  v_8 = v_0['3'];
-  v_0 = new Array(8);
-  v_0[0] = v_4;
-  v_0[1] = v_3;
-  v_0[2] = v_2;
-  v_0[3] = v_5;
-  v_0[4] = v_1;
-  v_0[5] = v_6;
-  v_0[6] = v_7;
-  v_0[7] = v_8;
-  return v_0;
-};
+// ============================================================
+// 字符串转字节数组
+// ============================================================
 
-export const qt = Base64Like;
+/**
+ * 将字符串转换为字节数组
+ * 处理 UTF-8 多字节字符
+ * @param {string} str - 输入字符串
+ * @returns {number[]} 字节数组
+ */
+export function stringToByteArray(str) {
+  var bytes = [];
 
-export const m_734 = function fn_133(a_0) {
-  // BB: 0
-  m_706(a_0)
-  return m_705(a_0) && m_705(a_0) || m_707(a_0) || m_708();
-};
+  for (var i = 0; i < str.length; i++) {
+    var charCode = str.charCodeAt(i);
 
-export const m_706 = function fn_136(a_0) {
-  // BB: 0
-  var v_0;
-  v_0 = 'undefined' != typeof Symbol && null != a_0[Symbol.iterator] || null != a_0['@@iterator'];
-  if (v_0) // BB: 28
-    return Array.from(a_0);
-};
-
-export const m_705 = function fn_137(a_0) {
-  // BB: 0
-  if (Array.isArray(a_0)) // BB: 12
-    return m_709(a_0);
-};
-
-export const m_709 = function fn_138(a_0, a_1) {
-  // BB: 0
-  var v_0, v_1, v_2;
-  v_0 = null == a_1 || a_1 > a_0.length ? a_0.length : a_1;
-  v_1 = Array(v_0);
-  v_2 = 0;
-  // BB: 44
-  while (true) {
-    // BB: 44
-    if (!(v_2 < v_0)) // BB: 74
-      return v_1;
-    // BB: 53
-    v_1[v_2] = a_0[v_2];
-    v_2 = v_2 + 1;
-    // BB: 44
-    continue;
-  }
-};
-
-export const m_707 = function fn_135(a_0, a_1) {
-  // BB: 0
-  var v_0, v_1;
-  if (!a_0) // BB: 148
-    return;
-  // BB: 5
-  if ('string' == typeof a_0) // BB: 14
-    return m_709(a_0, a_1);
-  // BB: 27
-  v_0 = {}.toString.call(a_0).slice(8, -1);
-  v_1 = 'Object' === v_0 && a_0.constructor ? a_0.constructor.name : v_0;
-  if ('Map' === v_1 || 'Set' === v_1) {
-    // BB: 94
-    v_0 = Array.from(a_0);
-  } else {
-    // BB: 106
-    if ('Arguments' === v_1 || new RegExp('^(?:Ui|I)nt(?:8|16|32)(?:Clamped)?Array$').test(v_1)) {
-      // BB: 130
-      v_0 = m_709(a_0, a_1);
+    if (charCode & 65280) {  // 多字节字符 (> 255)
+      bytes.push(charCode >> 8);      // 高字节
+      bytes.push(charCode & 255);     // 低字节
     } else {
-      // BB: 144
-      v_0 = undefined;
+      bytes.push(charCode);
     }
   }
-  // BB: 147
-  return v_0;
-};
 
-export const m_708 = function fn_134() {
-  // BB: 0
+  return bytes;
+}
+
+// 别名（兼容旧代码）
+export const m_732 = stringToByteArray;
+
+// ============================================================
+// 随机数生成器
+// ============================================================
+
+/**
+ * 生成随机字节值（用于前缀）
+ * 根据标志位生成不同范围的随机数
+ * @returns {number} 随机字节值 (0-255)
+ */
+export function generateRandomByte() {
+  var flags = getRandomFlags();
+
+  if (flags[4] & 64) {
+    // 模式1: 110-328 范围
+    var r = Math.random() * 109 >> 0;
+    return r + 110 + r % 2;
+  } else {
+    // 模式2: 0-240 范围
+    var r = Math.random() * 240 >> 0;
+    if (r > 109) {
+      return r + r % 2 + 1;
+    }
+    return r;
+  }
+}
+
+// 别名（兼容旧代码）
+export const m_716 = generateRandomByte;
+
+/**
+ * 获取 Mock 时间戳值
+ * @returns {number} 固定时间戳值
+ */
+export function getMockTimestamp() {
+  return 179;
+}
+
+// 别名（兼容旧代码）
+export const m_717 = getMockTimestamp;
+
+/**
+ * 获取 Mock 浏览器名称
+ * @returns {string} 浏览器名称
+ */
+export function getMockBrowserName() {
+  return "Chrome";
+}
+
+// 别名（兼容旧代码）
+export const m_715 = getMockBrowserName;
+
+/**
+ * 生成随机前缀字节
+ * 用于 Base64 编码前的混淆
+ * @param {number[]} seedBytes - 2 字节的种子数组
+ * @param {number} mode - 生成模式 (0, 1, 2)
+ * @returns {number[]} 4 字节的前缀数组
+ */
+export function generateRandomPrefix(seedBytes, mode) {
+  mode = mode || 0;
+  var randomVal = Math.random() * 65535;
+  var b0, b1;
+
+  if (mode === 2) {
+    // 模式2: 使用随机字节生成器
+    b0 = generateRandomByte();
+    b1 = getMockTimestamp();
+  } else {
+    // 模式0/1: 使用随机值
+    b0 = randomVal & 255;
+    b1 = mode === 1 ? getMockBrowserName() : (randomVal >> 8) & 255;
+  }
+
+  // 混合种子和随机值
+  return [
+    b0 & 170 | seedBytes[0] & 85,
+    b0 & 85 | seedBytes[0] & 170,
+    b1 & 170 | seedBytes[1] & 85,
+    b1 & 85 | seedBytes[1] & 170
+  ];
+}
+
+// 别名（兼容旧代码）
+export const m_718 = generateRandomPrefix;
+
+// ============================================================
+// 版本号处理
+// ============================================================
+
+/**
+ * 处理版本号字符串为字节数组
+ * 将版本号各部分转换为混淆后的字节
+ * @param {string} versionStr - 版本号字符串 (如 "1.0.1.19-fix.01")
+ * @returns {number[]} 8 字节的版本号数组
+ */
+export function processVersionBytes(versionStr) {
+  var parts = versionStr.split('.').map(function (p) { return ~~p; });  // 取整
+
+  // 前两部分的随机前缀
+  var prefix1 = generateRandomPrefix([parts[0], parts[1]]);
+  // 后两部分的随机前缀（模式2）
+  var prefix2 = generateRandomPrefix([parts[2], parts[3]], 2);
+
+  return [
+    prefix1[0], prefix1[1], prefix1[2], prefix1[3],
+    prefix2[0], prefix2[1], prefix2[2], prefix2[3]
+  ];
+}
+
+// 别名（兼容旧代码）
+export const m_733 = processVersionBytes;
+
+// ============================================================
+// 数组转换工具
+// ============================================================
+
+/**
+ * 将输入转换为数组
+ * 支持数组、可迭代对象、类数组对象
+ * @param {*} input - 输入值
+ * @returns {Array} 数组
+ */
+export function toArray(input) {
+  // 尝试作为可迭代对象
+  var result = tryGetIterator(input);
+  if (result) return result;
+
+  // 尝试作为数组
+  result = tryGetArray(input);
+  if (result) return result;
+
+  // 尝试作为类数组
+  result = tryGetArrayLike(input);
+  if (result) return result;
+
+  // 失败则抛出错误
   throw new TypeError('Invalid attempt to spread non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method.');
-};
+}
 
-export const Ht = function fn_280(a_0, a_1) {
-  // BB: 0
-  var v_0, v_1, v_2, v_3, v_4, v_5, v_6, v_7, v_8, v_9, v_10;
-  v_0 = [];
-  v_1 = 0;
-  // BB: 20
-  while (true) {
-    // BB: 20
-    if (!(v_1 < 256)) // BB: 48
-      break;
-    // BB: 28
-    v_0[255 - v_1] = v_1;
-    v_1 = v_1 + 1;
-    // BB: 20
-    continue;
-  }
-  // BB: 48
-  v_2 = 0;
-  v_3 = 0;
-  // BB: 53
-  while (true) {
-    // BB: 53
-    if (!(v_3 < 256)) // BB: 141
-      break;
-    // BB: 61
-    v_10 = (v_2 * v_0[v_3] + v_2 + a_0.charCodeAt(v_3 % a_0.length)) % 256;
-    v_8 = v_0[v_3];
-    v_0[v_3] = v_0[v_10];
-    v_0[v_10] = v_8;
-    v_3 = v_3 + 1;
-    v_2 = v_10;
-    // BB: 53
-    continue;
-  }
-  // BB: 141
-  v_4 = 0;
-  v_5 = 0;
-  v_6 = 0;
-  v_7 = '';
-  // BB: 156
-  while (true) {
-    // BB: 156
-    if (!(v_5 < a_1.length)) // BB: 287
-      return v_7;
-    // BB: 167
-    v_8 = (v_4 + 1) % 256;
-    v_9 = (v_6 + v_0[v_8]) % 256;
-    v_10 = v_0[v_8];
-    v_0[v_8] = v_0[v_9];
-    v_0[v_9] = v_10;
-    v_10 = String.fromCharCode(a_1.charCodeAt(v_5) ^ v_0[(v_0[v_8] + v_0[v_9]) % 256]);
-    v_7 = v_7 + v_10;
-    v_5 = v_5 + 1;
-    v_4 = v_8;
-    v_6 = v_9;
-    // BB: 156
-    continue;
-  }
-};
+/**
+ * 尝试从可迭代对象获取数组
+ */
+function tryGetIterator(input) {
+  var hasIterator = 'undefined' != typeof Symbol && null != input[Symbol.iterator] || null != input['@@iterator'];
+  if (hasIterator) return Array.from(input);
+}
 
-export const m_735 = function fn_148(a_0) {
-  // BB: 0
-  var v_0, v_1, v_2, v_3, v_4, v_5;
-  v_0 = [];
-  v_1 = 0;
-  // BB: 40
-  while (true) {
-    // BB: 40
-    if (!(v_1 < a_0.length)) // BB: 280
-      return v_0;
-    // BB: 51
-    if (v_1 + 2 < a_0.length) {
-      // BB: 65
-      v_4 = Math.random() * 1000 & 255;
-      v_2 = a_0[v_1] & 145 | a_0[v_1 + 1] & 66 | a_0[v_1 + 2] & 44;
-      v_3 = v_0.push;
-      v_5 = new Array(4);
-      v_5[0] = v_4 & 145 | a_0[v_1] & 110;
-      v_5[1] = v_4 & 66 | a_0[v_1 + 1] & 189;
-      v_5[2] = v_4 & 44 | a_0[v_1 + 2] & 211;
-      v_5[3] = v_2;
-      v_3.apply(v_0, v_5)
+/**
+ * 尝试从数组获取副本
+ */
+function tryGetArray(input) {
+  if (Array.isArray(input)) return copyArray(input);
+}
+
+/**
+ * 复制数组
+ */
+function copyArray(arr, len) {
+  len = null == len || len > arr.length ? arr.length : len;
+  var result = Array(len);
+  for (var i = 0; i < len; i++) {
+    result[i] = arr[i];
+  }
+  return result;
+}
+
+/**
+ * 尝试从类数组对象获取数组
+ */
+function tryGetArrayLike(input) {
+  if (!input) return;
+
+  if ('string' == typeof input) return copyArray(input);
+
+  var typeName = {}.toString.call(input).slice(8, -1);
+  var constructorName = 'Object' === typeName && input.constructor ? input.constructor.name : typeName;
+
+  if ('Map' === constructorName || 'Set' === constructorName) {
+    return Array.from(input);
+  }
+
+  if ('Arguments' === constructorName || /^(?:Ui|I)nt(?:8|16|32)(?:Clamped)?Array$/.test(constructorName)) {
+    return copyArray(input);
+  }
+}
+
+// 别名（兼容旧代码）
+export const m_734 = toArray;
+export const m_706 = tryGetIterator;
+export const m_705 = tryGetArray;
+export const m_709 = copyArray;
+export const m_707 = tryGetArrayLike;
+export const m_708 = function () { throw new TypeError('Invalid attempt to spread non-iterable instance.'); };
+
+// ============================================================
+// 字节混淆
+// ============================================================
+
+/**
+ * 字节混淆函数
+ * 将每 3 字节扩展为 4 字节，增加随机性
+ * @param {number[]} inputBytes - 输入字节数组
+ * @returns {number[]} 混淆后的字节数组
+ */
+export function obfuscateBytes(inputBytes) {
+  var output = [];
+
+  for (var i = 0; i < inputBytes.length; i += 3) {
+    if (i + 2 < inputBytes.length) {
+      // 每 3 字节扩展为 4 字节
+      var randomByte = Math.random() * 1000 & 255;
+      var b0 = inputBytes[i];
+      var b1 = inputBytes[i + 1];
+      var b2 = inputBytes[i + 2];
+
+      // 混合原始字节和随机字节
+      output.push(
+        randomByte & 145 | b0 & 110,
+        randomByte & 66 | b1 & 189,
+        randomByte & 44 | b2 & 211,
+        b0 & 145 | b1 & 66 | b2 & 44  // 校验字节
+      );
     } else {
-      // BB: 220
-      v_2 = v_0.push;
-      v_3 = a_0[v_1];
-      v_4 = new Array(1);
-      v_4[0] = v_3;
-      v_2.apply(v_0, v_4)
-      if (a_0[v_1 + 1]) {
-        // BB: 248
-        v_3 = v_0.push;
-        v_4 = a_0[v_1 + 1];
-        v_2 = new Array(1);
-        v_2[0] = v_4;
-        v_3.apply(v_0, v_2)
+      // 剩余不足 3 字节，直接输出
+      output.push(inputBytes[i]);
+      if (inputBytes[i + 1] !== undefined) {
+        output.push(inputBytes[i + 1]);
       }
     }
-    // BB: 267
-    v_1 = v_1 + 3;
-    // BB: 40
-    continue;
   }
-};
+
+  return output;
+}
+
+// 别名（兼容旧代码）
+export const m_735 = obfuscateBytes;
