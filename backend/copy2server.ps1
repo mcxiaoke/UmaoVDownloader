@@ -2,7 +2,7 @@
 # 用途：部署更新到生产环境
 
 # 复制所有必要的文件到服务器
-scp -r *.json *.js *.cjs parsers/ public/ root@192.168.1.118:/data/www/umaovd/
+scp -r *.json *.js *.cjs abogus/ parsers/ public/ root@192.168.1.118:/data/www/umaovd/
 
 # 在服务器上安装依赖
 # 核心命令：加载 nvm → 切换到 24.14.0 → 执行 npm install

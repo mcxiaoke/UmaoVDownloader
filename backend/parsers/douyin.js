@@ -19,6 +19,7 @@
 
 import fs from "fs-extra"; // 文件系统操作
 import { join } from "path"; // 路径处理
+import { generateABogus } from "../abogus/index.js"; // a_bogus 签名模块
 import { clearCookie, getCookie, isCookieLikelyInvalid } from "../cookies.js";
 import {
   DEFAULT_HEADERS,
@@ -27,13 +28,18 @@ import {
   fetchWithRetry,
   MOBILE_UA,
 } from "./common.js";
-import { generateABogus } from "../abogus/index.js"; // a_bogus 签名模块
 
 // 抖音无水印视频播放接口基础URL
 const PLAY_BASE = "https://aweme.snssdk.com/aweme/v1/play/";
 
 // 当前使用的请求头（包含动态 Cookie）
 let DY_HEADERS = { ...DEFAULT_HEADERS };
+
+// ABOGUS 冷却机制
+let abogusFailCount = 0; // 连续失败计数
+let abogusCooldownUntil = 0; // 冷却结束时间戳
+const ABOGUS_COOLDOWN_SHORT = 30 * 60 * 1000; // 30 分钟
+const ABOGUS_COOLDOWN_LONG = 4 * 60 * 60 * 1000; // 4 小时
 
 // 支持的画质等级，按优先级排序（从高到低）
 const QUALITY_RATIOS = ["2160p", "1080p", "720p"];
@@ -86,16 +92,16 @@ export async function parse(url, debug = false) {
   log = debug ? (...args) => console.log("  [DY]", ...args) : () => {};
   currentShortId = extractShortId(url); // 设置当前短ID
 
-  // 检测是否开启 abogus (URL 参数 abogus=1)
-  let useAbogus = false;
+  // 检测 abogus 参数 (abogus=0 禁用，默认开启)
+  let abogusDisabled = false;
   try {
     const urlObj = new URL(url);
-    useAbogus = urlObj.searchParams.get("abogus") === "1";
+    abogusDisabled = urlObj.searchParams.get("abogus") === "0";
   } catch {
     // URL 解析失败，忽略
   }
-  if (useAbogus) {
-    log(">>> ABOGUS 模式已开启 <<<");
+  if (!abogusDisabled) {
+    log(">>> ABOGUS 模式默认开启 (图文自动获取动图视频) <<<");
   }
 
   // 初始化请求头（加载 Cookie）
@@ -160,8 +166,10 @@ export async function parse(url, debug = false) {
   try {
     // 从 commonContext 或 loaderData 中提取 webId
     const loaderData = routerData.loaderData || {};
-    extractedWebId = routerData.commonContext?.webId || 
-      Object.values(loaderData).find(v => v?.webId)?.webId || null;
+    extractedWebId =
+      routerData.commonContext?.webId ||
+      Object.values(loaderData).find((v) => v?.webId)?.webId ||
+      null;
     if (extractedWebId) {
       log(`  ✓ 提取到 webId: ${extractedWebId}`);
     }
@@ -185,7 +193,9 @@ export async function parse(url, debug = false) {
   // 使用统一的类型检测函数
   const mediaType = detectMediaType(item);
   const title = (item.desc || "").trim();
-  log(`  ✓ awemeId: ${itemId}, title: ${title.substring(0, 30) || "<无标题>"}, type: ${mediaType}`);
+  log(
+    `  ✓ awemeId: ${itemId}, title: ${title.substring(0, 30) || "<无标题>"}, type: ${mediaType}`,
+  );
 
   // 提取作者信息
   const author = item.author ?? {};
@@ -260,7 +270,9 @@ export async function parse(url, debug = false) {
       ? Math.round(item.video.duration / 1000)
       : null;
 
-    log(`→ 构建结果: type=video, quality=${info.quality || "none"}, duration=${info.duration || "unknown"}s`);
+    log(
+      `→ 构建结果: type=video, quality=${info.quality || "none"}, duration=${info.duration || "unknown"}s`,
+    );
     log(`  videoUrl: ${info.videoUrl || "none"}`);
   }
 
@@ -269,36 +281,42 @@ export async function parse(url, debug = false) {
     throw new Error("无法获取有效的媒体内容，可能是链接无效或已被删除");
   }
 
-  // ========== ABOGUS 模式：获取动图视频 ==========
-  if (useAbogus && mediaType === "image" && itemId) {
+  // ========== ABOGUS 模式：获取动图视频 (图文默认开启) ==========
+  if (!abogusDisabled && mediaType === "image" && itemId) {
     log(">>> 尝试获取动图视频 (slidesinfo API)...");
     try {
-      const slidesInfo = await fetchSlidesInfo(itemId, shareRefererUrl, extractedWebId);
+      const slidesInfo = await fetchSlidesInfo(
+        itemId,
+        shareRefererUrl,
+        extractedWebId,
+      );
       if (slidesInfo && slidesInfo.images) {
         log(`  ✓ 获取到 ${slidesInfo.images.length} 张图片数据`);
-        
+
         // 将动图视频信息合并到 imageList，对齐小红书 livephoto 格式
         let livePhotoCount = 0;
         const livePhotoUrls = [];
-        
+
         info.imageList = info.imageList.map((img, idx) => {
           const slideImg = slidesInfo.images[idx];
           if (!slideImg?.video?.play_addr?.url_list?.[0]) {
             // 没有视频，保持原样
             return img;
           }
-          
+
           // 提取视频信息
           const playAddr = slideImg.video.play_addr;
           const playAddrH264 = slideImg.video.play_addr_h264;
           const videoUrl = playAddr.url_list[0];
           const videoUrlH264 = playAddrH264?.url_list?.[0] || videoUrl;
-          
+
           livePhotoCount++;
           livePhotoUrls.push(videoUrl);
-          
-          log(`  Image ${idx + 1}: 动态视频 ${slideImg.video.duration}ms, ${playAddr.width}x${playAddr.height}, ${(playAddr.data_size / 1024).toFixed(1)}KB`);
-          
+
+          log(
+            `  Image ${idx + 1}: 动态视频 ${slideImg.video.duration}ms, ${playAddr.width}x${playAddr.height}, ${(playAddr.data_size / 1024).toFixed(1)}KB`,
+          );
+
           // 对齐小红书 livephoto 格式
           return {
             ...img,
@@ -313,7 +331,7 @@ export async function parse(url, debug = false) {
             duration: slideImg.video.duration || null, // 毫秒
           };
         });
-        
+
         // 更新结果（对齐小红书 livephoto 格式）
         if (livePhotoCount > 0) {
           info.type = "livephoto"; // 更新类型
@@ -321,7 +339,7 @@ export async function parse(url, debug = false) {
           info.livePhotoUrls = livePhotoUrls;
           log(`  ✓ 检测到 ${livePhotoCount} 个实况图，类型更新为 livephoto`);
         }
-        
+
         // 保存 slidesInfo 供调试
         saveDebugJson(slidesInfo, "slidesinfo");
       }
@@ -425,7 +443,11 @@ async function resolveAndFetch(url) {
   const html = await resp.text();
 
   // 检测页面内容中的错误提示
-  if (html.includes("作品已删除") || html.includes("视频已删除") || html.includes("内容不存在")) {
+  if (
+    html.includes("作品已删除") ||
+    html.includes("视频已删除") ||
+    html.includes("内容不存在")
+  ) {
     throw new Error("作品已被删除或不存在");
   }
 
@@ -709,19 +731,27 @@ async function saveDebugJson(data, prefix) {
  * @returns {Promise<Object|null>} slides 信息
  */
 async function fetchSlidesInfo(awemeId, referer, pageWebId = null) {
+  // 冷却期检查
+  const now = Date.now();
+  if (now < abogusCooldownUntil) {
+    const remaining = Math.ceil((abogusCooldownUntil - now) / 60000);
+    log(`  [ABOGUS] 冷却中，跳过（剩余 ${remaining} 分钟）`);
+    return null;
+  }
+
   // 生成随机 19 位数字 ID (device_id 和 web_id 通常相同)
   const randomId = () => {
-    let id = '';
+    let id = "";
     for (let i = 0; i < 19; i++) {
       id += Math.floor(Math.random() * 10);
     }
     return id;
   };
-  
+
   // 优先使用页面提取的 webId，否则随机生成
   const webId = pageWebId || randomId();
   const deviceId = webId; // device_id 通常与 web_id 相同
-  
+
   if (pageWebId) {
     log(`  [ABOGUS] 使用页面提取的 device_id/web_id: ${deviceId}`);
   } else {
@@ -730,24 +760,24 @@ async function fetchSlidesInfo(awemeId, referer, pageWebId = null) {
 
   // 构建 API URL 参数
   const params = {
-    reflow_source: 'reflow_page',
+    reflow_source: "reflow_page",
     web_id: webId,
     device_id: deviceId,
     aweme_ids: `[${awemeId}]`,
-    request_source: '200'
+    request_source: "200",
   };
 
   // 构建 query string
   const queryString = Object.entries(params)
     .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
-    .join('&');
+    .join("&");
 
   log(`  [ABOGUS] queryString: ${queryString.substring(0, 100)}...`);
 
   // 生成 a_bogus
   const userAgent = DY_HEADERS["User-Agent"] || MOBILE_UA;
   log(`  [ABOGUS] UA: ${userAgent.substring(0, 50)}...`);
-  
+
   const aBogus = generateABogus(queryString, userAgent);
   log(`  [ABOGUS] a_bogus: ${aBogus}`);
   log(`  [ABOGUS] a_bogus length: ${aBogus.length}`);
@@ -758,15 +788,15 @@ async function fetchSlidesInfo(awemeId, referer, pageWebId = null) {
 
   // 发送请求
   const resp = await fetchWithRetry(apiUrl, {
-    method: 'GET',
+    method: "GET",
     headers: {
-      'accept': 'application/json, text/plain, */*',
-      'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8',
-      'agw-js-conv': 'str',
-      'cookie': DY_HEADERS.Cookie || '',
-      'Referer': referer,
-      'User-Agent': userAgent
-    }
+      accept: "application/json, text/plain, */*",
+      "accept-language": "zh-CN,zh;q=0.9,en;q=0.8",
+      "agw-js-conv": "str",
+      cookie: DY_HEADERS.Cookie || "",
+      Referer: referer,
+      "User-Agent": userAgent,
+    },
   });
 
   const text = await resp.text();
@@ -775,10 +805,12 @@ async function fetchSlidesInfo(awemeId, referer, pageWebId = null) {
 
   try {
     const json = JSON.parse(text);
-    
+
     // 检查错误
     if (json.status_code !== 0) {
-      log(`  [ABOGUS] API 错误: status_code=${json.status_code}, msg=${json.status_msg}`);
+      log(
+        `  [ABOGUS] API 错误: status_code=${json.status_code}, msg=${json.status_msg}`,
+      );
       return null;
     }
 
@@ -786,18 +818,47 @@ async function fetchSlidesInfo(awemeId, referer, pageWebId = null) {
     const item = json.aweme_details?.[0];
     if (!item) {
       log(`  [ABOGUS] 未找到 aweme_details`);
+      // 增加失败计数
+      abogusFailCount++;
+      log(`  [ABOGUS] 连续失败次数: ${abogusFailCount}`);
+
+      // 检查是否需要触发冷却
+      if (abogusFailCount >= 10) {
+        abogusCooldownUntil = Date.now() + ABOGUS_COOLDOWN_LONG;
+        log(`  [ABOGUS] ⚠️ 连续失败 ${abogusFailCount} 次，进入 4 小时冷却期`);
+      } else if (abogusFailCount >= 3) {
+        abogusCooldownUntil = Date.now() + ABOGUS_COOLDOWN_SHORT;
+        log(`  [ABOGUS] ⚠️ 连续失败 ${abogusFailCount} 次，进入 30 分钟冷却期`);
+      }
+
+      // 保存原始 JSON 以便调试
+      // await saveDebugJson(json, "abogus_no_details");
       return null;
     }
 
-    log(`  [ABOGUS] 成功获取 slides 信息: aweme_id=${item.aweme_id}, images=${item.images?.length}`);
+    // 成功，重置失败计数
+    abogusFailCount = 0;
+
+    log(
+      `  [ABOGUS] 成功获取 slides 信息: aweme_id=${item.aweme_id}, images=${item.images?.length}`,
+    );
 
     return {
       aweme_id: item.aweme_id,
-      images: item.images
+      images: item.images,
     };
   } catch (e) {
     log(`  [ABOGUS] JSON 解析失败: ${e.message}`);
     log(`  [ABOGUS] Response preview: ${text.substring(0, 200)}`);
+    // 保存原始响应（可能是风控页面）
+    const errorFile = join(
+      __dirname,
+      "..",
+      "temp",
+      `abogus_response_${Date.now()}.html`,
+    );
+    fs.writeFileSync(errorFile, text);
+    log(`  [ABOGUS] 响应已保存: ${errorFile}`);
     return null;
   }
 }
