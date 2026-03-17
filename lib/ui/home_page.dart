@@ -5,21 +5,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:package_info_plus/package_info_plus.dart';
-import 'package:permission_handler/permission_handler.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../providers/providers.dart';
-import '../services/app_logger.dart';
 import '../services/log_service.dart';
 import '../services/parser_common.dart';
 import '../services/settings_service.dart';
-import '../constants/app_constants.dart';
+import '../utils/platform_utils.dart';
+import 'mixins/permission_mixin.dart';
 import 'widgets/directory_row.dart';
-import 'widgets/download_actions.dart';
 import 'widgets/input_row.dart';
 import 'widgets/log_panel.dart';
-import 'widgets/thumbnail_grid.dart';
-import 'widgets/video_cover.dart';
+import 'widgets/result_card.dart';
+import 'widgets/settings_dialog.dart';
 
 /// 主页
 ///
@@ -32,7 +29,7 @@ class HomePage extends ConsumerStatefulWidget {
   ConsumerState<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends ConsumerState<HomePage> {
+class _HomePageState extends ConsumerState<HomePage> with PermissionMixin {
   final _inputCtrl = TextEditingController();
   final _thumbScrollCtrl = ScrollController();
   bool _screenSizeLogged = false;
@@ -47,7 +44,7 @@ class _HomePageState extends ConsumerState<HomePage> {
     super.initState();
     _initAppVersion();
     if (Platform.isAndroid) {
-      _checkStoragePermission();
+      checkStoragePermission();
     }
   }
 
@@ -75,75 +72,6 @@ class _HomePageState extends ConsumerState<HomePage> {
         _appVersion = info.version;
       });
     }
-  }
-
-  /// 检查存储权限，未授权则弹窗引导用户授权
-  Future<void> _checkStoragePermission() async {
-    // 延迟一帧执行，确保 context 可用
-    await WidgetsBinding.instance.endOfFrame;
-    if (!mounted) return;
-
-    final sdkInt = await _androidSdkVersion();
-    final permission = sdkInt >= 30
-        ? Permission.manageExternalStorage
-        : Permission.storage;
-
-    final status = await permission.status;
-    if (status.isGranted || status.isLimited) return;
-
-    // 未授权：弹窗引导用户授权
-    _showPermissionRequiredDialog(permission);
-  }
-
-  /// 读取 Android SDK 版本
-  Future<int> _androidSdkVersion() async {
-    try {
-      final result = await Process.run('getprop', ['ro.build.version.sdk']);
-      return int.tryParse((result.stdout as String).trim()) ?? 0;
-    } catch (_) {
-      return 0;
-    }
-  }
-
-  /// 显示必须授权的对话框
-  void _showPermissionRequiredDialog(Permission permission) {
-    showDialog<void>(
-      context: context,
-      barrierDismissible: false, // 点击外部不关闭
-      builder: (ctx) => AlertDialog(
-        title: const Text('需要存储权限'),
-        content: const Text('此应用需要存储权限才能保存下载的文件。\n\n请授权后使用。'),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              SystemNavigator.pop(); // 退出应用
-            },
-            child: const Text('退出'),
-          ),
-          FilledButton(
-            onPressed: () async {
-              final result = await permission.request();
-              final recheck = await permission.status;
-              if (result.isGranted || recheck.isGranted || recheck.isLimited) {
-                if (ctx.mounted) Navigator.pop(ctx);
-              } else if (result.isPermanentlyDenied || recheck.isPermanentlyDenied) {
-                // 永久拒绝，引导去设置
-                if (ctx.mounted) {
-                  Navigator.pop(ctx);
-                  openAppSettings();
-                  // 返回后再次检查
-                  Future.delayed(const Duration(milliseconds: 500), () {
-                    if (mounted) _checkStoragePermission();
-                  });
-                }
-              }
-            },
-            child: const Text('授权'),
-          ),
-        ],
-      ),
-    );
   }
 
   // ─── 解析逻辑 ─────────────────────────────────────────────────────
@@ -224,7 +152,7 @@ class _HomePageState extends ConsumerState<HomePage> {
 
     // 权限被拒绝
     if (result.shouldShowPermissionDialog) {
-      _showPermissionDeniedDialog();
+      showPermissionDeniedDialog();
       return;
     }
 
@@ -273,34 +201,7 @@ class _HomePageState extends ConsumerState<HomePage> {
     if (result.count != null) {
       return '动图视频已保存（${result.count} 个）';
     }
-    if (result.isBatch) {
-      return '已保存到 ${result.path}';
-    }
     return '已保存到 ${result.path}';
-  }
-
-  /// 显示权限被永久拒绝的对话框
-  void _showPermissionDeniedDialog() {
-    showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('需要存储权限'),
-        content: const Text('存储权限已被永久拒绝，请在系统设置中手动开启后重试。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              openAppSettings();
-            },
-            child: const Text('去设置'),
-          ),
-        ],
-      ),
-    );
   }
 
   // ─── 构建界面 ─────────────────────────────────────────────────────
@@ -434,193 +335,46 @@ class _HomePageState extends ConsumerState<HomePage> {
   // ── 解析结果卡片 ──────────────────────────────────────────────
 
   Widget _buildResultCard(VideoState videoState, DownloadState downloadState) {
+    // 空状态
     if (videoState.videoInfo == null && !videoState.parsing) {
-      return Container(
-        height: 280,
-        decoration: BoxDecoration(
-          border: Border.all(color: Colors.grey.shade300),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: const Center(
-          child: Text('解析结果将显示在这里', style: TextStyle(color: Colors.grey)),
-        ),
-      );
+      return const EmptyResultPlaceholder();
     }
 
+    // 加载中
     if (videoState.parsing) {
-      return const SizedBox(
-        height: 280,
-        child: Center(child: CircularProgressIndicator()),
-      );
+      return const LoadingPlaceholder();
     }
 
-    final info = videoState.videoInfo!;
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final narrow = constraints.maxWidth < 400;
-        return Card(
-          elevation: 2,
-          child: Padding(
-            padding: const EdgeInsets.all(12.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // 标题（可复制，截断到80字符）
-                SelectableText(
-                  _truncateTitle(info.title),
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  _buildMetaInfo(info),
-                  style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
-                ),
-                // 封面图/缩略图
-                if (info.mediaType != MediaType.video &&
-                    info.imageUrls.isNotEmpty)
-                  ThumbnailGrid(
-                    videoInfo: info,
-                    scrollController: _thumbScrollCtrl,
-                    singleProgress: downloadState.singleProgressMap,
-                    singleDownloading: downloadState.singleDownloadingMap,
-                    singleDone: downloadState.singleDoneMap,
-                    onDownloadImage: _downloadSingleImage,
-                    onDownloadLivePhoto: _downloadSingleLivePhoto,
-                  ),
-                // 普通视频显示封面
-                if (info.mediaType == MediaType.video && info.coverUrl != null)
-                  VideoCover(coverUrl: info.coverUrl!),
-                const SizedBox(height: 12),
-                // 操作区
-                if (narrow)
-                  DownloadActionsNarrow(
-                    videoInfo: info,
-                    downloading: downloadState.downloading,
-                    downloadProgress: downloadState.downloadProgress,
-                    downloadingMusic: downloadState.downloadingMusic,
-                    downloadingLiveVideos: downloadState.downloadingLiveVideos,
-                    liveVideoProgress: downloadState.liveVideoProgress,
-                    fileSizeBytes: videoState.fileSizeBytes,
-                    fetchingSize: videoState.fetchingSize,
-                    onDownload: _download,
-                    onDownloadMusic: _downloadMusic,
-                    onDownloadLiveVideos: _downloadLiveVideos,
-                  )
-                else
-                  DownloadActionsWide(
-                    videoInfo: info,
-                    downloading: downloadState.downloading,
-                    downloadProgress: downloadState.downloadProgress,
-                    downloadingMusic: downloadState.downloadingMusic,
-                    downloadingLiveVideos: downloadState.downloadingLiveVideos,
-                    liveVideoProgress: downloadState.liveVideoProgress,
-                    fileSizeBytes: videoState.fileSizeBytes,
-                    fetchingSize: videoState.fetchingSize,
-                    onDownload: _download,
-                    onDownloadMusic: _downloadMusic,
-                    onDownloadLiveVideos: _downloadLiveVideos,
-                  ),
-              ],
-            ),
-          ),
-        );
-      },
+    // 显示结果
+    return ResultCard(
+      videoInfo: videoState.videoInfo!,
+      scrollController: _thumbScrollCtrl,
+      downloading: downloadState.downloading,
+      downloadProgress: downloadState.downloadProgress,
+      downloadingMusic: downloadState.downloadingMusic,
+      downloadingLiveVideos: downloadState.downloadingLiveVideos,
+      liveVideoProgress: downloadState.liveVideoProgress,
+      singleProgressMap: downloadState.singleProgressMap,
+      singleDownloadingMap: downloadState.singleDownloadingMap,
+      singleDoneMap: downloadState.singleDoneMap,
+      fetchingSize: videoState.fetchingSize,
+      fileSizeBytes: videoState.fileSizeBytes,
+      onDownload: _download,
+      onDownloadMusic: _downloadMusic,
+      onDownloadLiveVideos: _downloadLiveVideos,
+      onDownloadImage: _downloadSingleImage,
+      onDownloadLivePhoto: _downloadSingleLivePhoto,
     );
   }
 
-  /// 截断标题到指定长度（默认80字符）
-  String _truncateTitle(String title, [int maxLen = 80]) {
-    final text = title.replaceAll(RegExp(r'\s+'), ' ').trim();
-    if (text.length <= maxLen) return text;
-    return '${text.substring(0, maxLen)}...';
-  }
-
-  /// 构建元信息文本：ID · 类型 · 数量
-  String _buildMetaInfo(VideoInfo info) {
-    final id = info.shareId ?? info.itemId;
-    final (type, count) = switch (info.mediaType) {
-      MediaType.image => ('图文', '${info.imageUrls.length}'),
-      MediaType.livePhoto => ('实况图', '${info.livePhotoUrls.length}'),
-      MediaType.video => ('视频', '1'),
-    };
-    return 'ID: $id · 类型: $type · 数量: $count';
-  }
-
-  // ─── 日志设置面板 ────────────────────────────────────────────
-
+  /// 打开设置对话框
   Future<void> _openLogSettingsPanel() async {
-    var verbose = _settings.verboseLog;
-
-    await showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      isScrollControlled: true,
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (ctx, setSheetState) {
-            return SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const ListTile(
-                      dense: true,
-                      contentPadding: EdgeInsets.zero,
-                      leading: Icon(Icons.tune),
-                      title: Text('设置'),
-                    ),
-                    SwitchListTile.adaptive(
-                      value: verbose,
-                      onChanged: (v) async {
-                        setSheetState(() => verbose = v);
-                        await _settings.setVerboseLog(v);
-                        AppLogger.setVerbose(v);
-                        _log.info(v ? '已开启详细日志输出' : '已关闭详细日志输出');
-                      },
-                      title: const Text('详细日志'),
-                    ),
-                    // 分隔线
-                    const Divider(height: 24),
-                    // 关于信息
-                    ListTile(
-                      dense: true,
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-                      leading: const Icon(Icons.info_outline),
-                      title: const Text('About'),
-                      subtitle: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const SizedBox(height: 4),
-                          Text('Umao VDownloader v${_appVersion.isNotEmpty ? _appVersion : "..."}'),
-                          const Text('mcxiaoke'),
-                          const SizedBox(height: 4),
-                          GestureDetector(
-                            onTap: () => _openUrl(kGitHubUrl),
-                            child: Text(
-                              kGitHubUrl,
-                              style: TextStyle(
-                                color: Theme.of(ctx).primaryColor,
-                                decoration: TextDecoration.underline,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        );
-      },
+    await SettingsDialog.show(
+      context,
+      settings: _settings,
+      log: _log,
+      appVersion: _appVersion,
+      onOpenUrl: PlatformUtils.openUrl,
     );
   }
 
@@ -642,28 +396,7 @@ class _HomePageState extends ConsumerState<HomePage> {
   }
 
   void _openDirectory(String path) {
-    if (Platform.isWindows) {
-      Process.run('explorer', [path]);
-    } else if (Platform.isMacOS) {
-      Process.run('open', [path]);
-    }
-  }
-
-  /// 打开 URL（桌面用系统浏览器，移动端用 url_launcher）
-  Future<void> _openUrl(String url) async {
-    if (Platform.isWindows) {
-      Process.run('start', [url], runInShell: true);
-    } else if (Platform.isMacOS) {
-      Process.run('open', [url]);
-    } else if (Platform.isLinux) {
-      Process.run('xdg-open', [url]);
-    } else {
-      // 移动端使用 url_launcher
-      final uri = Uri.parse(url);
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
-      }
-    }
+    PlatformUtils.openDirectory(path);
   }
 
   void _copyLogContent() {
