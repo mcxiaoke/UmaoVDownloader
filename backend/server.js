@@ -117,9 +117,9 @@ const UA_PROXY =
   "AppleWebKit/605.1.15 (KHTML, like Gecko) " +
   "Version/16.6 Mobile/15E148 Safari/604.1";
 
-// ── GET /parse API 端点 ────────────────────────────────────────────────────────────────
+// ── GET /api/parse API 端点 ────────────────────────────────────────────────────────────────
 // 功能：解析抖音、小红书等平台链接，返回结构化视频/图文信息
-app.get("/parse", async (req, res) => {
+app.get("/api/parse", async (req, res) => {
   const { url, abogus } = req.query;
   log(`→ /parse 请求: ${url}${abogus === "1" ? " (abogus)" : ""}`);
 
@@ -179,9 +179,9 @@ app.get("/parse", async (req, res) => {
   }
 });
 
-// ── GET /download API 端点 ─────────────────────────────────────────────────────────────
+// ── GET /api/download API 端点 ─────────────────────────────────────────────────────────────
 // 功能：代理转发视频/图片流，解决浏览器CORS跨域问题，同时触发下载
-app.get("/download", async (req, res) => {
+app.get("/api/download", async (req, res) => {
   const { url, name } = req.query;
   log(`→ /download 请求: ${name || "unnamed"}`);
   log(`  url: ${url}`);
@@ -257,10 +257,10 @@ app.get("/download", async (req, res) => {
   }
 });
 
-// ── POST /zip API 端点 ────────────────────────────────────────────────────────────────
+// ── POST /api/zip API 端点 ────────────────────────────────────────────────────────────────
 // 功能：将多张图片打包为ZIP文件返回，适用于小红书等多图内容
 // 请求体: { urls: string[], names: string[], filename?: string }
-app.post("/zip", async (req, res) => {
+app.post("/api/zip", async (req, res) => {
   const { urls, names, filename = "images.zip" } = req.body ?? {};
 
   // 参数验证
@@ -378,9 +378,9 @@ app.delete("/api/cookies", async (req, res) => {
 const server = app.listen(PORT, "0.0.0.0", () => {
   console.log(`umao-vd backend listening on http://0.0.0.0:${PORT}`);
   console.log("API端点:");
-  console.log("  GET  /parse?url=<链接>                    # 解析视频/图文");
-  console.log("  GET  /download?url=<直链>&name=<文件名>   # 代理下载");
-  console.log("  POST /zip  { urls, names, filename }     # 打包下载");
+  console.log("  GET  /api/parse?url=<链接>               # 解析视频/图文");
+  console.log("  GET  /api/download?url=<直链>&name=<文件名> # 代理下载");
+  console.log("  POST /api/zip  { urls, names, filename } # 打包下载");
   console.log("  GET  /api/cookies                        # 获取 Cookie 状态");
   console.log("  POST /api/cookies                        # 设置 Cookie");
   console.log("  DELETE /api/cookies                      # 清除 Cookie");

@@ -50,7 +50,7 @@ function getFriendlyError(error) {
 }
 
 function dlUrl(url, name) {
-  return `download?url=${encodeURIComponent(url)}&name=${encodeURIComponent(name)}`;
+  return `api/download?url=${encodeURIComponent(url)}&name=${encodeURIComponent(name)}`;
 }
 
 function renderVideo(info) {
@@ -81,7 +81,7 @@ function renderVideo(info) {
   const directLinkBtn = `<a class="btn-dl secondary full-width" href="${info.videoUrl}" target="_blank" rel="noreferrer" title="提示：右键另存为的文件名无法控制，如需自定义文件名请使用上面的下载按钮">新标签页打开视频（右键另存为） ↗</a>`;
 
   const coverProxyUrl = info.coverUrl
-    ? `download?url=${encodeURIComponent(info.coverUrl)}&name=cover.jpg`
+    ? `api/download?url=${encodeURIComponent(info.coverUrl)}&name=cover.jpg`
     : null;
 
   // 信息行：ID + 类型 + 数量
@@ -117,7 +117,7 @@ function renderImages(info) {
           : "";
       return `
         <div class="image-item">
-          <img src="${`download?url=${encodeURIComponent(imageThumbs[i] || url)}&name=thumb_${i}.webp`}" loading="lazy" data-full="${url}" />
+          <img src="${`api/download?url=${encodeURIComponent(imageThumbs[i] || url)}&name=thumb_${i}.webp`}" loading="lazy" data-full="${url}" />
           <button class="img-dl-btn" data-url="${url}" data-idx="${i}">${isMobile ? "↓ JPG" : "↓ WebP"}</button>
           ${videoBtn}
         </div>
@@ -273,7 +273,7 @@ async function doParse() {
     const useAbogus = abogusToggle.checked;
     const abogusParam = useAbogus ? "&abogus=1" : "";
     const resp = await fetch(
-      `parse?url=${encodeURIComponent(url)}${abogusParam}`,
+      `api/parse?url=${encodeURIComponent(url)}${abogusParam}`,
     );
     const info = await resp.json();
     if (!resp.ok) {
@@ -303,7 +303,7 @@ async function doParse() {
 
 // 通过代理拉取图片，canvas 转 JPEG，返回 Blob
 async function fetchAndConvertToJpeg(cdnUrl) {
-  const proxyUrl = `download?url=${encodeURIComponent(cdnUrl)}&name=img`;
+  const proxyUrl = `api/download?url=${encodeURIComponent(cdnUrl)}&name=img`;
   const resp = await fetch(proxyUrl);
   if (!resp.ok) throw new Error(`代理请求失败 ${resp.status}`);
   const blob = await resp.blob();
@@ -345,7 +345,7 @@ async function downloadAllAsZip(urls, names, zipFilename) {
     zipBtn.textContent = "打包中…";
   }
   try {
-    const resp = await fetch("zip", {
+    const resp = await fetch("api/zip", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ urls, names, filename: zipFilename }),

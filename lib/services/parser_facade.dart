@@ -95,7 +95,7 @@ class ParserFacade {
       AppLogger.debug('检测到抖音图文，尝试获取动图视频...');
       
       final encodedUrl = Uri.encodeComponent(url);
-      final apiUrl = '$kBackendBaseUrl/parse?url=$encodedUrl';
+      final apiUrl = '$kBackendBaseUrl/api/parse?url=$encodedUrl';
       
       AppLogger.debug('请求服务端: $apiUrl');
       
