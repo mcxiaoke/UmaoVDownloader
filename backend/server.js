@@ -375,7 +375,7 @@ app.delete("/api/cookies", async (req, res) => {
 });
 
 // ── 服务启动 ──────────────────────────────────────────────────────────────────────
-app.listen(PORT, "0.0.0.0", () => {
+const server = app.listen(PORT, "0.0.0.0", () => {
   console.log(`umao-vd backend listening on http://0.0.0.0:${PORT}`);
   console.log("API端点:");
   console.log("  GET  /parse?url=<链接>                    # 解析视频/图文");
@@ -389,4 +389,28 @@ app.listen(PORT, "0.0.0.0", () => {
     console.log("\n[DEBUG 模式已开启] 详细日志已启用");
     console.log("  使用 DEBUG=1 或 --debug 开启调试日志\n");
   }
+});
+
+// 服务错误处理
+server.on("error", (err) => {
+  if (err.code === "EADDRINUSE") {
+    console.error(`✗ 端口 ${PORT} 已被占用，请先关闭占用进程或更换端口`);
+    console.error(`  查看占用进程: netstat -ano | findstr ${PORT}`);
+  } else if (err.code === "EACCES") {
+    console.error(`✗ 端口 ${PORT} 需要管理员权限`);
+  } else if (err.code === "EADDRNOTAVAIL") {
+    console.error(`✗ 地址 0.0.0.0 不可用`);
+  } else {
+    console.error(`✗ 服务启动失败: ${err.message}`);
+  }
+  process.exit(1);
+});
+
+// 优雅关闭
+process.on("SIGTERM", () => {
+  console.log("\n正在关闭服务...");
+  server.close(() => {
+    console.log("服务已关闭");
+    process.exit(0);
+  });
 });
