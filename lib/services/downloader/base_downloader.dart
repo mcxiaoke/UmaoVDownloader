@@ -723,7 +723,7 @@ abstract class BaseDownloader implements VideoDownloader {
   }
 
   /// 单独下载背景音乐
-  /// Android 固定保存到 Music/umaovd，其他平台使用指定目录
+  /// PC 端保存到用户设置的目录，Android 保存到 Music/umaovd
   @override
   Future<String?> downloadMusicFile(
     String url, {
@@ -734,8 +734,14 @@ abstract class BaseDownloader implements VideoDownloader {
   }) async {
     await beforeDownload();
 
-    // 使用音乐专用目录
-    final dir = await getMusicDirectory();
+    // PC 端：优先使用传入的目录，否则使用默认目录
+    // Android：使用音乐专用目录（Music/umaovd）
+    String dir;
+    if (directory != null && directory.isNotEmpty) {
+      dir = directory;
+    } else {
+      dir = await getMusicDirectory();
+    }
     final baseName = sanitizeFilename(filename);
     final basePath = '$dir${Platform.pathSeparator}$baseName.mp3';
     final String filePath;

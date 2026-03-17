@@ -224,6 +224,7 @@ class DownloadNotifier extends Notifier<DownloadState> {
 
       final path = await downloader.downloadMusicFile(
         info.musicUrl!,
+        directory: _settings.downloadDir,
         filename: filename,
         onLog: (msg) => _log.info('[DL] $msg'),
       );

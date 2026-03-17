@@ -6,37 +6,49 @@ import '../../services/parser_common.dart';
 // 共享小组件
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// 主下载按钮
+/// 主下载按钮（统一样式）
 class DownloadButton extends StatelessWidget {
   final bool downloading;
   final String label;
   final VoidCallback onPressed;
+  final bool expanded;
 
   const DownloadButton({
     super.key,
     required this.downloading,
     required this.label,
     required this.onPressed,
+    this.expanded = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    return FilledButton.icon(
+    final button = OutlinedButton.icon(
       onPressed: downloading ? null : onPressed,
       icon: downloading
           ? const SizedBox(
-              width: 16,
-              height: 16,
+              width: 14,
+              height: 14,
               child: CircularProgressIndicator(
                 strokeWidth: 2,
-                color: Colors.white,
+                color: Colors.blue,
               ),
             )
-          : const Icon(Icons.download, size: 18),
-      label: Text(downloading ? '下载中…' : label),
+          : const Icon(Icons.download, size: 16),
+      label: Text(downloading ? '…' : label),
+      style: _secondaryButtonStyle(Colors.blue),
     );
+    return expanded ? Expanded(child: button) : button;
   }
 }
+
+/// 次要按钮基础样式（音乐、视频、下载按钮共用）
+ButtonStyle _secondaryButtonStyle(Color color) => OutlinedButton.styleFrom(
+  foregroundColor: color,
+  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+  visualDensity: VisualDensity.compact,
+  minimumSize: const Size(0, 40),
+);
 
 /// 音乐下载按钮
 class MusicDownloadButton extends StatelessWidget {
@@ -68,11 +80,7 @@ class MusicDownloadButton extends StatelessWidget {
             )
           : const Icon(Icons.music_note, size: 16),
       label: Text(downloading ? '…' : label),
-      style: OutlinedButton.styleFrom(
-        foregroundColor: Colors.deepPurple,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-        visualDensity: VisualDensity.compact,
-      ),
+      style: _secondaryButtonStyle(Colors.deepPurple),
     );
     return expanded ? Expanded(child: button) : button;
   }
@@ -107,11 +115,8 @@ class LiveVideoDownloadButton extends StatelessWidget {
               ),
             )
           : const Icon(Icons.videocam, size: 16),
-      label: Text(downloading ? '下载中…' : label),
-      style: OutlinedButton.styleFrom(
-        foregroundColor: Colors.orange.shade800,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-      ),
+      label: Text(downloading ? '…' : label),
+      style: _secondaryButtonStyle(Colors.orange.shade800),
     );
     return expanded ? Expanded(child: button) : button;
   }
@@ -186,10 +191,7 @@ Widget buildResolutionInfoLabel({
       children: [
         Icon(Icons.info_outline, size: 12, color: Colors.grey.shade600),
         const SizedBox(width: 4),
-        Text(
-          text,
-          style: TextStyle(fontSize: 11, color: Colors.grey.shade700),
-        ),
+        Text(text, style: TextStyle(fontSize: 11, color: Colors.grey.shade700)),
       ],
     ),
   );
@@ -230,10 +232,7 @@ Widget buildProgressSection({
                   padding: const EdgeInsets.only(top: 2),
                   child: Text(
                     '${(downloadProgress * imageCount).round()}/$imageCount',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: Colors.grey.shade600,
-                    ),
+                    style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
                   ),
                 ),
             ],
@@ -324,7 +323,7 @@ class DownloadActionsWide extends StatelessWidget {
                   label: '下载音乐',
                   onPressed: onDownloadMusic,
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 6),
               ],
               downloadBtn,
             ],
@@ -333,14 +332,24 @@ class DownloadActionsWide extends StatelessWidget {
             children: [
               Text('实况图  $imageCount 张', style: const TextStyle(fontSize: 13)),
               const Spacer(),
+              // 音乐按钮
+              if (videoInfo.musicUrl != null) ...[
+                MusicDownloadButton(
+                  downloading: downloadingMusic,
+                  label: '下载音乐',
+                  onPressed: onDownloadMusic,
+                ),
+                const SizedBox(width: 6),
+              ],
               // 动图视频按钮（仅当有动图时显示）
-              if (liveVideoCount > 0)
+              if (liveVideoCount > 0) ...[
                 LiveVideoDownloadButton(
                   downloading: downloadingLiveVideos,
                   label: '下载视频($liveVideoCount)',
                   onPressed: onDownloadLiveVideos,
                 ),
-              const SizedBox(width: 8),
+                const SizedBox(width: 6),
+              ],
               downloadBtn,
             ],
           ),
@@ -421,6 +430,7 @@ class DownloadActionsNarrow extends StatelessWidget {
       downloading: downloading,
       label: downloadLabel,
       onPressed: onDownload,
+      expanded: true,
     );
 
     return Column(
@@ -444,9 +454,9 @@ class DownloadActionsNarrow extends StatelessWidget {
                       onPressed: onDownloadMusic,
                       expanded: true,
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 6),
                   ],
-                  Expanded(child: downloadBtn),
+                  downloadBtn,
                 ],
               ),
             ],
@@ -454,13 +464,20 @@ class DownloadActionsNarrow extends StatelessWidget {
           MediaType.livePhoto => Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text(
-                '实况图  $imageCount 张',
-                style: const TextStyle(fontSize: 13),
-              ),
+              Text('实况图  $imageCount 张', style: const TextStyle(fontSize: 13)),
               const SizedBox(height: 8),
               Row(
                 children: [
+                  // 音乐按钮
+                  if (videoInfo.musicUrl != null) ...[
+                    MusicDownloadButton(
+                      downloading: downloadingMusic,
+                      label: '音乐',
+                      onPressed: onDownloadMusic,
+                      expanded: true,
+                    ),
+                    const SizedBox(width: 6),
+                  ],
                   // 动图视频按钮
                   if (liveVideoCount > 0) ...[
                     LiveVideoDownloadButton(
@@ -469,10 +486,10 @@ class DownloadActionsNarrow extends StatelessWidget {
                       onPressed: onDownloadLiveVideos,
                       expanded: true,
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 6),
                   ],
                   // 图片按钮
-                  Expanded(child: downloadBtn),
+                  downloadBtn,
                 ],
               ),
             ],
@@ -492,7 +509,7 @@ class DownloadActionsNarrow extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 8),
-              downloadBtn,
+              Row(children: [downloadBtn]),
             ],
           ),
         },
