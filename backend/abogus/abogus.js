@@ -18,6 +18,8 @@ import {
 var requestCounter = 0;
 
 // 固定请求参数（SM3 哈希的 salt 值）
+// 可选值: "dhzx" (移动端/通用) 或 "cus" (PC端)
+// 两者都能工作，"dhzx" 是更常用的值
 const FIX_REQ_PARAMS = "dhzx";
 
 // 初始时间戳
