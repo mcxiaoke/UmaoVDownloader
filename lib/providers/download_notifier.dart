@@ -357,7 +357,7 @@ class DownloadNotifier extends Notifier<DownloadState> {
 
         state = state.copyWithDownloadProgress(p, verboseBucket: bucket);
 
-        if (AppLogger.isVerbose && state.lastVerboseProgressBucket != bucket) {
+        if (state.lastVerboseProgressBucket != bucket) {
           final type = info.mediaType == MediaType.image ? '图文' : '实况图';
           _vlog('$type下载进度 ${(p * 100).toStringAsFixed(0)}% ($received/$total)');
         }
@@ -371,7 +371,7 @@ class DownloadNotifier extends Notifier<DownloadState> {
 
         state = state.copyWithDownloadProgress(p, verboseBucket: bucket);
 
-        if (AppLogger.isVerbose && state.lastVerboseProgressBucket != bucket) {
+        if (state.lastVerboseProgressBucket != bucket) {
           _vlog('视频下载进度 ${(p * 100).toStringAsFixed(0)}% ($received/$t)');
         }
       }
@@ -393,7 +393,7 @@ class DownloadNotifier extends Notifier<DownloadState> {
 
       state = state.copyWithLiveVideoProgress(p, verboseBucket: bucket);
 
-      if (AppLogger.isVerbose && state.lastVerboseProgressBucket != bucket) {
+      if (state.lastVerboseProgressBucket != bucket) {
         _vlog('动图视频下载进度 ${(p * 100).toStringAsFixed(0)}% ($received/$total)');
       }
     }

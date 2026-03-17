@@ -56,8 +56,8 @@ class AppLogger {
   /// 检查是否已初始化
   static bool get isInitialized => _initialized;
 
-  /// 检查是否处于详细模式
-  static bool get isVerbose => _verbose;
+  /// 检查是否处于详细模式（debug build 或用户设置）
+  static bool get isVerbose => _verbose || _isDebugMode;
 
   // ==================== 便捷方法 ====================
 
@@ -84,8 +84,8 @@ class AppLogger {
   // ==================== 核心实现 ====================
 
   static void _log(AppLogLevel level, String message) {
-    // debug 级别在 verbose 模式或 debug build 时输出
-    if (level == AppLogLevel.debug && !_verbose && !_isDebugMode) {
+    // debug 级别只在 verbose 模式下输出
+    if (level == AppLogLevel.debug && !isVerbose) {
       return;
     }
 
@@ -102,12 +102,6 @@ class AppLogger {
     // 2. 如果有 LogService，写入内存和文件
     if (_logService != null) {
       _writeToLogService(level, message);
-    }
-
-    // 3. Debug 模式下也打印到控制台（非生产环境）
-    if (_isDebugMode) {
-      // ignore: avoid_print
-      print(formatted);
     }
   }
 
