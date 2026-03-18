@@ -1,0 +1,17 @@
+{
+  "$schema": "https://schema.tauri.app/config/2.0.0/capabilities",
+  "identifier": "default",
+  "description": "Default capabilities for the main window",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "shell:allow-open",
+    "upload:default",
+    "upload:allow-download",
+    "dialog:default",
+    "dialog:allow-save",
+    "dialog:allow-open",
+    "fs:default",
+    "fs:allow-write-file"
+  ]
+}
