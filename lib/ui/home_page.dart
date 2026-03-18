@@ -2,7 +2,6 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
@@ -12,9 +11,9 @@ import '../services/parser_common.dart';
 import '../services/settings_service.dart';
 import '../utils/platform_utils.dart';
 import 'mixins/permission_mixin.dart';
+import 'pages/log_page.dart';
 import 'widgets/directory_row.dart';
 import 'widgets/input_row.dart';
-import 'widgets/log_panel.dart';
 import 'widgets/result_card.dart';
 import 'widgets/settings_dialog.dart';
 
@@ -285,51 +284,13 @@ class _HomePageState extends ConsumerState<HomePage> with PermissionMixin {
 
   /// 打开日志面板
   Future<void> _openLogPanel() async {
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) {
-        return Container(
-          constraints: BoxConstraints(
-            maxHeight: MediaQuery.of(context).size.height * 0.85,
-          ),
-          decoration: BoxDecoration(
-            color: Theme.of(ctx).scaffoldBackgroundColor,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // 拖拽指示条
-              Container(
-                margin: const EdgeInsets.only(top: 12),
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade400,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              // 日志面板
-              Flexible(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-                  child: LogPanel(
-                    log: _log,
-                    settings: _settings,
-                    scrollController: ScrollController(),
-                    onCopyTap: _copyLogContent,
-                    onClearTap: () => setState(() => _log.entries.clear()),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
+    if (Platform.isWindows) {
+      // Windows: Dialog 形式
+      await LogPage.showAsDialog(context, log: _log);
+    } else {
+      // Android: 新页面
+      await LogPage.pushAsPage(context, log: _log);
+    }
   }
 
   // ── 解析结果卡片 ──────────────────────────────────────────────
@@ -397,27 +358,6 @@ class _HomePageState extends ConsumerState<HomePage> with PermissionMixin {
 
   void _openDirectory(String path) {
     PlatformUtils.openDirectory(path);
-  }
-
-  void _copyLogContent() {
-    if (_log.entries.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('当前没有日志可复制'),
-          duration: Duration(seconds: 2),
-        ),
-      );
-      return;
-    }
-
-    final content = _log.entries.map((e) => e.toString()).join('\n');
-    Clipboard.setData(ClipboardData(text: content));
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('已复制日志内容（${_log.entries.length} 条）'),
-        duration: const Duration(seconds: 2),
-      ),
-    );
   }
 
   // ─── 生命周期 ────────────────────────────────────────────────

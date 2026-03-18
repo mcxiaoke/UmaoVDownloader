@@ -13,7 +13,8 @@ library;
 
 import 'dart:developer' as developer;
 
-import 'log_service.dart';
+// 注意：不直接导入 log_service.dart，以避免在 CLI 中引入 Flutter 依赖
+// logService 参数使用 dynamic 类型，运行时传入任何具有 debug/info/warn/error 方法的对象即可
 
 /// 日志级别
 enum AppLogLevel {
@@ -29,7 +30,7 @@ enum AppLogLevel {
 /// - 如果有 LogService，则写入内存列表和文件
 /// - 否则输出到系统日志
 class AppLogger {
-  static LogService? _logService;
+  static dynamic _logService; // 使用 dynamic 避免 Flutter 依赖
   static bool _verbose = false;
   static bool _initialized = false;
 
@@ -37,7 +38,7 @@ class AppLogger {
   /// 
   /// [logService] 可选的日志服务实例（用于 UI 显示和文件写入）
   /// [verbose] 是否启用详细日志模式
-  static void init({LogService? logService, bool verbose = false}) {
+  static void init({dynamic logService, bool verbose = false}) {
     _logService = logService;
     _verbose = verbose;
     _initialized = true;
@@ -49,7 +50,7 @@ class AppLogger {
   }
 
   /// 更新 LogService 实例
-  static void setLogService(LogService? logService) {
+  static void setLogService(dynamic logService) {
     _logService = logService;
   }
 

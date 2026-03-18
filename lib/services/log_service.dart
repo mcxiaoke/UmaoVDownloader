@@ -1,15 +1,8 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+
 import '../constants/app_constants.dart';
-
-/// 无参回调类型（兼容 Flutter VoidCallback）
-typedef VoidCallback = void Function();
-
-/// 可监听接口（兼容 Flutter Listenable）
-abstract class Listenable {
-  void addListener(VoidCallback listener);
-  void removeListener(VoidCallback listener);
-}
 
 /// 日志条目
 class LogEntry {
@@ -33,8 +26,8 @@ class LogEntry {
 enum LogLevel { debug, info, warn, error }
 
 /// 全局日志服务：维护内存列表，同时追加写入日志文件。
-/// 实现 Listenable 接口以支持 Flutter UI 绑定。
-class LogService implements Listenable {
+/// 实现 Flutter Listenable 接口以支持 UI 绑定。
+class LogService extends Listenable {
   static const _maxInMemory = kLogMaxInMemory;
 
   final List<LogEntry> entries = [];

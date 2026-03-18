@@ -5,25 +5,6 @@ import 'package:flutter/material.dart';
 import '../../services/log_service.dart';
 import '../../services/settings_service.dart';
 
-/// 将 LogService 适配为 Flutter ChangeNotifier
-class _LogServiceAdapter extends ChangeNotifier {
-  final LogService _logService;
-  late final void Function() _listener;
-
-  _LogServiceAdapter(this._logService) {
-    _listener = notifyListeners;
-    _logService.addListener(_listener);
-  }
-
-  LogService get log => _logService;
-
-  @override
-  void dispose() {
-    _logService.removeListener(_listener);
-    super.dispose();
-  }
-}
-
 /// 日志面板组件
 class LogPanel extends StatefulWidget {
   final LogService log;
@@ -46,20 +27,6 @@ class LogPanel extends StatefulWidget {
 }
 
 class _LogPanelState extends State<LogPanel> {
-  late final _LogServiceAdapter _logAdapter;
-
-  @override
-  void initState() {
-    super.initState();
-    _logAdapter = _LogServiceAdapter(widget.log);
-  }
-
-  @override
-  void dispose() {
-    _logAdapter.dispose();
-    super.dispose();
-  }
-
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
@@ -149,12 +116,34 @@ class _LogPanelState extends State<LogPanel> {
 
   Widget _buildLogListView() {
     return ListenableBuilder(
-      listenable: _logAdapter,
+      listenable: widget.log,
       builder: (context, _) {
-        final log = _logAdapter.log;
+        final log = widget.log;
+
+        // 空列表时显示占位内容，避免滚动相关 overflow
+        if (log.entries.isEmpty) {
+          return Container(
+            decoration: BoxDecoration(
+              color: const Color(0xFF1E1E1E),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            padding: const EdgeInsets.all(8),
+            child: const Center(
+              child: Text(
+                '暂无日志',
+                style: TextStyle(
+                  color: Color(0xFF78909C),
+                  fontSize: 12,
+                ),
+              ),
+            ),
+          );
+        }
+
         // 自动滚动到底部
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (widget.scrollController.hasClients) {
+          if (widget.scrollController.hasClients &&
+              widget.scrollController.position.maxScrollExtent > 0) {
             widget.scrollController.animateTo(
               widget.scrollController.position.maxScrollExtent,
               duration: const Duration(milliseconds: 150),
