@@ -232,3 +232,125 @@ export function formatCookieString(cookieObj) {
     .map(([key, value]) => `${key}=${value}`)
     .join("; ");
 }
+
+// ── 抖音 Cookie 过期检测 ─────────────────────────────────────────────────
+
+/**
+ * 检测 sid_guard 是否过期
+ * sid_guard 格式: session_id|generate_time|validity_seconds|unknown
+ * 例如: abc123|1700000000|2592000|xyz
+ *
+ * @param {string} sidGuard - sid_guard 值
+ * @returns {{isExpired: boolean, remainingSeconds: number, expiryTime: number|null}}
+ */
+export function checkSidGuardExpiry(sidGuard) {
+  if (!sidGuard || typeof sidGuard !== "string") {
+    return { isExpired: true, remainingSeconds: 0, expiryTime: null };
+  }
+
+  const parts = sidGuard.split("|");
+  if (parts.length < 3) {
+    return { isExpired: true, remainingSeconds: 0, expiryTime: null };
+  }
+
+  const generateTime = parseInt(parts[1], 10);
+  const validitySeconds = parseInt(parts[2], 10);
+
+  if (isNaN(generateTime) || isNaN(validitySeconds)) {
+    return { isExpired: true, remainingSeconds: 0, expiryTime: null };
+  }
+
+  const expiryTime = generateTime + validitySeconds;
+  const now = Math.floor(Date.now() / 1000);
+  const remainingSeconds = expiryTime - now;
+
+  return {
+    isExpired: remainingSeconds <= 0,
+    remainingSeconds: Math.max(0, remainingSeconds),
+    expiryTime,
+    generateTime,
+    validitySeconds,
+  };
+}
+
+/**
+ * 检测抖音 Cookie 是否有效
+ * 检查关键 Cookie 字段的过期状态
+ *
+ * @param {string} cookieStr - Cookie 字符串
+ * @returns {{isValid: boolean, warnings: string[], expiredFields: string[]}}
+ */
+export function checkDouyinCookieExpiry(cookieStr) {
+  const result = {
+    isValid: true,
+    warnings: [],
+    expiredFields: [],
+  };
+
+  if (!cookieStr) {
+    result.isValid = false;
+    result.warnings.push("Cookie 为空");
+    return result;
+  }
+
+  const cookies = parseCookieString(cookieStr);
+
+  // 检查 sid_guard
+  if (cookies.sid_guard) {
+    const sidGuardStatus = checkSidGuardExpiry(cookies.sid_guard);
+    if (sidGuardStatus.isExpired) {
+      result.expiredFields.push("sid_guard");
+      result.warnings.push("sid_guard 已过期");
+      result.isValid = false;
+    } else if (sidGuardStatus.remainingSeconds < 86400) {
+      // 少于 1 天
+      const hours = Math.floor(sidGuardStatus.remainingSeconds / 3600);
+      result.warnings.push(`sid_guard 即将过期（剩余 ${hours} 小时）`);
+    }
+  }
+
+  // 检查 sid_tt (格式类似 sid_guard)
+  if (cookies.sid_tt) {
+    const sidTtStatus = checkSidGuardExpiry(cookies.sid_tt);
+    if (sidTtStatus.isExpired) {
+      result.expiredFields.push("sid_tt");
+      result.warnings.push("sid_tt 已过期");
+    }
+  }
+
+  // 检查其他关键字段
+  const requiredFields = ["sessionid", "sessionid_ss"];
+  for (const field of requiredFields) {
+    if (!cookies[field]) {
+      result.warnings.push(`缺少关键字段: ${field}`);
+    }
+  }
+
+  // 如果有过期字段，标记为无效
+  if (result.expiredFields.length > 0) {
+    result.isValid = false;
+  }
+
+  return result;
+}
+
+/**
+ * 格式化剩余时间为可读字符串
+ * @param {number} seconds - 剩余秒数
+ * @returns {string} 可读字符串
+ */
+export function formatRemainingTime(seconds) {
+  if (seconds <= 0) return "已过期";
+
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+
+  if (days > 0) {
+    return `${days} 天 ${hours} 小时`;
+  } else if (hours > 0) {
+    return `${hours} 小时 ${minutes} 分钟`;
+  } else {
+    return `${minutes} 分钟`;
+  }
+}

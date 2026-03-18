@@ -31,6 +31,7 @@ import { dirname, join } from "path"; // 路径处理工具
 import { fileURLToPath } from "url"; // URL转文件路径
 import { loadCookies, normalizeCookieString, saveCookies } from "./cookies.js"; // Cookie 管理模块
 import { parse } from "./parser.js"; // 视频解析核心模块
+import * as dyApi from "./douyin_api.js"; // 抖音扩展 API
 
 // 获取当前文件所在目录的绝对路径
 const __dir = dirname(fileURLToPath(import.meta.url));
@@ -374,6 +375,347 @@ app.delete("/api/cookies", async (req, res) => {
   }
 });
 
+// ── 抖音扩展 API ──────────────────────────────────────────────────────────────────
+// 功能：提供用户信息、作品列表、评论、关注等扩展功能
+
+// GET /api/dy/user/profile - 获取用户信息
+app.get("/api/dy/user/profile", async (req, res) => {
+  const { sec_user_id, debug } = req.query;
+  try {
+    const data = await dyApi.getUserProfile(sec_user_id, debug === "1");
+    res.json(data);
+  } catch (e) {
+    log(`[DY_API] 用户信息失败: ${e.message}`);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/dy/user/posts - 获取用户作品列表
+app.get("/api/dy/user/posts", async (req, res) => {
+  const { sec_user_id, max_cursor, count, debug } = req.query;
+  try {
+    const data = await dyApi.getUserPosts(
+      sec_user_id,
+      parseInt(max_cursor) || 0,
+      parseInt(count) || 35,
+      debug === "1"
+    );
+    res.json(data);
+  } catch (e) {
+    log(`[DY_API] 作品列表失败: ${e.message}`);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/dy/user/favorites - 获取用户喜欢列表
+app.get("/api/dy/user/favorites", async (req, res) => {
+  const { sec_user_id, max_cursor, count, debug } = req.query;
+  try {
+    const data = await dyApi.getUserFavorites(
+      sec_user_id,
+      parseInt(max_cursor) || 0,
+      parseInt(count) || 18,
+      debug === "1"
+    );
+    res.json(data);
+  } catch (e) {
+    log(`[DY_API] 喜欢列表失败: ${e.message}`);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/dy/comments - 获取视频评论
+app.get("/api/dy/comments", async (req, res) => {
+  const { aweme_id, cursor, count, debug } = req.query;
+  try {
+    const data = await dyApi.getComments(
+      aweme_id,
+      parseInt(cursor) || 0,
+      parseInt(count) || 20,
+      debug === "1"
+    );
+    res.json(data);
+  } catch (e) {
+    log(`[DY_API] 评论列表失败: ${e.message}`);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/dy/comments/replies - 获取评论回复
+app.get("/api/dy/comments/replies", async (req, res) => {
+  const { item_id, comment_id, cursor, count, debug } = req.query;
+  try {
+    const data = await dyApi.getCommentReplies(
+      item_id,
+      comment_id,
+      parseInt(cursor) || 0,
+      parseInt(count) || 10,
+      debug === "1"
+    );
+    res.json(data);
+  } catch (e) {
+    log(`[DY_API] 评论回复失败: ${e.message}`);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/dy/user/following - 获取关注列表
+app.get("/api/dy/user/following", async (req, res) => {
+  const { sec_user_id, offset, count, source_type, debug } = req.query;
+  try {
+    const data = await dyApi.getFollowing(
+      sec_user_id,
+      parseInt(offset) || 0,
+      parseInt(count) || 20,
+      source_type || "4",
+      debug === "1"
+    );
+    res.json(data);
+  } catch (e) {
+    log(`[DY_API] 关注列表失败: ${e.message}`);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/dy/user/followers - 获取粉丝列表
+app.get("/api/dy/user/followers", async (req, res) => {
+  const { sec_user_id, offset, count, debug } = req.query;
+  try {
+    const data = await dyApi.getFollowers(
+      sec_user_id,
+      parseInt(offset) || 0,
+      parseInt(count) || 20,
+      debug === "1"
+    );
+    res.json(data);
+  } catch (e) {
+    log(`[DY_API] 粉丝列表失败: ${e.message}`);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/dy/history - 获取观看历史
+app.get("/api/dy/history", async (req, res) => {
+  const { max_cursor, count, debug } = req.query;
+  try {
+    const data = await dyApi.getHistory(
+      parseInt(max_cursor) || 0,
+      parseInt(count) || 20,
+      debug === "1"
+    );
+    res.json(data);
+  } catch (e) {
+    log(`[DY_API] 观看历史失败: ${e.message}`);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/dy/collection - 获取收藏列表
+app.get("/api/dy/collection", async (req, res) => {
+  const { cursor, count, debug } = req.query;
+  try {
+    const data = await dyApi.getCollectionList(
+      parseInt(cursor) || 0,
+      parseInt(count) || 18,
+      debug === "1"
+    );
+    res.json(data);
+  } catch (e) {
+    log(`[DY_API] 收藏列表失败: ${e.message}`);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/dy/collects/video - 获取收藏夹详情
+app.get("/api/dy/collects/video", async (req, res) => {
+  const { collects_id, cursor, count, debug } = req.query;
+  try {
+    const data = await dyApi.getCollectsVideo(
+      collects_id,
+      parseInt(cursor) || 0,
+      parseInt(count) || 18,
+      debug === "1"
+    );
+    res.json(data);
+  } catch (e) {
+    log(`[DY_API] 收藏夹详情失败: ${e.message}`);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/dy/mix/list - 获取用户合集列表
+app.get("/api/dy/mix/list", async (req, res) => {
+  const { sec_user_id, cursor, count, debug } = req.query;
+  try {
+    const data = await dyApi.getMixList(
+      sec_user_id,
+      parseInt(cursor) || 0,
+      parseInt(count) || 10,
+      debug === "1"
+    );
+    res.json(data);
+  } catch (e) {
+    log(`[DY_API] 合集列表失败: ${e.message}`);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/dy/mix/aweme - 获取合集详情
+app.get("/api/dy/mix/aweme", async (req, res) => {
+  const { mix_id, cursor, count, debug } = req.query;
+  try {
+    const data = await dyApi.getMixAweme(
+      mix_id,
+      parseInt(cursor) || 0,
+      parseInt(count) || 20,
+      debug === "1"
+    );
+    res.json(data);
+  } catch (e) {
+    log(`[DY_API] 合集详情失败: ${e.message}`);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/dy/video/detail - 获取视频详情 (API方式)
+app.get("/api/dy/video/detail", async (req, res) => {
+  const { aweme_id, debug } = req.query;
+  try {
+    const data = await dyApi.getVideoDetail(aweme_id, debug === "1");
+    res.json(data);
+  } catch (e) {
+    log(`[DY_API] 视频详情失败: ${e.message}`);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/dy/video/related - 获取相关推荐
+app.get("/api/dy/video/related", async (req, res) => {
+  const { aweme_id, count, refresh_index, debug } = req.query;
+  try {
+    const data = await dyApi.getRelated(
+      aweme_id,
+      parseInt(count) || 20,
+      parseInt(refresh_index) || 1,
+      debug === "1"
+    );
+    res.json(data);
+  } catch (e) {
+    log(`[DY_API] 相关推荐失败: ${e.message}`);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/dy/feed - 获取首页 Feed
+app.get("/api/dy/feed", async (req, res) => {
+  const { count, refresh_index, debug } = req.query;
+  try {
+    const data = await dyApi.getFeed(
+      parseInt(count) || 20,
+      parseInt(refresh_index) || 1,
+      debug === "1"
+    );
+    res.json(data);
+  } catch (e) {
+    log(`[DY_API] Feed 失败: ${e.message}`);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/dy/search/user - 搜索用户
+app.get("/api/dy/search/user", async (req, res) => {
+  const { keyword, offset, count, debug } = req.query;
+  try {
+    const data = await dyApi.searchUser(
+      keyword,
+      parseInt(offset) || 0,
+      parseInt(count) || 20,
+      debug === "1"
+    );
+    res.json(data);
+  } catch (e) {
+    log(`[DY_API] 搜索用户失败: ${e.message}`);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/dy/search/video - 搜索视频
+app.get("/api/dy/search/video", async (req, res) => {
+  const { keyword, offset, count, debug } = req.query;
+  try {
+    const data = await dyApi.searchVideo(
+      keyword,
+      parseInt(offset) || 0,
+      parseInt(count) || 20,
+      debug === "1"
+    );
+    res.json(data);
+  } catch (e) {
+    log(`[DY_API] 搜索视频失败: ${e.message}`);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/dy/cookie/status - 检查 Cookie 状态（包含过期检测）
+app.get("/api/dy/cookie/status", async (req, res) => {
+  try {
+    const status = await dyApi.checkCookieStatus();
+    res.json(status);
+  } catch (e) {
+    log(`[DY_API] Cookie 状态检查失败: ${e.message}`);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── iesdouyin.com 备选 API (移动端接口) ───────────────────────────────────────
+// 这些接口使用 iesdouyin.com 域名，是 PC 端接口的备选方案
+
+// GET /api/dy/mobile/slides - 获取图集详情 (含动图视频)
+app.get("/api/dy/mobile/slides", async (req, res) => {
+  const { aweme_id, debug } = req.query;
+  try {
+    const data = await dyApi.getSlidesInfo(aweme_id, debug === "1");
+    res.json(data);
+  } catch (e) {
+    log(`[DY_API] 图集详情失败: ${e.message}`);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/dy/mobile/posts - 获取用户作品 (移动端接口)
+app.get("/api/dy/mobile/posts", async (req, res) => {
+  const { sec_user_id, max_cursor, count, debug } = req.query;
+  try {
+    const data = await dyApi.getUserPostsMobile(
+      sec_user_id,
+      parseInt(max_cursor) || 0,
+      parseInt(count) || 15,
+      debug === "1"
+    );
+    res.json(data);
+  } catch (e) {
+    log(`[DY_API] 用户作品(移动端)失败: ${e.message}`);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/dy/mobile/likes - 获取用户喜欢 (移动端接口)
+app.get("/api/dy/mobile/likes", async (req, res) => {
+  const { sec_user_id, max_cursor, count, debug } = req.query;
+  try {
+    const data = await dyApi.getUserLikesMobile(
+      sec_user_id,
+      parseInt(max_cursor) || 0,
+      parseInt(count) || 15,
+      debug === "1"
+    );
+    res.json(data);
+  } catch (e) {
+    log(`[DY_API] 用户喜欢(移动端)失败: ${e.message}`);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── 服务启动 ──────────────────────────────────────────────────────────────────────
 const server = app.listen(PORT, "0.0.0.0", () => {
   console.log(`umao-vd backend listening on http://0.0.0.0:${PORT}`);
@@ -384,6 +726,25 @@ const server = app.listen(PORT, "0.0.0.0", () => {
   console.log("  GET  /api/cookies                        # 获取 Cookie 状态");
   console.log("  POST /api/cookies                        # 设置 Cookie");
   console.log("  DELETE /api/cookies                      # 清除 Cookie");
+  console.log("\n抖音扩展 API:");
+  console.log("  GET  /api/dy/user/profile?sec_user_id=   # 用户信息");
+  console.log("  GET  /api/dy/user/posts?sec_user_id=     # 用户作品");
+  console.log("  GET  /api/dy/user/favorites?sec_user_id= # 用户喜欢");
+  console.log("  GET  /api/dy/comments?aweme_id=          # 视频评论");
+  console.log("  GET  /api/dy/user/following?sec_user_id= # 关注列表");
+  console.log("  GET  /api/dy/user/followers?sec_user_id= # 粉丝列表");
+  console.log("  GET  /api/dy/history                     # 观看历史");
+  console.log("  GET  /api/dy/collection                  # 收藏列表");
+  console.log("  GET  /api/dy/mix/list?sec_user_id=       # 合集列表");
+  console.log("  GET  /api/dy/video/detail?aweme_id=      # 视频详情");
+  console.log("  GET  /api/dy/feed                        # 首页 Feed");
+  console.log("  GET  /api/dy/search/user?keyword=        # 搜索用户");
+  console.log("  GET  /api/dy/search/video?keyword=       # 搜索视频");
+  console.log("  GET  /api/dy/cookie/status               # Cookie状态(含过期检测)");
+  console.log("\niesdouyin 备选 API (移动端接口):");
+  console.log("  GET  /api/dy/mobile/slides?aweme_id=     # 图集详情(含动图)");
+  console.log("  GET  /api/dy/mobile/posts?sec_user_id=   # 用户作品");
+  console.log("  GET  /api/dy/mobile/likes?sec_user_id=   # 用户喜欢");
 
   if (DEBUG) {
     console.log("\n[DEBUG 模式已开启] 详细日志已启用");

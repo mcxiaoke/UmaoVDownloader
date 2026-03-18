@@ -198,3 +198,6 @@ export function getFingerprint() {
 }
 
 export { BDMS };
+
+// 导出 __ac_signature 相关函数
+export { generateAcSignature, generateNonce, generateAcSignatureCookie } from './ac_signature.js';
